@@ -1,0 +1,59 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+.next/
+out/
+build/
+
+# Flutter
+**/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/build/
+mobile/.packages
+mobile/pubspec.lock
+mobile/android/local.properties
+mobile/android/.gradle/
+mobile/android/app/.cxx/
+mobile/ios/Flutter/ephemeral/
+mobile/ios/Flutter/flutter_export_environment.sh
+mobile/ios/Flutter/Generated.xcconfig
+mobile/**/GeneratedPluginRegistrant.*
+*.iml
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Docker volumes
+redis_data/
+
+# Drizzle
+drizzle/*.sql
+!drizzle/schema.ts
+
+# Secrets â€” never commit these
+*.jks
+key.properties
+google-services.json
+firebase-service-account*.json
+
+# CI workflow — add later via GitHub UI or a workflow-scoped token
+.github/workflows/

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "admin",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/.bin/next", "dev", "-p", "3001"],
+      "cwd": "D:\\INSPIRO\\apps\\admin",
+      "port": 3001
+    }
+  ]
+}

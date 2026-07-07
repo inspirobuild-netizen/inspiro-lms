@@ -1,0 +1,16 @@
+{
+  "name": "inspiro",
+  "private": true,
+  "scripts": {
+    "dev:api": "pnpm --filter api dev",
+    "dev:admin": "pnpm --filter admin dev",
+    "build:api": "pnpm --filter api build",
+    "build:admin": "pnpm --filter admin build",
+    "typecheck": "pnpm --filter api typecheck && pnpm --filter admin typecheck",
+    "lint": "pnpm -r lint"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  }
+}

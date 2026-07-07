@@ -1,0 +1,54 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: dev
+    container_name: inspiro-api
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: development
+      AI_SERVICE_URL: http://ai:8000
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/repo/apps/api
+      - /repo/apps/api/node_modules
+    restart: unless-stopped
+
+  ai:
+    build:
+      context: ./apps/ai
+      dockerfile: Dockerfile
+    container_name: inspiro-ai
+    ports:
+      - '8000:8000'
+    env_file:
+      - ./apps/ai/.env
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: inspiro-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Note: PostgreSQL is NOT in Docker — use Neon.tech connection string in .env
+  # Note: Admin dashboard runs separately via `pnpm dev:admin`
+  # Note: Flutter runs via `flutter run` on device/emulator
+
+volumes:
+  redis_data:
