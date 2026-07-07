@@ -19,7 +19,7 @@ import type {
 
 // ── Agora config ──────────────────────────────────────────────────────────────
 const AGORA_APP_ID = process.env['AGORA_APP_ID'] ?? '';
-const AGORA_APP_CERT = process.env['AGORA_APP_CERT'] ?? '';
+const AGORA_APP_CERT = process.env['AGORA_APP_CERTIFICATE'] ?? '';
 const TOKEN_TTL_SECS = 3 * 60 * 60; // 3 hours
 
 if (!AGORA_APP_ID || !AGORA_APP_CERT) {
