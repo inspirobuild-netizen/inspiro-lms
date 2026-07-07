@@ -1,5 +1,7 @@
 import { eq, and, count, inArray, sql } from 'drizzle-orm';
-import { RtcTokenBuilder, RtcRole } from 'agora-token';
+// agora-token is CommonJS — Node 22 ESM can't pull named exports, so default-import.
+import agoraToken from 'agora-token';
+const { RtcTokenBuilder, RtcRole } = agoraToken;
 import { db } from '../../lib/db.js';
 import {
   liveClasses,

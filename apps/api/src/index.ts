@@ -60,7 +60,8 @@ await app.register(import('./modules/rag/rag.routes.js'), { prefix: '/api/v1' })
 
 // ── Cron jobs ─────────────────────────────────────────────────────────────────
 if (process.env['NODE_ENV'] !== 'test') {
-  const cron = await import('node-cron');
+  // node-cron is CommonJS — use the default (module.exports) for reliable ESM interop.
+  const { default: cron } = await import('node-cron');
   const { ingestCurrentAffairs } = await import('./modules/current-affairs/current-affairs.service.js');
   // Daily current-affairs digest at 6 AM IST
   cron.schedule(
