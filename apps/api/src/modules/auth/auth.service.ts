@@ -3,6 +3,7 @@ import { db } from '../../lib/db.js';
 import { redis, OTP_TTL } from '../../lib/redis.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../lib/jwt.js';
 import { sendOtp as dispatchSms } from '../../lib/sms.js';
+import { verifyPassword } from '../../lib/password.js';
 import { users, refreshTokens } from '../../../drizzle/schema.js';
 
 const OTP_RATE_LIMIT_TTL = 60; // 1 resend per minute
@@ -81,6 +82,33 @@ export async function verifyOtpAndIssueTokens(phone: string, otp: string) {
   }
 
   return issueTokenPair(user!);
+}
+
+// ── Email + password login (admin/instructor only — students use OTP) ────────
+export async function loginWithPassword(email: string, password: string) {
+  // One generic error for every failure mode — never reveal which check failed
+  const invalid = () =>
+    Object.assign(new Error('Invalid email or password'), {
+      statusCode: 401,
+      code: 'INVALID_CREDENTIALS',
+    });
+
+  const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+
+  if (!user || !user.passwordHash) throw invalid();
+  if (user.role !== 'admin' && user.role !== 'instructor') throw invalid();
+
+  const ok = await verifyPassword(password, user.passwordHash);
+  if (!ok) throw invalid();
+
+  if (!user.isActive) {
+    throw Object.assign(new Error('Your account has been suspended'), {
+      statusCode: 403,
+      code: 'ACCOUNT_SUSPENDED',
+    });
+  }
+
+  return issueTokenPair(user);
 }
 
 // ── Refresh access token ──────────────────────────────────────────────────────

@@ -63,6 +63,42 @@ describe('POST /api/v1/auth/verify-otp', () => {
   });
 });
 
+describe('POST /api/v1/auth/login', () => {
+  it('rejects invalid email format', async () => {
+    const { status, body } = await inject<{ success: boolean; error: { code: string } }>(
+      app, 'POST', '/api/v1/auth/login',
+      { body: { email: 'not-an-email', password: 'longenough123' } },
+    );
+    expect(status).toBe(400);
+    expect(body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('rejects short password', async () => {
+    const { status, body } = await inject<{ success: boolean; error: { code: string } }>(
+      app, 'POST', '/api/v1/auth/login',
+      { body: { email: 'admin@inspiroiasacademy.in', password: 'short' } },
+    );
+    expect(status).toBe(400);
+    expect(body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('rejects missing body fields', async () => {
+    const { status } = await inject(app, 'POST', '/api/v1/auth/login', { body: {} });
+    expect(status).toBe(400);
+  });
+});
+
+describe('Password hashing', () => {
+  it('hashes and verifies round-trip; rejects wrong password', async () => {
+    const { hashPassword, verifyPassword } = await import('../lib/password.js');
+    const hash = await hashPassword('correct horse battery staple');
+    expect(hash.startsWith('scrypt:')).toBe(true);
+    expect(await verifyPassword('correct horse battery staple', hash)).toBe(true);
+    expect(await verifyPassword('wrong password', hash)).toBe(false);
+    expect(await verifyPassword('anything', 'garbage-stored-value')).toBe(false);
+  });
+});
+
 describe('Auth guard', () => {
   it('returns 401 on protected route without token', async () => {
     const { status, body } = await inject<{ success: boolean; error: { code: string } }>(

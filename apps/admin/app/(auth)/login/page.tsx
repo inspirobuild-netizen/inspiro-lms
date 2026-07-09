@@ -7,58 +7,30 @@ import { authApi, ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
-type Step = 'phone' | 'otp';
-
 export default function LoginPage() {
   const router = useRouter();
   const { setAuth } = useAuthStore();
 
-  const [step, setStep] = useState<Step>('phone');
-  const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resendCountdown, setResendCountdown] = useState(0);
 
-  function startResendTimer(seconds: number) {
-    setResendCountdown(seconds);
-    const id = setInterval(() => {
-      setResendCountdown((prev) => {
-        if (prev <= 1) { clearInterval(id); return 0; }
-        return prev - 1;
-      });
-    }, 1000);
-  }
-
-  async function handleSendOtp(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!/^\d{10}$/.test(phone)) {
-      setError('Enter a valid 10-digit mobile number');
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      setError('Enter a valid email address');
+      return;
+    }
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
     setLoading(true);
     try {
-      const { data } = await authApi.sendOtp(`91${phone}`);
-      startResendTimer(data.resendAfter);
-      setStep('otp');
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to send OTP');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleVerifyOtp(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    if (!/^\d{6}$/.test(otp)) {
-      setError('Enter the 6-digit OTP');
-      return;
-    }
-    setLoading(true);
-    try {
-      const { data } = await authApi.verifyOtp(`91${phone}`, otp);
+      const { data } = await authApi.login(email, password);
       if ((data.user.role as string) === 'student') {
         setError('Access denied. Admin or instructor account required.');
         return;
@@ -66,7 +38,7 @@ export default function LoginPage() {
       setAuth(data.user, data.accessToken);
       router.push('/dashboard');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Invalid OTP');
+      setError(err instanceof ApiError ? err.message : 'Could not sign in — try again');
     } finally {
       setLoading(false);
     }
@@ -81,79 +53,56 @@ export default function LoginPage() {
             <span className="text-white font-bold text-xl">I</span>
           </div>
           <h1 className="font-display font-bold text-2xl text-slate-100">Inspiro Admin</h1>
-          <p className="text-slate-400 text-sm mt-1">Civil Connect LMS</p>
+          <p className="text-slate-400 text-sm mt-1">IAS Academy LMS</p>
         </div>
 
         {/* Card */}
         <div className="rounded-2xl border border-white/8 bg-surface-1 p-8">
-          {step === 'phone' ? (
-            <form onSubmit={(e) => void handleSendOtp(e)} className="space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Mobile number</label>
-                <div className="flex gap-2">
-                  <span className="flex items-center px-3 h-10 rounded-xl bg-surface-2 border border-white/10 text-slate-400 text-sm select-none">
-                    +91
-                  </span>
-                  <Input
-                    type="tel"
-                    inputMode="numeric"
-                    placeholder="98765 43210"
-                    maxLength={10}
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-                    className="flex-1"
-                    autoFocus
-                  />
-                </div>
-              </div>
-              {error && <p className="text-sm text-rose-400">{error}</p>}
-              <Button type="submit" loading={loading} className="w-full">
-                Send OTP
-              </Button>
-            </form>
-          ) : (
-            <form onSubmit={(e) => void handleVerifyOtp(e)} className="space-y-5">
-              <div>
-                <p className="text-sm text-slate-400 mb-4">
-                  OTP sent to <span className="text-slate-200">+91 {phone}</span>
-                </p>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Enter OTP</label>
+          <form onSubmit={(e) => void handleLogin(e)} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">Email</label>
+              <Input
+                type="email"
+                autoComplete="email"
+                placeholder="admin@inspiroiasacademy.in"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">Password</label>
+              <div className="relative">
                 <Input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="6-digit code"
-                  maxLength={6}
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                  autoFocus
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="pr-16"
                 />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowPassword((s) => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 hover:text-slate-300"
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
               </div>
-              {error && <p className="text-sm text-rose-400">{error}</p>}
-              <Button type="submit" loading={loading} className="w-full">
-                Sign in
-              </Button>
-              <div className="text-center">
-                {resendCountdown > 0 ? (
-                  <p className="text-sm text-slate-500">Resend in {resendCountdown}s</p>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => { setOtp(''); void handleSendOtp({ preventDefault: () => {} } as React.FormEvent); }}
-                    className="text-sm text-brand-violet-light hover:underline"
-                  >
-                    Resend OTP
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => { setStep('phone'); setError(null); setOtp(''); }}
-                className="text-sm text-slate-500 hover:text-slate-300 block text-center w-full"
-              >
-                ← Change number
-              </button>
-            </form>
-          )}
+            </div>
+
+            {error && <p className="text-sm text-rose-400">{error}</p>}
+
+            <Button type="submit" loading={loading} className="w-full">
+              Sign in
+            </Button>
+
+            <p className="text-xs text-slate-500 text-center">
+              Admin &amp; instructor access only
+            </p>
+          </form>
         </div>
       </div>
     </div>

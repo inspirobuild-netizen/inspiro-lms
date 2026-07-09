@@ -38,6 +38,8 @@ export const users = pgTable('users', {
   email: varchar('email', { length: 255 }).unique(),
   name: varchar('name', { length: 255 }).notNull(),
   role: userRoleEnum('role').notNull().default('student'),
+  // Email+password login for admin/instructor only (students use OTP)
+  passwordHash: text('password_hash'),
   avatarUrl: text('avatar_url'),
   targetExam: targetExamEnum('target_exam').default('upsc'),
   isActive: boolean('is_active').notNull().default(true),

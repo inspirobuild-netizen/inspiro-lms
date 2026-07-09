@@ -11,6 +11,11 @@ export const verifyOtpSchema = z.object({
   otp: z.string().length(6).regex(/^\d{6}$/, 'OTP must be 6 digits'),
 });
 
+export const loginSchema = z.object({
+  email: z.string().email().max(255).transform((v) => v.trim().toLowerCase()),
+  password: z.string().min(8).max(128),
+});
+
 export const refreshSchema = z.object({
   // refresh token comes from httpOnly cookie, not body
 });

@@ -55,6 +55,11 @@ export function createApiClient(token: string | null) {
 
 // Auth endpoints don't require a token
 export const authApi = {
+  login: (email: string, password: string) =>
+    request<{ accessToken: string; user: AdminUser }>('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
   sendOtp: (phone: string) =>
     request<{ message: string; resendAfter: number }>('/api/v1/auth/send-otp', {
       method: 'POST',

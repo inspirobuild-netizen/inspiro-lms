@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { sendOtpSchema, verifyOtpSchema } from './auth.schema.js';
+import { sendOtpSchema, verifyOtpSchema, loginSchema } from './auth.schema.js';
 import {
   initiateSendOtp,
   verifyOtpAndIssueTokens,
+  loginWithPassword,
   rotateRefreshToken,
   logout,
 } from './auth.service.js';
@@ -72,6 +73,34 @@ export default async function authRoutes(app: FastifyInstance) {
     const tokens = await verifyOtpAndIssueTokens(phone, otp);
 
     // Refresh token → httpOnly cookie; access token → response body
+    reply.setCookie(REFRESH_COOKIE, tokens.refreshToken, COOKIE_OPTS);
+
+    return reply.send({
+      success: true,
+      data: {
+        accessToken: tokens.accessToken,
+        user: tokens.user,
+      },
+    });
+  });
+
+  // ── POST /login (email + password — admin/instructor only) ────────────────
+  app.post('/login', {
+    config: {
+      // Stricter than OTP: passwords are brute-forceable
+      rateLimit: { max: 5, timeWindow: '1m' },
+    },
+  }, async (req, reply) => {
+    const parsed = loginSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: parsed.error.flatten() },
+      });
+    }
+
+    const tokens = await loginWithPassword(parsed.data.email, parsed.data.password);
+
     reply.setCookie(REFRESH_COOKIE, tokens.refreshToken, COOKIE_OPTS);
 
     return reply.send({
