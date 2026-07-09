@@ -1,18 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { createApiClient } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth';
 import { StatCard } from '@/components/shared/stat-card';
-
-type DashboardStats = {
-  totalStudents: number;
-  activeStudents: number;
-  totalBatches: number;
-  activeBatches: number;
-  totalCourses: number;
-  publishedExams: number;
-};
 
 function UsersIcon() {
   return (
@@ -46,45 +38,77 @@ function ExamIcon() {
   );
 }
 
+/** Count query helper — every list endpoint returns meta.total. */
+function useCount(key: string[], path: string, enabled: boolean, api: ReturnType<typeof createApiClient>) {
+  return useQuery({
+    queryKey: key,
+    queryFn: () => api.get<unknown[]>(path),
+    enabled,
+    staleTime: 30_000,
+    retry: 1,
+  });
+}
+
 export default function DashboardPage() {
-  const { accessToken } = useAuthStore();
+  const { accessToken, user } = useAuthStore();
   const api = createApiClient(accessToken);
+  const enabled = !!accessToken;
 
-  const { data: usersData } = useQuery({
-    queryKey: ['admin', 'users', 'count'],
-    queryFn: () => api.get<{ items: unknown[]; total: number }>('/api/v1/admin/users?limit=1'),
-    enabled: !!accessToken,
-  });
+  const students = useCount(['admin', 'users', 'count'], '/api/v1/admin/users?role=student&limit=1', enabled, api);
+  const batches = useCount(['admin', 'batches', 'count'], '/api/v1/batches?limit=1', enabled, api);
+  const exams = useCount(['admin', 'exams', 'count'], '/api/v1/admin/exams?limit=1', enabled, api);
+  const courses = useCount(['admin', 'courses', 'count'], '/api/v1/courses?limit=1', enabled, api);
+  const doubts = useCount(['admin', 'doubts', 'escalated', 'count'], '/api/v1/admin/doubts?status=escalated&limit=1', enabled, api);
 
-  const { data: batchesData } = useQuery({
-    queryKey: ['admin', 'batches', 'count'],
-    queryFn: () => api.get<{ items: unknown[]; total: number }>('/api/v1/batches?limit=1'),
-    enabled: !!accessToken,
-  });
+  const stat = (q: { data?: { meta?: { total: number } }; isLoading: boolean; isError: boolean }) => {
+    if (q.isLoading) return '…';
+    if (q.isError) return '!';
+    return q.data?.meta?.total ?? 0;
+  };
+  const sub = (q: { isError: boolean }, ok: string) => (q.isError ? 'failed to load — retry below' : ok);
 
-  const { data: examsData } = useQuery({
-    queryKey: ['admin', 'exams', 'count'],
-    queryFn: () => api.get<{ items: unknown[]; total: number }>('/api/v1/admin/exams?limit=1'),
-    enabled: !!accessToken,
-  });
-
-  const totalStudents = usersData?.meta?.total ?? 0;
-  const totalBatches = batchesData?.meta?.total ?? 0;
-  const totalExams = examsData?.meta?.total ?? 0;
+  const anyError = [students, batches, exams, courses, doubts].some((q) => q.isError);
+  const refetchAll = () => [students, batches, exams, courses, doubts].forEach((q) => void q.refetch());
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="font-display font-bold text-2xl text-slate-100">Overview</h2>
-        <p className="text-slate-400 text-sm mt-1">Civil Connect LMS — admin summary</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="font-display font-bold text-2xl text-slate-100">
+            Welcome back{user?.name ? `, ${user.name.split(' ')[0]}` : ''}
+          </h2>
+          <p className="text-slate-400 text-sm mt-1">Inspiro IAS Academy — live overview</p>
+        </div>
+        {anyError && (
+          <button
+            onClick={refetchAll}
+            className="text-sm text-rose-300 border border-rose-500/30 bg-rose-500/10 rounded-xl px-4 py-2 hover:bg-rose-500/20 transition-colors"
+          >
+            Some stats failed — retry
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Students" value={totalStudents} accent="violet" icon={<UsersIcon />} />
-        <StatCard label="Total Batches" value={totalBatches} accent="teal" icon={<BatchIcon />} />
-        <StatCard label="Total Exams" value={totalExams} accent="amber" icon={<ExamIcon />} />
-        <StatCard label="Courses" value="—" sub="coming soon" accent="rose" icon={<CourseIcon />} />
+        <StatCard label="Students" value={stat(students)} sub={sub(students, 'registered')} accent="violet" icon={<UsersIcon />} />
+        <StatCard label="Batches" value={stat(batches)} sub={sub(batches, 'total')} accent="teal" icon={<BatchIcon />} />
+        <StatCard label="Exams" value={stat(exams)} sub={sub(exams, 'created')} accent="amber" icon={<ExamIcon />} />
+        <StatCard label="Courses" value={stat(courses)} sub={sub(courses, 'total')} accent="rose" icon={<CourseIcon />} />
       </div>
+
+      {/* Doubts needing attention */}
+      <Link
+        href="/doubts"
+        className="block rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5 hover:bg-amber-500/10 transition-colors"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-display font-semibold text-slate-200">Doubts waiting for a mentor</p>
+            <p className="text-sm text-slate-400 mt-0.5">Escalated questions the AI couldn&apos;t answer confidently</p>
+          </div>
+          <span className="font-display font-bold text-3xl text-amber-300">{stat(doubts)}</span>
+        </div>
+      </Link>
 
       <div className="rounded-2xl border border-white/8 bg-surface-1 p-6">
         <h3 className="font-display font-semibold text-slate-200 mb-4">Quick actions</h3>
@@ -93,15 +117,15 @@ export default function DashboardPage() {
             { label: 'Add student', href: '/students' },
             { label: 'Create batch', href: '/batches' },
             { label: 'New exam', href: '/exams' },
-            { label: 'Upload course', href: '/courses' },
+            { label: 'Generate exam with AI', href: '/exams/generate' },
           ].map((action) => (
-            <a
+            <Link
               key={action.href}
               href={action.href}
               className="flex items-center justify-center rounded-xl bg-surface-2 border border-white/8 hover:bg-surface-high transition-colors px-4 py-3 text-sm font-medium text-slate-300"
             >
               {action.label}
-            </a>
+            </Link>
           ))}
         </div>
       </div>

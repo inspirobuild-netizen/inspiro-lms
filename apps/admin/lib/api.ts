@@ -1,3 +1,5 @@
+import { useAuthStore } from './auth';
+
 const API_BASE = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3000';
 
 export type ApiResponse<T> =
@@ -15,21 +17,60 @@ export class ApiError extends Error {
   }
 }
 
+async function doFetch(path: string, init: RequestInit, token?: string): Promise<Response> {
+  return fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init.headers,
+    },
+    credentials: 'include',
+  });
+}
+
+// ── Single-flight token refresh ────────────────────────────────────────────────
+// The access token lives 15 minutes; the refresh token (httpOnly cookie) 30 days.
+// On any 401 we refresh once and retry — so admins stay signed in for 30 days.
+let refreshPromise: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  refreshPromise ??= (async () => {
+    try {
+      const res = await doFetch('/api/v1/auth/refresh', { method: 'POST' });
+      const json = (await res.json()) as ApiResponse<{ accessToken: string; user: AdminUser }>;
+      if (!res.ok || !json.success) return null;
+      useAuthStore.getState().setAuth(json.data.user, json.data.accessToken);
+      return json.data.accessToken;
+    } catch {
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
+}
+
 async function request<T>(
   path: string,
   init?: RequestInit & { token?: string },
 ): Promise<{ data: T; meta?: { page: number; limit: number; total: number } }> {
   const { token, ...fetchInit } = init ?? {};
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...fetchInit,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...fetchInit.headers,
-    },
-    credentials: 'include',
-  });
+  let res = await doFetch(path, fetchInit, token);
+
+  // Expired/invalid access token → refresh once and retry (skip for auth endpoints)
+  if (res.status === 401 && !path.startsWith('/api/v1/auth/')) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      res = await doFetch(path, fetchInit, newToken);
+    } else {
+      // Refresh failed — session is genuinely over
+      useAuthStore.getState().clearAuth();
+      if (typeof window !== 'undefined') window.location.href = '/login';
+      throw new ApiError('SESSION_EXPIRED', 'Session expired — please sign in again');
+    }
+  }
 
   const json = (await res.json()) as ApiResponse<T>;
 
