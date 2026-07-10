@@ -15,6 +15,7 @@ import {
 } from './exams.schema.js';
 import {
   listAllExams,
+  getExamById,
   createExam,
   updateExam,
   publishExam,
@@ -162,6 +163,17 @@ export default async function examsRoutes(app: FastifyInstance) {
         }
         throw err;
       }
+    },
+  );
+
+  // Get single exam (admin)
+  app.get(
+    '/admin/exams/:id',
+    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const exam = await getExamById(id);
+      return reply.send({ success: true, data: exam });
     },
   );
 

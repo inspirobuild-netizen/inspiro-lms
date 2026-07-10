@@ -1,42 +1,42 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
-import { createApiClient } from '@/lib/api';
+import { createApiClient, ApiError } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth';
 import { DataTable, Pagination, type Column } from '@/components/shared/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Modal, Select, Field, Textarea } from '@/components/ui/modal';
 import { formatDate } from '@/lib/utils';
 
 type Batch = {
   id: string;
   name: string;
+  type: 'online' | 'offline' | 'hybrid';
+  targetExam: 'upsc' | 'kerala_psc' | 'other_psc';
+  status: 'upcoming' | 'active' | 'completed' | 'archived';
+  capacity: number;
+  startDate: string;
+  endDate: string;
   description: string | null;
-  status: 'active' | 'archived';
-  maxCapacity: number | null;
-  startDate: string | null;
-  endDate: string | null;
   createdAt: string;
 };
 
-type CreateBatchForm = {
-  name: string;
-  description: string;
-  maxCapacity: string;
-  startDate: string;
-  endDate: string;
+const statusBadge: Record<Batch['status'], 'teal' | 'success' | 'slate' | 'amber'> = {
+  upcoming: 'amber',
+  active: 'success',
+  completed: 'teal',
+  archived: 'slate',
 };
 
 export default function BatchesPage() {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
   const qc = useQueryClient();
-
   const [page, setPage] = useState(1);
-  const [showCreate, setShowCreate] = useState(false);
   const limit = 20;
 
   const { data, isLoading } = useQuery({
@@ -45,26 +45,9 @@ export default function BatchesPage() {
     enabled: !!accessToken,
   });
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<CreateBatchForm>();
-
-  const createBatch = useMutation({
-    mutationFn: (values: CreateBatchForm) =>
-      api.post('/api/v1/admin/batches', {
-        name: values.name,
-        description: values.description || undefined,
-        maxCapacity: values.maxCapacity ? Number(values.maxCapacity) : undefined,
-        startDate: values.startDate || undefined,
-        endDate: values.endDate || undefined,
-      }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['admin', 'batches'] });
-      reset();
-      setShowCreate(false);
-    },
-  });
-
-  const archiveBatch = useMutation({
-    mutationFn: (id: string) => api.patch(`/api/v1/admin/batches/${id}`, { status: 'archived' }),
+  const setStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      api.patch(`/api/v1/admin/batches/${id}`, { status }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'batches'] }),
   });
 
@@ -75,51 +58,45 @@ export default function BatchesPage() {
       render: (b) => (
         <div>
           <p className="font-medium text-slate-200">{b.name}</p>
-          {b.description && <p className="text-xs text-slate-500 mt-0.5 truncate max-w-xs">{b.description}</p>}
+          <p className="text-xs text-slate-500 mt-0.5 uppercase">{b.targetExam.replace('_', ' ')} · {b.type}</p>
         </div>
       ),
     },
     {
       key: 'status',
       header: 'Status',
-      width: 'w-24',
-      render: (b) => (
-        <Badge variant={b.status === 'active' ? 'teal' : 'slate'} className="capitalize">
-          {b.status}
-        </Badge>
-      ),
+      width: 'w-28',
+      render: (b) => <Badge variant={statusBadge[b.status]} className="capitalize">{b.status}</Badge>,
     },
     {
-      key: 'capacity',
-      header: 'Capacity',
-      width: 'w-24',
-      render: (b) => <span className="text-slate-400">{b.maxCapacity ?? '∞'}</span>,
-    },
-    {
-      key: 'dates',
+      key: 'window',
       header: 'Duration',
-      width: 'w-48',
+      width: 'w-44',
       render: (b) => (
-        <span className="text-slate-400 text-xs">
-          {b.startDate ? formatDate(b.startDate) : '—'} → {b.endDate ? formatDate(b.endDate) : 'ongoing'}
-        </span>
+        <span className="text-slate-400 text-xs">{formatDate(b.startDate)} – {formatDate(b.endDate)}</span>
       ),
     },
     {
       key: 'actions',
       header: '',
-      width: 'w-24',
-      render: (b) =>
-        b.status === 'active' ? (
-          <Button
-            variant="outline"
-            size="sm"
-            loading={archiveBatch.isPending && archiveBatch.variables === b.id}
-            onClick={() => archiveBatch.mutate(b.id)}
-          >
-            Archive
-          </Button>
-        ) : null,
+      width: 'w-64',
+      render: (b) => (
+        <div className="flex gap-2 justify-end">
+          <Link href={`/batches/${b.id}`}>
+            <Button variant="outline" size="sm">Manage</Button>
+          </Link>
+          {b.status === 'upcoming' && (
+            <Button variant="ghost" size="sm" onClick={() => setStatus.mutate({ id: b.id, status: 'active' })}>
+              Activate
+            </Button>
+          )}
+          {b.status === 'active' && (
+            <Button variant="ghost" size="sm" onClick={() => setStatus.mutate({ id: b.id, status: 'archived' })}>
+              Archive
+            </Button>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -128,71 +105,105 @@ export default function BatchesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-display font-bold text-2xl text-slate-100">Batches</h2>
-          <p className="text-slate-400 text-sm mt-1">
-            {data?.meta?.total ?? 0} batches
-          </p>
+          <p className="text-slate-400 text-sm mt-1">{data?.meta?.total ?? 0} batches</p>
         </div>
-        <Button onClick={() => setShowCreate((v) => !v)}>
-          {showCreate ? 'Cancel' : '+ New batch'}
-        </Button>
+        <NewBatchButton onCreated={() => void qc.invalidateQueries({ queryKey: ['admin', 'batches'] })} />
       </div>
-
-      {/* Create form */}
-      {showCreate && (
-        <form
-          onSubmit={(e) => { void handleSubmit((v) => createBatch.mutate(v))(e); }}
-          className="rounded-2xl border border-white/8 bg-surface-1 p-6 space-y-4"
-        >
-          <h3 className="font-display font-semibold text-slate-200">Create batch</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Name *</label>
-              <Input {...register('name', { required: true })} placeholder="e.g. UPSC 2025 Batch A" />
-              {errors.name && <p className="text-xs text-rose-400 mt-1">Required</p>}
-            </div>
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Max capacity</label>
-              <Input type="number" {...register('maxCapacity')} placeholder="Leave blank for unlimited" />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs text-slate-400 mb-1">Description</label>
-              <Input {...register('description')} placeholder="Optional description" />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Start date</label>
-              <Input type="date" {...register('startDate')} />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">End date</label>
-              <Input type="date" {...register('endDate')} />
-            </div>
-          </div>
-          {createBatch.error && (
-            <p className="text-sm text-rose-400">{(createBatch.error as Error).message}</p>
-          )}
-          <div className="flex gap-3">
-            <Button type="submit" loading={createBatch.isPending}>Create</Button>
-            <Button type="button" variant="outline" onClick={() => { setShowCreate(false); reset(); }}>
-              Cancel
-            </Button>
-          </div>
-        </form>
-      )}
 
       <DataTable
         columns={columns}
         data={data?.data ?? []}
         loading={isLoading}
         getKey={(b) => b.id}
-        emptyMessage="No batches found"
+        emptyMessage="No batches yet — create your first one"
       />
 
-      <Pagination
-        page={page}
-        limit={limit}
-        total={data?.meta?.total ?? 0}
-        onPage={setPage}
-      />
+      <Pagination page={page} limit={limit} total={data?.meta?.total ?? 0} onPage={setPage} />
     </div>
+  );
+}
+
+function NewBatchButton({ onCreated }: { onCreated: () => void }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+
+  const currentYear = new Date().getFullYear();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [type, setType] = useState('hybrid');
+  const [targetExam, setTargetExam] = useState('kerala_psc');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [capacity, setCapacity] = useState('100');
+  const [description, setDescription] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const create = useMutation({
+    mutationFn: () =>
+      api.post('/api/v1/admin/batches', {
+        name: name.trim(),
+        type,
+        targetExam,
+        startDate,
+        endDate,
+        capacity: Number(capacity) || 100,
+        ...(description.trim() ? { description: description.trim() } : {}),
+      }),
+    onSuccess: () => {
+      setOpen(false);
+      setName(''); setDescription(''); setError(null);
+      onCreated();
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to create batch'),
+  });
+
+  const valid = name.trim().length >= 2 && !!startDate && !!endDate;
+
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>+ New batch</Button>
+      <Modal open={open} onClose={() => setOpen(false)} title="Create batch" description="A batch groups students, courses, exams and live classes">
+        <div className="space-y-4">
+          <Field label="Name">
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`Kerala PSC ${currentYear + 1} — Batch A`} autoFocus />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Mode">
+              <Select value={type} onChange={(e) => setType(e.target.value)}>
+                <option value="hybrid">Hybrid</option>
+                <option value="online">Online</option>
+                <option value="offline">Offline</option>
+              </Select>
+            </Field>
+            <Field label="Target exam">
+              <Select value={targetExam} onChange={(e) => setTargetExam(e.target.value)}>
+                <option value="kerala_psc">Kerala PSC</option>
+                <option value="upsc">UPSC</option>
+                <option value="other_psc">Other PSC</option>
+              </Select>
+            </Field>
+            <Field label="Start date">
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </Field>
+            <Field label="End date">
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </Field>
+          </div>
+          <Field label="Capacity">
+            <Input value={capacity} inputMode="numeric" onChange={(e) => setCapacity(e.target.value.replace(/\D/g, ''))} />
+          </Field>
+          <Field label="Description (optional)">
+            <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+          </Field>
+          {error && <p className="text-sm text-rose-400">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button loading={create.isPending} disabled={!valid} onClick={() => create.mutate()}>
+              Create
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
   );
 }

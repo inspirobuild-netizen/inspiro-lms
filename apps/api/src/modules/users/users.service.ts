@@ -1,11 +1,11 @@
 import { eq, ilike, and, count, sql } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { users, batchEnrollments, batches, streaks } from '../../../drizzle/schema.js';
-import type { UpdateProfileInput, ListUsersInput } from './users.schema.js';
+import type { UpdateProfileInput, CreateUserInput, ListUsersInput } from './users.schema.js';
 
 // Public user shape — never expose internal fields
 function sanitizeUser(user: typeof users.$inferSelect) {
-  const { ...safe } = user;
+  const { passwordHash: _passwordHash, ...safe } = user;
   return safe;
 }
 
@@ -39,6 +39,29 @@ export async function updateMyProfile(userId: string, data: UpdateProfileInput) 
 
   if (!updated) throw notFound('User');
   return sanitizeUser(updated);
+}
+
+// ── Admin: create user ────────────────────────────────────────────────────────
+export async function createUser(data: CreateUserInput) {
+  const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.phone, data.phone)).limit(1);
+  if (existing) {
+    throw Object.assign(new Error('A user with this phone number already exists'), {
+      statusCode: 409,
+      code: 'PHONE_EXISTS',
+    });
+  }
+  if (data.email) {
+    const [byEmail] = await db.select({ id: users.id }).from(users).where(eq(users.email, data.email)).limit(1);
+    if (byEmail) {
+      throw Object.assign(new Error('A user with this email already exists'), {
+        statusCode: 409,
+        code: 'EMAIL_EXISTS',
+      });
+    }
+  }
+
+  const [created] = await db.insert(users).values(data).returning();
+  return sanitizeUser(created!);
 }
 
 // ── Admin: list users ─────────────────────────────────────────────────────────

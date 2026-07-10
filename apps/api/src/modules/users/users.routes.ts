@@ -3,6 +3,7 @@ import { authenticate } from '../../middleware/authenticate.js';
 import { requireRole } from '../../middleware/require-role.js';
 import {
   updateProfileSchema,
+  createUserSchema,
   listUsersSchema,
   updateUserRoleSchema,
   updateUserStatusSchema,
@@ -10,6 +11,7 @@ import {
 import {
   getMyProfile,
   updateMyProfile,
+  createUser,
   listUsers,
   getUserById,
   updateUserRole,
@@ -34,6 +36,23 @@ export default async function usersRoutes(app: FastifyInstance) {
     const updated = await updateMyProfile(req.user.sub, parsed.data);
     return reply.send({ success: true, data: updated });
   });
+
+  // ── Admin: create user ────────────────────────────────────────────────────
+  app.post(
+    '/admin/users',
+    { preHandler: [authenticate, requireRole(['admin'])] },
+    async (req, reply) => {
+      const parsed = createUserSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Invalid user data', details: parsed.error.flatten() },
+        });
+      }
+      const user = await createUser(parsed.data);
+      return reply.status(201).send({ success: true, data: user });
+    },
+  );
 
   // ── Admin: list users ─────────────────────────────────────────────────────
   app.get(

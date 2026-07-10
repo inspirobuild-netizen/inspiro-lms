@@ -67,6 +67,12 @@ function assertScheduleWindow(exam: typeof exams.$inferSelect): void {
 // ADMIN
 // ═════════════════════════════════════════════════════════════════════════════
 
+export async function getExamById(examId: string) {
+  const [exam] = await db.select().from(exams).where(eq(exams.id, examId)).limit(1);
+  if (!exam) throw err('Exam not found', 404, 'EXAM_NOT_FOUND');
+  return exam;
+}
+
 export async function listAllExams(input: ListExamsInput) {
   const { page, limit, subject, type } = input;
   const offset = (page - 1) * limit;
