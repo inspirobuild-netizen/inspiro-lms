@@ -23,7 +23,11 @@ type BatchDetail = {
   courses: { id: string; title: string; subject: string }[];
 };
 
-type Student = { id: string; name: string; phone: string };
+// API returns enrolled students nested: { enrollment, user }
+type EnrolledRow = {
+  enrollment: { userId: string; enrolledAt: string };
+  user: { id: string; name: string; phone: string };
+};
 type CourseRow = { id: string; title: string; subject: string; isPublished: boolean };
 type UserRow = { id: string; name: string; phone: string; role: string };
 
@@ -43,7 +47,7 @@ export default function BatchDetailPage() {
   const studentsKey = ['admin', 'batch', id, 'students'];
   const { data: studentsData } = useQuery({
     queryKey: studentsKey,
-    queryFn: () => api.get<Student[]>(`/api/v1/admin/batches/${id}/students?limit=100`),
+    queryFn: () => api.get<EnrolledRow[]>(`/api/v1/admin/batches/${id}/students?limit=100`),
     enabled: !!accessToken,
   });
 
@@ -102,14 +106,14 @@ export default function BatchDetailPage() {
         ) : (
           <div className="rounded-2xl border border-white/8 bg-surface-1 divide-y divide-white/5">
             {students.map((s) => (
-              <div key={s.id} className="flex items-center justify-between px-5 py-3">
+              <div key={s.user.id} className="flex items-center justify-between px-5 py-3">
                 <div>
-                  <p className="text-sm text-slate-200">{s.name}</p>
-                  <p className="text-xs text-slate-500">{formatPhone(s.phone)}</p>
+                  <p className="text-sm text-slate-200">{s.user.name}</p>
+                  <p className="text-xs text-slate-500">{formatPhone(s.user.phone)}</p>
                 </div>
                 <button
                   className="text-xs text-rose-400/70 hover:text-rose-400"
-                  onClick={() => { if (confirm(`Remove ${s.name} from this batch?`)) unenroll.mutate(s.id); }}
+                  onClick={() => { if (confirm(`Remove ${s.user.name} from this batch?`)) unenroll.mutate(s.user.id); }}
                 >
                   Unenroll
                 </button>

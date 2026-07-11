@@ -11,6 +11,7 @@ export function formatDate(date: string | Date): string {
   );
 }
 
-export function formatPhone(phone: string): string {
+export function formatPhone(phone: string | null | undefined): string {
+  if (!phone) return '—';
   return phone.replace(/(\d{2})(\d{5})(\d{5})/, '+$1 $2 $3');
 }
