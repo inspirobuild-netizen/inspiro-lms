@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -187,20 +187,22 @@ function ModuleCard({
       {expanded && (
         <div className="border-t border-white/5 p-5 space-y-3">
           {(lessons?.data ?? []).map((l, li) => (
-            <div key={l.id} className="flex items-center justify-between rounded-xl bg-surface-2 border border-white/5 px-4 py-3">
-              <div className="min-w-0">
-                <p className="text-sm text-slate-200 truncate">{li + 1}. {l.title}</p>
-                <p className="text-xs text-slate-500 mt-0.5 capitalize">
-                  {l.type}{l.duration ? ` · ${Math.round(l.duration / 60)} min` : ''}
-                  {l.type === 'video' && (l.bunnyVideoId ? ' · video linked' : ' · no video linked yet')}
-                </p>
+            <div key={l.id} className="rounded-xl bg-surface-2 border border-white/5 px-4 py-3">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-200 truncate">{li + 1}. {l.title}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 capitalize">
+                    {l.type}{l.duration ? ` · ${Math.round(l.duration / 60)} min` : ''}
+                  </p>
+                </div>
+                <button
+                  className="text-xs text-rose-400/70 hover:text-rose-400 ml-3 shrink-0"
+                  onClick={() => { if (confirm(`Delete lesson "${l.title}"?`)) deleteLesson.mutate(l.id); }}
+                >
+                  Delete
+                </button>
               </div>
-              <button
-                className="text-xs text-rose-400/70 hover:text-rose-400 ml-3 shrink-0"
-                onClick={() => { if (confirm(`Delete lesson "${l.title}"?`)) deleteLesson.mutate(l.id); }}
-              >
-                Delete
-              </button>
+              {l.type === 'video' && <VideoLessonControl lesson={l} onChanged={refresh} />}
             </div>
           ))}
           <AddLessonForm moduleId={mod.id} nextOrder={lessons?.data?.length ?? 0} onAdded={refresh} />
@@ -219,7 +221,6 @@ function AddLessonForm({ moduleId, nextOrder, onAdded }: { moduleId: string; nex
   const [title, setTitle] = useState('');
   const [type, setType] = useState('video');
   const [minutes, setMinutes] = useState('');
-  const [bunnyVideoId, setBunnyVideoId] = useState('');
   const [fileUrl, setFileUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -230,12 +231,11 @@ function AddLessonForm({ moduleId, nextOrder, onAdded }: { moduleId: string; nex
         type,
         order: nextOrder,
         ...(minutes && Number(minutes) > 0 ? { duration: Number(minutes) * 60 } : {}),
-        ...(type === 'video' && bunnyVideoId.trim() ? { bunnyVideoId: bunnyVideoId.trim() } : {}),
         ...(type === 'pdf' && fileUrl.trim() ? { fileUrl: fileUrl.trim() } : {}),
       }),
     onSuccess: () => {
       setOpen(false);
-      setTitle(''); setMinutes(''); setBunnyVideoId(''); setFileUrl(''); setError(null);
+      setTitle(''); setMinutes(''); setFileUrl(''); setError(null);
       onAdded();
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to add lesson'),
@@ -263,9 +263,9 @@ function AddLessonForm({ moduleId, nextOrder, onAdded }: { moduleId: string; nex
             </Field>
           </div>
           {type === 'video' && (
-            <Field label="Bunny video ID (paste after uploading in Bunny Stream — can be added later)">
-              <Input value={bunnyVideoId} onChange={(e) => setBunnyVideoId(e.target.value)} placeholder="e.g. 1c8a2f56-…" />
-            </Field>
+            <p className="text-xs text-slate-500 -mt-1">
+              You&apos;ll upload the video file right after creating this lesson.
+            </p>
           )}
           {type === 'pdf' && (
             <Field label="File URL">
@@ -282,5 +282,188 @@ function AddLessonForm({ moduleId, nextOrder, onAdded }: { moduleId: string; nex
         </div>
       </Modal>
     </>
+  );
+}
+
+// ── Video upload control ────────────────────────────────────────────────────────
+// Uploads directly from the browser to Bunny Stream (server is never in the
+// upload path — it only issues a one-time upload URL). Phase machine:
+//   idle → requesting (server creates the Bunny video slot)
+//        → uploading (raw PUT with progress)
+//        → processing (Bunny is transcoding — poll for status)
+//        → ready | failed
+type UploadPhase = 'idle' | 'requesting' | 'uploading' | 'processing' | 'ready' | 'failed';
+
+function VideoLessonControl({ lesson, onChanged }: { lesson: Lesson; onChanged: () => void }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [phase, setPhase] = useState<UploadPhase>('idle');
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  function pollStatus(videoGuid: string) {
+    let attempts = 0;
+    pollRef.current = setInterval(() => {
+      attempts += 1;
+      api
+        .get<{ statusText: string }>(`/api/v1/admin/media/video/${videoGuid}/status`)
+        .then((res) => {
+          if (res.data.statusText === 'ready') {
+            setPhase('ready');
+            if (pollRef.current) clearInterval(pollRef.current);
+            onChanged();
+          } else if (res.data.statusText === 'failed') {
+            setPhase('failed');
+            setError('Bunny could not process this video — try a different file.');
+            if (pollRef.current) clearInterval(pollRef.current);
+          } else if (attempts >= 30 && pollRef.current) {
+            // ~2 minutes of polling — long video, stop and let admin check back later
+            clearInterval(pollRef.current);
+          }
+        })
+        .catch(() => {
+          /* transient network hiccup — keep polling */
+        });
+    }, 4000);
+  }
+
+  async function startUpload(file: File) {
+    setError(null);
+    setProgress(0);
+    setPhase('requesting');
+    try {
+      const created = await api.post<{
+        videoGuid: string;
+        uploadUrl: string;
+        uploadHeaders: Record<string, string>;
+      }>('/api/v1/admin/media/create-video', { lessonId: lesson.id, title: lesson.title });
+      const { videoGuid, uploadUrl, uploadHeaders } = created.data;
+
+      setPhase('uploading');
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', uploadUrl, true);
+        for (const [k, v] of Object.entries(uploadHeaders)) xhr.setRequestHeader(k, v);
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.onload = () =>
+          xhr.status >= 200 && xhr.status < 300
+            ? resolve()
+            : reject(new Error(`Bunny rejected the upload (HTTP ${xhr.status})`));
+        xhr.onerror = () => reject(new Error('Network error during upload — check your connection and try again'));
+        xhr.send(file);
+      });
+
+      setPhase('processing');
+      onChanged(); // the lesson now has a bunnyVideoId — refresh the list
+      pollStatus(videoGuid);
+    } catch (e) {
+      setPhase('failed');
+      setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Upload failed');
+    }
+  }
+
+  const remove = useMutation({
+    mutationFn: () => api.delete(`/api/v1/admin/media/video/${lesson.bunnyVideoId}`),
+    onSuccess: () => { setPhase('idle'); setError(null); onChanged(); },
+  });
+
+  const checkStatus = useMutation({
+    mutationFn: () => api.get<{ statusText: string }>(`/api/v1/admin/media/video/${lesson.bunnyVideoId}/status`),
+    onSuccess: (res) => {
+      if (res.data.statusText === 'ready') setPhase('ready');
+      else if (res.data.statusText === 'failed') setPhase('failed');
+      else setPhase('processing');
+    },
+  });
+
+  // Already has a linked video and we haven't touched it this session
+  if (lesson.bunnyVideoId && phase === 'idle') {
+    return (
+      <div className="flex items-center gap-3 mt-2">
+        <Badge variant="teal">Video linked</Badge>
+        <button
+          className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
+          onClick={() => checkStatus.mutate()}
+          disabled={checkStatus.isPending}
+        >
+          {checkStatus.isPending ? 'Checking…' : 'Check status'}
+        </button>
+        <button
+          className="text-xs text-rose-400/70 hover:text-rose-400"
+          onClick={() => { if (confirm('Remove this video? You will need to upload a replacement.')) remove.mutate(); }}
+        >
+          Remove
+        </button>
+      </div>
+    );
+  }
+
+  if (phase === 'requesting' || phase === 'uploading') {
+    return (
+      <div className="mt-2 max-w-xs space-y-1">
+        <div className="h-1.5 rounded-full bg-surface-1 overflow-hidden">
+          <div
+            className="h-full bg-brand-violet transition-all duration-200"
+            style={{ width: `${phase === 'uploading' ? Math.max(progress, 3) : 5}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500">
+          {phase === 'requesting' ? 'Preparing upload…' : `Uploading… ${progress}%`}
+        </p>
+      </div>
+    );
+  }
+
+  if (phase === 'processing') {
+    return (
+      <p className="text-xs text-amber-400 mt-2">
+        Uploaded — Bunny is processing the video. This can take a few minutes for longer recordings; refresh later if it&apos;s still going.
+      </p>
+    );
+  }
+
+  if (phase === 'ready') {
+    return (
+      <div className="flex items-center gap-3 mt-2">
+        <Badge variant="success">Ready to stream</Badge>
+        <button
+          className="text-xs text-rose-400/70 hover:text-rose-400"
+          onClick={() => { if (confirm('Remove this video?')) remove.mutate(); }}
+        >
+          Remove
+        </button>
+      </div>
+    );
+  }
+
+  // idle with no video yet, or a failed attempt — show the upload trigger
+  return (
+    <div className="mt-2">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/mp4,video/webm,video/quicktime,video/x-msvideo"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void startUpload(file);
+          e.target.value = '';
+        }}
+      />
+      <button
+        className="text-xs text-teal-300 hover:text-teal-200 font-medium"
+        onClick={() => fileInputRef.current?.click()}
+      >
+        {phase === 'failed' ? '⟲ Upload failed — try again' : '+ Upload video'}
+      </button>
+      {error && <p className="text-xs text-rose-400 mt-1">{error}</p>}
+    </div>
   );
 }
