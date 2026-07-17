@@ -6,6 +6,7 @@ import '../../core/theme/brand.dart';
 import '../../core/widgets/app_ui.dart';
 import '../courses/models/course.dart';
 import '../courses/providers/courses_provider.dart';
+import 'providers/home_stats_provider.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -103,48 +104,65 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _StreakCard extends StatelessWidget {
+class _StreakCard extends ConsumerWidget {
   const _StreakCard();
 
   @override
-  Widget build(BuildContext context) {
-    return GlassCard(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final statsAsync = ref.watch(homeStatsProvider);
+    return statsAsync.when(
+      loading: () => const GlassCard(
+        padding: EdgeInsets.all(20),
+        child: SizedBox(height: 78, child: Center(child: CircularProgressIndicator(color: Brand.amber))),
+      ),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (stats) {
+        final streak = stats.currentStreak;
+        final milestone = ((streak ~/ 5) + 1) * 5;
+        final daysLeft = milestone - streak;
+        final subtitle = streak == 0
+            ? 'Start studying today to begin your streak!'
+            : 'Keep it going! $daysLeft more day${daysLeft == 1 ? '' : 's'} to your next milestone.';
+
+        return GlassCard(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.local_fire_department, color: Brand.amber, size: 30),
-              const SizedBox(width: 6),
-              const Text('14',
-                  style: TextStyle(color: Brand.amber, fontSize: 30, fontWeight: FontWeight.bold)),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Brand.blue.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.star, color: Brand.blue, size: 14),
-                    SizedBox(width: 4),
-                    Text('+20 XP', style: TextStyle(color: Brand.blue, fontSize: 12, fontWeight: FontWeight.bold)),
-                  ],
-                ),
+              Row(
+                children: [
+                  const Icon(Icons.local_fire_department, color: Brand.amber, size: 30),
+                  const SizedBox(width: 6),
+                  Text('$streak',
+                      style: const TextStyle(color: Brand.amber, fontSize: 30, fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Brand.blue.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.star, color: Brand.blue, size: 14),
+                        const SizedBox(width: 4),
+                        Text('${formatXp(stats.totalXp)} XP',
+                            style: const TextStyle(color: Brand.blue, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 12),
+              const Text('Daily Streak',
+                  style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 13)),
             ],
           ),
-          const SizedBox(height: 12),
-          const Text('Daily Streak',
-              style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          const Text('Keep it going! 3 more days to your next milestone.',
-              style: TextStyle(color: Colors.white54, fontSize: 13)),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -326,11 +344,14 @@ class _CourseCard extends StatelessWidget {
   }
 }
 
-class _RankCard extends StatelessWidget {
+class _RankCard extends ConsumerWidget {
   const _RankCard();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final statsAsync = ref.watch(homeStatsProvider);
+    final rank = statsAsync.valueOrNull?.rank;
+
     return GlassCard(
       onTap: () => context.push('/leaderboard'),
       child: Row(
@@ -344,31 +365,19 @@ class _RankCard extends StatelessWidget {
             child: const Icon(Icons.emoji_events, color: Brand.amber, size: 26),
           ),
           const SizedBox(width: 14),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Your Rank: #47',
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                SizedBox(height: 2),
-                Text('Batch UPSC-2026-A', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                Text(rank != null ? 'Your Rank: #$rank' : 'Not ranked yet',
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 2),
+                Text(rank != null ? 'All India · All time' : 'Study to earn your first rank',
+                    style: const TextStyle(color: Colors.white38, fontSize: 12)),
               ],
             ),
           ),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.trending_up, color: Brand.teal, size: 16),
-                  SizedBox(width: 4),
-                  Text('Up 12', style: TextStyle(color: Brand.teal, fontSize: 13, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              SizedBox(height: 4),
-              Text('Leaderboard ›', style: TextStyle(color: Brand.blue, fontSize: 12, fontWeight: FontWeight.w600)),
-            ],
-          ),
+          const Text('Leaderboard ›', style: TextStyle(color: Brand.blue, fontSize: 12, fontWeight: FontWeight.w600)),
         ],
       ),
     );

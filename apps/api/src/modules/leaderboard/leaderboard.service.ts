@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, count, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, count, sql, inArray, isNotNull, gte } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { leaderboard, users, batchEnrollments, streaks, examAttempts } from '../../../drizzle/schema.js';
 
@@ -155,7 +155,11 @@ export async function recomputeLeaderboard(batchId: string, period: Period) {
     })
     .from(examAttempts)
     .where(
-      sql`${examAttempts.studentId} = any(${userIds}) and ${examAttempts.submittedAt} is not null${since ? sql` and ${examAttempts.startedAt} >= ${since}` : sql``}`,
+      and(
+        inArray(examAttempts.studentId, userIds),
+        isNotNull(examAttempts.submittedAt),
+        since ? gte(examAttempts.startedAt, since) : undefined,
+      ),
     )
     .groupBy(examAttempts.studentId);
 
@@ -163,7 +167,7 @@ export async function recomputeLeaderboard(batchId: string, period: Period) {
   const streakRows = await db
     .select({ userId: streaks.userId, currentStreak: streaks.currentStreak, totalXp: streaks.totalXp })
     .from(streaks)
-    .where(sql`${streaks.userId} = any(${userIds})`);
+    .where(inArray(streaks.userId, userIds));
 
   const examMap = new Map(examScores.map((r) => [r.studentId, r.avgPct ?? 0]));
   const streakMap = new Map(streakRows.map((r) => [r.userId, r]));

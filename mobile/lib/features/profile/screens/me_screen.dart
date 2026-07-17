@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
+import '../../home/providers/home_stats_provider.dart';
 
 class MeScreen extends ConsumerWidget {
   const MeScreen({super.key});
@@ -61,15 +62,19 @@ class MeScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 16),
-          const Row(
-            children: [
-              Expanded(child: _Stat(value: '12', label: 'Day streak', color: Brand.red)),
-              SizedBox(width: 12),
-              Expanded(child: _Stat(value: '#8', label: 'Rank', color: Brand.amber)),
-              SizedBox(width: 12),
-              Expanded(child: _Stat(value: '2.4k', label: 'XP', color: Brand.teal)),
-            ],
-          ),
+          Builder(builder: (context) {
+            final statsAsync = ref.watch(homeStatsProvider);
+            final stats = statsAsync.valueOrNull;
+            return Row(
+              children: [
+                Expanded(child: _Stat(value: '${stats?.currentStreak ?? '—'}', label: 'Day streak', color: Brand.red)),
+                const SizedBox(width: 12),
+                Expanded(child: _Stat(value: stats?.rank != null ? '#${stats!.rank}' : '—', label: 'Rank', color: Brand.amber)),
+                const SizedBox(width: 12),
+                Expanded(child: _Stat(value: stats != null ? formatXp(stats.totalXp) : '—', label: 'XP', color: Brand.teal)),
+              ],
+            );
+          }),
           const SizedBox(height: 24),
           const SectionHeader(title: 'Account'),
           _MenuGroup(items: [
