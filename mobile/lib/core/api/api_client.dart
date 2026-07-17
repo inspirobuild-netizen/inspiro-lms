@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// Defaults to production; override with --dart-define=API_BASE_URL=http://10.0.2.2:3000
+// when running against a local API from the Android emulator.
 const _kBaseUrl = String.fromEnvironment('API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:3000'); // Android emulator → host
+    defaultValue: 'https://api.inspiroiasacademy.in');
 
 class ApiClient {
   ApiClient._();
