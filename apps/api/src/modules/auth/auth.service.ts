@@ -84,7 +84,10 @@ export async function verifyOtpAndIssueTokens(phone: string, otp: string) {
   return issueTokenPair(user!);
 }
 
-// ── Email + password login (admin/instructor only — students use OTP) ────────
+// ── Email + password login ────────────────────────────────────────────────────
+// Primarily for admin/instructor. Also allows students who have an explicit
+// password set (e.g. test accounts) — students without one still use OTP,
+// since loginWithPassword requires a non-null passwordHash below.
 export async function loginWithPassword(email: string, password: string) {
   // One generic error for every failure mode — never reveal which check failed
   const invalid = () =>
@@ -96,7 +99,6 @@ export async function loginWithPassword(email: string, password: string) {
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
 
   if (!user || !user.passwordHash) throw invalid();
-  if (user.role !== 'admin' && user.role !== 'instructor') throw invalid();
 
   const ok = await verifyPassword(password, user.passwordHash);
   if (!ok) throw invalid();

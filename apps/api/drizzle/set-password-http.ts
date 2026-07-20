@@ -26,12 +26,12 @@ async function main() {
 
   const rows = (await sql.query(
     `UPDATE users SET password_hash = $1, updated_at = now()
-     WHERE email = $2 AND role IN ('admin','instructor')
+     WHERE email = $2
      RETURNING id, name, role, email`,
     [hash, email],
   )) as { id: string; name: string; role: string; email: string }[];
 
-  if (rows.length === 0) throw new Error(`No admin/instructor user found with email ${email}`);
+  if (rows.length === 0) throw new Error(`No user found with email ${email}`);
   console.log(`Password set for ${rows[0]!.role} "${rows[0]!.name}" <${rows[0]!.email}>`);
   process.exit(0);
 }

@@ -17,8 +17,12 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _phoneCtrl = TextEditingController();
   final _otpCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
 
   bool _otpSent = false;
+  bool _useEmailLogin = false;
+  bool _obscurePassword = true;
   bool _loading = false;
   String? _error;
   int _resendCountdown = 0;
@@ -91,6 +95,39 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  Future<void> _loginWithEmail() async {
+    final email = _emailCtrl.text.trim();
+    final password = _passwordCtrl.text;
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() => _error = 'Enter a valid email address');
+      return;
+    }
+    if (password.isEmpty) {
+      setState(() => _error = 'Enter your password');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final res = await ApiClient.dio.post<Map<String, dynamic>>(
+        '/api/v1/auth/login',
+        data: {'email': email, 'password': password},
+      );
+      final data = res.data!['data'] as Map<String, dynamic>;
+      final user = AuthUser.fromJson(data['user'] as Map<String, dynamic>);
+      final token = data['accessToken'] as String;
+      await ref.read(authProvider.notifier).setAuth(user, token);
+      if (mounted) context.go('/home');
+    } on DioException catch (e) {
+      setState(() {
+        _error = _friendlyError(e);
+        _loading = false;
+      });
+    }
+  }
+
   Future<void> _demoLogin() async {
     await ref.read(authProvider.notifier).setAuth(
           const AuthUser(
@@ -116,6 +153,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   void dispose() {
     _phoneCtrl.dispose();
     _otpCtrl.dispose();
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
     super.dispose();
   }
 
@@ -175,7 +214,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                   // Form card
                   _GlassCard(
-                    child: _otpSent ? _buildOtpStep() : _buildPhoneStep(),
+                    child: _useEmailLogin
+                        ? _buildEmailStep()
+                        : (_otpSent ? _buildOtpStep() : _buildPhoneStep()),
+                  ),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: TextButton(
+                      onPressed: _loading
+                          ? null
+                          : () => setState(() {
+                                _useEmailLogin = !_useEmailLogin;
+                                _error = null;
+                              }),
+                      child: Text(
+                        _useEmailLogin
+                            ? 'Sign in with mobile number instead'
+                            : 'Sign in with email & password instead',
+                        style: const TextStyle(color: Brand.blue, fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
+                    ),
                   ),
 
                   if (kDemoMode) ...[
@@ -276,6 +334,50 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white24, fontSize: 11.5, height: 1.4)),
         ),
+      ],
+    );
+  }
+
+  // ── Email + password step ──────────────────────────────────────────────────
+  Widget _buildEmailStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('Welcome 👋',
+            style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        const Text('Sign in with your email and password',
+            style: TextStyle(color: Colors.white38, fontSize: 13)),
+        const SizedBox(height: 22),
+        const Text('Email', style: TextStyle(color: Colors.white60, fontSize: 13, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _emailCtrl,
+          keyboardType: TextInputType.emailAddress,
+          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+          cursorColor: Brand.blue,
+          decoration: _fieldDecoration('you@example.com'),
+        ),
+        const SizedBox(height: 18),
+        const Text('Password', style: TextStyle(color: Colors.white60, fontSize: 13, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _passwordCtrl,
+          obscureText: _obscurePassword,
+          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+          cursorColor: Brand.blue,
+          onSubmitted: (_) => _loginWithEmail(),
+          decoration: _fieldDecoration('••••••••').copyWith(
+            suffixIcon: IconButton(
+              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+              icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                  color: Colors.white38, size: 20),
+            ),
+          ),
+        ),
+        if (_error != null) _errorBox(),
+        const SizedBox(height: 22),
+        _primaryButton(label: 'Sign in', onTap: _loginWithEmail),
       ],
     );
   }
