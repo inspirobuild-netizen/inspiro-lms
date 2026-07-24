@@ -5,6 +5,7 @@ import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../../courses/models/course.dart';
 import '../../courses/providers/courses_provider.dart';
+import '../../home/providers/home_stats_provider.dart';
 
 /// Course detail — video header, progress/streak cards and the lesson list.
 /// Pulls real modules/lessons from the API (falls back to sample in Demo Mode).
@@ -46,9 +47,25 @@ class CourseDetailScreen extends ConsumerWidget {
     final progress = total == 0 ? 0.0 : completed / total;
     bool watchingAssigned = false;
 
+    // First non-completed, unlocked video lesson — what the header play button opens.
+    CourseLesson? current;
+    for (final l in lessons) {
+      if (!l.isCompleted && !l.locked && l.type == 'video') {
+        current = l;
+        break;
+      }
+    }
+
     return CustomScrollView(
       slivers: [
-        SliverToBoxAdapter(child: _VideoHeader(progress: progress)),
+        SliverToBoxAdapter(
+          child: _VideoHeader(
+            progress: progress,
+            onPlay: current == null
+                ? null
+                : () => context.push('/lesson-player', extra: {'lessonId': current!.id, 'title': current.title}),
+          ),
+        ),
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -110,10 +127,14 @@ class CourseDetailScreen extends ConsumerWidget {
                 } else {
                   state = _LessonState.upNext;
                 }
+                final playable = !l.locked && l.type == 'video';
                 return _LessonTile(
                   title: '${(i + 1).toString().padLeft(2, '0')}. ${l.title}',
                   duration: l.durationLabel.isEmpty ? l.type : l.durationLabel,
                   state: state,
+                  onTap: playable
+                      ? () => context.push('/lesson-player', extra: {'lessonId': l.id, 'title': l.title})
+                      : null,
                 );
               },
             ),
@@ -131,7 +152,8 @@ class CourseDetailScreen extends ConsumerWidget {
 
 class _VideoHeader extends StatelessWidget {
   final double progress;
-  const _VideoHeader({this.progress = 0});
+  final VoidCallback? onPlay;
+  const _VideoHeader({this.progress = 0, this.onPlay});
 
   @override
   Widget build(BuildContext context) {
@@ -148,14 +170,17 @@ class _VideoHeader extends StatelessWidget {
               ),
             ),
             child: Center(
-              child: Container(
-                width: 68, height: 68,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.15),
-                  border: Border.all(color: Colors.white70, width: 2),
+              child: GestureDetector(
+                onTap: onPlay,
+                child: Container(
+                  width: 68, height: 68,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: 0.15),
+                    border: Border.all(color: Colors.white70, width: 2),
+                  ),
+                  child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 40),
                 ),
-                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 40),
               ),
             ),
           ),
@@ -241,10 +266,11 @@ class _ProgressCard extends StatelessWidget {
   }
 }
 
-class _StreakMini extends StatelessWidget {
+class _StreakMini extends ConsumerWidget {
   const _StreakMini();
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final streak = ref.watch(homeStatsProvider).valueOrNull?.currentStreak;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -265,7 +291,7 @@ class _StreakMini extends StatelessWidget {
               child: const Icon(Icons.local_fire_department, color: Brand.amber, size: 20),
             ),
             const SizedBox(width: 8),
-            const Text('14', style: TextStyle(color: Brand.amber, fontSize: 26, fontWeight: FontWeight.bold)),
+            Text('${streak ?? '—'}', style: const TextStyle(color: Brand.amber, fontSize: 26, fontWeight: FontWeight.bold)),
             const SizedBox(width: 4),
             const Padding(padding: EdgeInsets.only(bottom: 3), child: Text('Days', style: TextStyle(color: Colors.white54, fontSize: 13))),
           ]),
@@ -281,7 +307,8 @@ class _LessonTile extends StatelessWidget {
   final String title;
   final String duration;
   final _LessonState state;
-  const _LessonTile({required this.title, required this.duration, required this.state});
+  final VoidCallback? onTap;
+  const _LessonTile({required this.title, required this.duration, required this.state, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -328,7 +355,7 @@ class _LessonTile extends StatelessWidget {
         ),
       ),
       child: ListTile(
-        onTap: locked ? null : () {},
+        onTap: locked ? null : onTap,
         leading: Container(
           width: 40, height: 40,
           decoration: BoxDecoration(color: accent.withValues(alpha: 0.15), shape: BoxShape.circle),

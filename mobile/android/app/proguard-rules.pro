@@ -26,3 +26,8 @@
 
 # Prevent stripping BuildConfig (namespace, not applicationId)
 -keep class com.bizence.inspiro_mobile.BuildConfig { *; }
+
+# media_kit — native libmpv JNI bridge classes must survive minification
+-keep class com.alexmercerind.** { *; }
+-keep class com.tanersener.** { *; }
+-dontwarn com.alexmercerind.**

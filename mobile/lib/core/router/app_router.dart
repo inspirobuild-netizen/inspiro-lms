@@ -5,6 +5,7 @@ import '../../features/auth/screens/login_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/learn/screens/learn_screen.dart';
 import '../../features/learn/screens/course_detail_screen.dart';
+import '../../features/learn/screens/video_player_screen.dart';
 import '../../features/exams/screens/exams_screen.dart';
 import '../../features/exams/screens/exam_player_screen.dart';
 import '../../features/exams/models/exam.dart';
@@ -64,6 +65,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => CourseDetailScreen(
           courseId: state.extra is String ? state.extra as String : 'demo-1',
         ),
+      ),
+      GoRoute(
+        path: '/lesson-player',
+        builder: (context, state) {
+          final extra = state.extra as Map<String, String>;
+          return VideoPlayerScreen(lessonId: extra['lessonId']!, title: extra['title']!);
+        },
       ),
       GoRoute(
         path: '/exam-player',
