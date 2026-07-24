@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../api/api_client.dart';
 import '../notifications/notification_service.dart';
 
 class AuthUser {
@@ -44,8 +45,21 @@ class AuthState {
 class AuthNotifier extends Notifier<AuthState> {
   @override
   AuthState build() {
+    // The API layer calls this when a token refresh fails (refresh token
+    // expired/revoked) — drop the session so the router sends us to /login.
+    ApiClient.onSessionExpired = _handleSessionExpired;
     _restore();
     return const AuthState();
+  }
+
+  Future<void> _handleSessionExpired() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('access_token');
+    await prefs.remove('user_id');
+    await prefs.remove('user_name');
+    await prefs.remove('user_phone');
+    await prefs.remove('user_role');
+    state = const AuthState(initialised: true);
   }
 
   Future<void> _restore() async {
@@ -80,6 +94,8 @@ class AuthNotifier extends Notifier<AuthState> {
   Future<void> clearAuth() async {
     // Unregister FCM token before clearing credentials
     await NotificationService.unregisterToken();
+    // Drop the persisted refresh-token cookie so it can't be reused.
+    await ApiClient.clearCookies();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('access_token');
     await prefs.remove('user_id');

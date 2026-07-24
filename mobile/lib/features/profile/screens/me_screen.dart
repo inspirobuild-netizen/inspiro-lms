@@ -5,6 +5,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../../home/providers/home_stats_provider.dart';
+import '../providers/my_batch_provider.dart';
 
 class MeScreen extends ConsumerWidget {
   const MeScreen({super.key});
@@ -45,16 +46,22 @@ class MeScreen extends ConsumerWidget {
                       const SizedBox(height: 2),
                       Text(user?.phone ?? '',
                           style: const TextStyle(color: Colors.white54, fontSize: 13)),
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Brand.amber.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text('UPSC 2026 · Batch A',
-                            style: TextStyle(color: Brand.amber, fontSize: 11, fontWeight: FontWeight.w600)),
-                      ),
+                      Builder(builder: (context) {
+                        final batchName = ref.watch(myBatchProvider).valueOrNull;
+                        if (batchName == null || batchName.isEmpty) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Brand.amber.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(batchName,
+                                style: const TextStyle(color: Brand.amber, fontSize: 11, fontWeight: FontWeight.w600)),
+                          ),
+                        );
+                      }),
                     ],
                   ),
                 ),
