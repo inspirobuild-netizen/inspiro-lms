@@ -13,11 +13,12 @@ import {
   index,
   uniqueIndex,
   vector,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
-export const userRoleEnum = pgEnum('user_role', ['student', 'instructor', 'admin']);
+export const userRoleEnum = pgEnum('user_role', ['student', 'instructor', 'admin', 'staff']);
 export const batchTypeEnum = pgEnum('batch_type', ['online', 'offline', 'hybrid']);
 export const batchStatusEnum = pgEnum('batch_status', ['upcoming', 'active', 'completed', 'archived']);
 export const lessonTypeEnum = pgEnum('lesson_type', ['video', 'pdf', 'audio', 'live_recording']);
@@ -43,6 +44,9 @@ export const users = pgTable('users', {
   avatarUrl: text('avatar_url'),
   targetExam: targetExamEnum('target_exam').default('upsc'),
   isActive: boolean('is_active').notNull().default(true),
+  // Staff members (role='staff') get a data-driven role + home branch
+  staffRoleId: uuid('staff_role_id').references((): AnyPgColumn => staffRoles.id, { onDelete: 'set null' }),
+  branchId: uuid('branch_id').references((): AnyPgColumn => branches.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -59,6 +63,81 @@ export const refreshTokens = pgTable('refresh_tokens', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   userIdx: index('idx_refresh_tokens_user').on(t.userId),
+}));
+
+// ── Branches / Centres ────────────────────────────────────────────────────────
+export const branches = pgTable('branches', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: varchar('name', { length: 255 }).notNull(),
+  code: varchar('code', { length: 30 }).notNull().unique(),
+  address: text('address'),
+  phone: varchar('phone', { length: 20 }),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Staff RBAC (data-driven roles + permissions) ──────────────────────────────
+// New staff roles are ROWS here — adding a role needs no migration.
+export const staffRoles = pgTable('staff_roles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: varchar('name', { length: 100 }).notNull(),
+  slug: varchar('slug', { length: 100 }).notNull().unique(),
+  description: text('description'),
+  isSystem: boolean('is_system').notNull().default(false), // protects built-in roles
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Fixed catalog seeded from src/lib/permissions.ts (code e.g. 'leads.view')
+export const permissions = pgTable('permissions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  code: varchar('code', { length: 100 }).notNull().unique(),
+  label: varchar('label', { length: 150 }).notNull(),
+  category: varchar('category', { length: 50 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const rolePermissions = pgTable('role_permissions', {
+  staffRoleId: uuid('staff_role_id').notNull().references(() => staffRoles.id, { onDelete: 'cascade' }),
+  permissionId: uuid('permission_id').notNull().references(() => permissions.id, { onDelete: 'cascade' }),
+}, (t) => ({
+  uq: uniqueIndex('uq_role_permission').on(t.staffRoleId, t.permissionId),
+  roleIdx: index('idx_role_permissions_role').on(t.staffRoleId),
+}));
+
+// HR profile — 1:1 with a users row (role='staff'). Keeps the shared users table lean.
+export const staffProfiles = pgTable('staff_profiles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }).unique(),
+  employeeId: varchar('employee_id', { length: 30 }).notNull().unique(),
+  photoUrl: text('photo_url'),
+  gender: varchar('gender', { length: 20 }),
+  dob: date('dob'),
+  whatsapp: varchar('whatsapp', { length: 15 }),
+  address: text('address'),
+  joiningDate: date('joining_date'),
+  department: varchar('department', { length: 100 }),
+  designation: varchar('designation', { length: 100 }),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Audit log ─────────────────────────────────────────────────────────────────
+export const auditLogs = pgTable('audit_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+  action: varchar('action', { length: 80 }).notNull(),
+  entityType: varchar('entity_type', { length: 60 }).notNull(),
+  entityId: uuid('entity_id'),
+  ipAddress: varchar('ip_address', { length: 60 }),
+  meta: jsonb('meta').$type<Record<string, unknown>>(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  actorIdx: index('idx_audit_actor').on(t.actorUserId),
+  entityIdx: index('idx_audit_entity').on(t.entityType, t.entityId),
+  createdIdx: index('idx_audit_created').on(t.createdAt),
 }));
 
 // ── Batches ───────────────────────────────────────────────────────────────────

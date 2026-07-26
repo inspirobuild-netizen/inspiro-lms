@@ -37,6 +37,35 @@ export async function sendEmail(opts: {
   }
 }
 
+// Staff-account credentials email (sent when a staff member is created).
+export function staffWelcomeEmail(
+  name: string,
+  loginEmail: string,
+  tempPassword: string,
+  loginUrl: string,
+): { subject: string; html: string } {
+  const safeName = name && name.trim().length > 0 ? name.trim() : 'there';
+  return {
+    subject: 'Your Inspiro LMS staff account',
+    html: `
+<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#0f172a">
+  <h2 style="color:#1668E3;margin:0 0 8px">Inspiro IAS Academy</h2>
+  <p style="font-size:15px;line-height:1.5">Hi ${safeName},</p>
+  <p style="font-size:15px;line-height:1.5">A staff account has been created for you on the Inspiro LMS. Use these credentials to sign in:</p>
+  <div style="background:#f1f5f9;border-radius:10px;padding:16px;margin:16px 0;font-size:14px">
+    <div><strong>Email:</strong> ${loginEmail}</div>
+    <div style="margin-top:6px"><strong>Temporary password:</strong> <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px">${tempPassword}</code></div>
+  </div>
+  <p style="margin:20px 0">
+    <a href="${loginUrl}" style="background:#1668E3;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;display:inline-block">Sign in</a>
+  </p>
+  <p style="font-size:13px;color:#64748b;line-height:1.5">Please change your password after your first sign-in for security.</p>
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+  <p style="font-size:12px;color:#94a3b8">Inspiro IAS Academy · by Bizence Solutions</p>
+</div>`,
+  };
+}
+
 // Password-reset email template.
 export function passwordResetEmail(name: string, resetUrl: string): { subject: string; html: string } {
   const safeName = name && name.trim().length > 0 ? name.trim() : 'there';

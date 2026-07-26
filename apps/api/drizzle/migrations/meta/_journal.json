@@ -22,6 +22,13 @@
       "when": 1783568509484,
       "tag": "0002_gigantic_starjammers",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785042810732,
+      "tag": "0003_supreme_shooting_star",
+      "breakpoints": true
     }
   ]
 }

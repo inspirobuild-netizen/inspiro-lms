@@ -6,7 +6,7 @@ const encoder = new TextEncoder();
 
 export type JwtPayload = {
   sub: string;
-  role: 'student' | 'instructor' | 'admin';
+  role: 'student' | 'instructor' | 'admin' | 'staff';
   iat: number;
   exp: number;
 };

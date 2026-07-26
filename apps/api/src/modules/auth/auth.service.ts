@@ -6,10 +6,35 @@ import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../lib
 import { sendOtp as dispatchSms } from '../../lib/sms.js';
 import { verifyPassword, hashPassword } from '../../lib/password.js';
 import { sendEmail, passwordResetEmail } from '../../lib/mailer.js';
-import { users, refreshTokens } from '../../../drizzle/schema.js';
+import { getRolePermissions } from '../../lib/permissions.js';
+import { users, refreshTokens, staffRoles } from '../../../drizzle/schema.js';
 
 const OTP_RATE_LIMIT_TTL = 60; // 1 resend per minute
 const ACCESS_TOKEN_EXPIRY_MS = 15 * 60 * 1000;
+
+// ── Account lockout (per-email, layered on top of the IP rate limit) ──────────
+const LOGIN_MAX_FAILS = 8;
+const LOGIN_LOCK_TTL = 15 * 60; // seconds
+
+async function assertNotLocked(email: string): Promise<void> {
+  if (await redis.get(`lockuntil:${email}`)) {
+    throw Object.assign(new Error('Too many failed attempts. Try again in a few minutes.'), {
+      statusCode: 423,
+      code: 'ACCOUNT_LOCKED',
+    });
+  }
+}
+
+async function recordLoginFail(email: string): Promise<void> {
+  const key = `loginfail:${email}`;
+  const n = await redis.incr(key);
+  if (n === 1) await redis.expire(key, LOGIN_LOCK_TTL);
+  if (n >= LOGIN_MAX_FAILS) await redis.set(`lockuntil:${email}`, '1', 'EX', LOGIN_LOCK_TTL);
+}
+
+async function clearLoginFails(email: string): Promise<void> {
+  await redis.del(`loginfail:${email}`, `lockuntil:${email}`);
+}
 const REFRESH_TOKEN_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 
 function generateOtp(): string {
@@ -98,21 +123,26 @@ export async function loginWithPassword(email: string, password: string) {
       code: 'INVALID_CREDENTIALS',
     });
 
+  await assertNotLocked(email);
+
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
 
-  if (!user || !user.passwordHash) throw invalid();
+  const ok = !!user && !!user.passwordHash && (await verifyPassword(password, user.passwordHash));
+  if (!ok) {
+    await recordLoginFail(email);
+    throw invalid();
+  }
 
-  const ok = await verifyPassword(password, user.passwordHash);
-  if (!ok) throw invalid();
-
-  if (!user.isActive) {
+  if (!user!.isActive) {
     throw Object.assign(new Error('Your account has been suspended'), {
       statusCode: 403,
       code: 'ACCOUNT_SUSPENDED',
     });
   }
 
-  return issueTokenPair(user);
+  await clearLoginFails(email);
+
+  return issueTokenPair(user!);
 }
 
 // ── Request a password reset ─────────────────────────────────────────────────
@@ -222,11 +252,39 @@ export async function logout(accessToken: string, refreshToken?: string): Promis
   }
 }
 
+// Resolve the effective permission set + staff-role label for a user. Admins
+// implicitly hold every permission ('*'); staff get their role's granted set.
+async function permissionPayload(user: {
+  id: string;
+  role: string;
+  staffRoleId?: string | null;
+}): Promise<{ permissions: string[]; staffRole: { id: string; name: string; slug: string } | null }> {
+  if (user.role === 'admin') return { permissions: ['*'], staffRole: null };
+  if (user.role === 'staff' && user.staffRoleId) {
+    const [permissions, [role]] = await Promise.all([
+      getRolePermissions(user.staffRoleId),
+      db.select({ id: staffRoles.id, name: staffRoles.name, slug: staffRoles.slug }).from(staffRoles).where(eq(staffRoles.id, user.staffRoleId)).limit(1),
+    ]);
+    return { permissions, staffRole: role ?? null };
+  }
+  return { permissions: [], staffRole: null };
+}
+
 // ── Shared: issue access + refresh pair ──────────────────────────────────────
-async function issueTokenPair(user: { id: string; role: 'student' | 'instructor' | 'admin'; name: string; phone: string; avatarUrl: string | null }) {
-  const [accessToken, newRefreshToken] = await Promise.all([
+async function issueTokenPair(user: {
+  id: string;
+  role: 'student' | 'instructor' | 'admin' | 'staff';
+  name: string;
+  phone: string;
+  avatarUrl: string | null;
+  email?: string | null;
+  staffRoleId?: string | null;
+}) {
+  const [accessToken, newRefreshToken, perms, mustReset] = await Promise.all([
     signAccessToken({ sub: user.id, role: user.role }),
     signRefreshToken(user.id),
+    permissionPayload(user),
+    redis.get(`forcereset:${user.id}`),
   ]);
 
   // Persist refresh token
@@ -243,8 +301,12 @@ async function issueTokenPair(user: { id: string; role: 'student' | 'instructor'
       id: user.id,
       name: user.name,
       phone: user.phone,
+      email: user.email ?? null,
       role: user.role,
       avatarUrl: user.avatarUrl,
+      permissions: perms.permissions,
+      staffRole: perms.staffRole,
+      mustChangePassword: mustReset === '1',
     },
   };
 }

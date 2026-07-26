@@ -57,6 +57,10 @@ await app.register(import('./modules/current-affairs/current-affairs.routes.js')
 await app.register(import('./modules/coach/coach.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/reports/reports.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/rag/rag.routes.js'), { prefix: '/api/v1' });
+// Staff Management + RBAC (Phase 1 of the admissions module)
+await app.register(import('./modules/branches/branches.routes.js'), { prefix: '/api/v1' });
+await app.register(import('./modules/staff-roles/staff-roles.routes.js'), { prefix: '/api/v1' });
+await app.register(import('./modules/staff/staff.routes.js'), { prefix: '/api/v1' });
 
 // ── Cron jobs ─────────────────────────────────────────────────────────────────
 if (process.env['NODE_ENV'] !== 'test') {
