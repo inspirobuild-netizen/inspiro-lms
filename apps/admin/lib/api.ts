@@ -1,4 +1,4 @@
-import { useAuthStore } from './auth';
+import { useAuthStore, type AdminUser } from './auth';
 
 const API_BASE = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3000';
 
@@ -90,6 +90,8 @@ export function createApiClient(token: string | null) {
       request<T>(path, opts({ method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined })),
     patch: <T>(path: string, body: unknown) =>
       request<T>(path, opts({ method: 'PATCH', body: JSON.stringify(body) })),
+    put: <T>(path: string, body: unknown) =>
+      request<T>(path, opts({ method: 'PUT', body: JSON.stringify(body) })),
     delete: <T>(path: string) => request<T>(path, opts({ method: 'DELETE' })),
   };
 }
@@ -113,7 +115,7 @@ export const authApi = {
     }),
   refresh: () => request<{ accessToken: string; user: AdminUser }>('/api/v1/auth/refresh', { method: 'POST' }),
   logout: (token: string) =>
-    request<{ message: string }>('/api/v1/auth/logout', { method: 'POST', token }),
+    request<{ message: string }>('/api/v1/auth/logout', { method: 'POST', token: token }),
   forgotPassword: (email: string) =>
     request<{ message: string }>('/api/v1/auth/forgot-password', {
       method: 'POST',
@@ -125,5 +127,3 @@ export const authApi = {
       body: JSON.stringify({ token, password }),
     }),
 };
-
-type AdminUser = { id: string; name: string; phone: string; role: 'admin' | 'instructor'; avatarUrl: string | null };

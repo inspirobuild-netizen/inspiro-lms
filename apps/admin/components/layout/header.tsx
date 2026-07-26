@@ -10,6 +10,8 @@ const titles: Record<string, string> = {
   '/exams': 'Exams',
   '/doubts': 'Doubts',
   '/analytics': 'Analytics',
+  '/staff': 'Staff Management',
+  '/branches': 'Branches',
 };
 
 export function Header() {

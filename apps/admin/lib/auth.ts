@@ -3,12 +3,18 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+export type StaffRoleRef = { id: string; name: string; slug: string };
+
 export type AdminUser = {
   id: string;
   name: string;
   phone: string;
-  role: 'admin' | 'instructor';
+  email?: string | null;
+  role: 'admin' | 'instructor' | 'staff';
   avatarUrl: string | null;
+  permissions?: string[];
+  staffRole?: StaffRoleRef | null;
+  mustChangePassword?: boolean;
 };
 
 type AuthState = {
@@ -43,3 +49,14 @@ export const useAuthStore = create<AuthState>()(
     },
   ),
 );
+
+/** Returns a predicate for checking a permission code. Admins hold every one. */
+export function useHasPermission(): (code: string) => boolean {
+  const user = useAuthStore((s) => s.user);
+  return (code: string) => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    const perms = user.permissions ?? [];
+    return perms.includes('*') || perms.includes(code);
+  };
+}
