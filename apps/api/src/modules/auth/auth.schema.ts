@@ -20,5 +20,14 @@ export const refreshSchema = z.object({
   // refresh token comes from httpOnly cookie, not body
 });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().email().max(255).transform((v) => v.trim().toLowerCase()),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(16).max(128),
+  password: z.string().min(8).max(128),
+});
+
 export type SendOtpInput = z.infer<typeof sendOtpSchema>;
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;

@@ -1,10 +1,18 @@
 import type { FastifyInstance } from 'fastify';
-import { sendOtpSchema, verifyOtpSchema, loginSchema } from './auth.schema.js';
+import {
+  sendOtpSchema,
+  verifyOtpSchema,
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from './auth.schema.js';
 import {
   initiateSendOtp,
   verifyOtpAndIssueTokens,
   loginWithPassword,
   rotateRefreshToken,
+  requestPasswordReset,
+  resetPassword,
   logout,
 } from './auth.service.js';
 
@@ -110,6 +118,40 @@ export default async function authRoutes(app: FastifyInstance) {
         user: tokens.user,
       },
     });
+  });
+
+  // ── POST /forgot-password ─────────────────────────────────────────────────
+  app.post('/forgot-password', {
+    config: { rateLimit: { max: 5, timeWindow: '1m' } },
+  }, async (req, reply) => {
+    const parsed = forgotPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Enter a valid email address' },
+      });
+    }
+    // Never reveal whether the account exists — always the same response.
+    await requestPasswordReset(parsed.data.email);
+    return reply.send({
+      success: true,
+      data: { message: 'If an account exists for that email, a reset link has been sent.' },
+    });
+  });
+
+  // ── POST /reset-password ──────────────────────────────────────────────────
+  app.post('/reset-password', {
+    config: { rateLimit: { max: 10, timeWindow: '1m' } },
+  }, async (req, reply) => {
+    const parsed = resetPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Password must be at least 8 characters', details: parsed.error.flatten() },
+      });
+    }
+    await resetPassword(parsed.data.token, parsed.data.password);
+    return reply.send({ success: true, data: { message: 'Password updated. You can now sign in.' } });
   });
 
   // ── POST /refresh ───────────────────────────────────────────────────────────

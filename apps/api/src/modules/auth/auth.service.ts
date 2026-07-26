@@ -1,9 +1,11 @@
+import { randomBytes } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { redis, OTP_TTL } from '../../lib/redis.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../lib/jwt.js';
 import { sendOtp as dispatchSms } from '../../lib/sms.js';
-import { verifyPassword } from '../../lib/password.js';
+import { verifyPassword, hashPassword } from '../../lib/password.js';
+import { sendEmail, passwordResetEmail } from '../../lib/mailer.js';
 import { users, refreshTokens } from '../../../drizzle/schema.js';
 
 const OTP_RATE_LIMIT_TTL = 60; // 1 resend per minute
@@ -111,6 +113,63 @@ export async function loginWithPassword(email: string, password: string) {
   }
 
   return issueTokenPair(user);
+}
+
+// ── Request a password reset ─────────────────────────────────────────────────
+// Always resolves without revealing whether the email exists. Only admin/
+// instructor accounts (the ones that use password login) get a reset link.
+const RESET_TTL = 30 * 60; // 30 minutes
+const RESET_RATE_TTL = 60; // 1 request per minute per account
+
+function resetTokenKey(token: string): string {
+  return `pwreset:${token}`;
+}
+
+export async function requestPasswordReset(email: string): Promise<void> {
+  const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  if (!user || (user.role !== 'admin' && user.role !== 'instructor') || !user.isActive) {
+    return; // silent — never disclose account existence
+  }
+
+  // Per-account throttle so the endpoint can't be used to spam an inbox
+  const rateKey = `pwreset_rate:${user.id}`;
+  if (await redis.get(rateKey)) return;
+  await redis.set(rateKey, '1', 'EX', RESET_RATE_TTL);
+
+  const token = randomBytes(32).toString('hex');
+  await redis.set(resetTokenKey(token), user.id, 'EX', RESET_TTL);
+
+  const adminBase = process.env['ADMIN_BASE_URL'] ?? 'https://admin.inspiroiasacademy.in';
+  const resetUrl = `${adminBase}/reset-password?token=${token}`;
+  const { subject, html } = passwordResetEmail(user.name, resetUrl);
+  await sendEmail({ to: email, subject, html });
+}
+
+// ── Reset password using a token ─────────────────────────────────────────────
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  const key = resetTokenKey(token);
+  const userId = await redis.get(key);
+  if (!userId) {
+    throw Object.assign(new Error('This reset link is invalid or has expired'), {
+      statusCode: 400,
+      code: 'INVALID_RESET_TOKEN',
+    });
+  }
+
+  const hash = await hashPassword(newPassword);
+  const [updated] = await db
+    .update(users)
+    .set({ passwordHash: hash, updatedAt: new Date() })
+    .where(eq(users.id, userId))
+    .returning();
+
+  if (!updated) {
+    throw Object.assign(new Error('Account not found'), { statusCode: 404, code: 'USER_NOT_FOUND' });
+  }
+
+  // Single-use token, and sign out every existing session for safety.
+  await redis.del(key);
+  await db.delete(refreshTokens).where(eq(refreshTokens.userId, userId));
 }
 
 // ── Refresh access token ──────────────────────────────────────────────────────
