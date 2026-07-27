@@ -149,7 +149,7 @@ function AddStaffButton({ roles, onCreated }: { roles: RoleOpt[]; onCreated: () 
           <Field label="Mobile number">
             <div className="flex gap-2">
               <span className="flex items-center px-3 h-10 rounded-xl bg-surface-2 border border-white/10 text-slate-400 text-sm select-none">+91</span>
-              <Input value={f.phone} inputMode="numeric" onChange={(e) => set('phone')(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="98765 43210" className="flex-1" />
+              <Input value={f.phone} inputMode="numeric" onChange={(e) => set('phone')(e.target.value.replace(/\D/g, '').slice(-10))} placeholder="98765 43210" className="flex-1" />
             </div>
             {f.phone.length > 0 && !/^[6-9]\d{9}$/.test(f.phone) && (
               <p className="text-xs text-amber-400 mt-1">Enter 10 digits, starting with 6-9 — don&apos;t include +91, it&apos;s added automatically</p>

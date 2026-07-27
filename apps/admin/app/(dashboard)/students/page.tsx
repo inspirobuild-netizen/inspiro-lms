@@ -198,7 +198,7 @@ function AddStudentButton({ onCreated }: { onCreated: () => void }) {
               <Input
                 value={phone}
                 inputMode="numeric"
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(-10))}
                 placeholder="98765 43210"
                 className="flex-1"
               />
