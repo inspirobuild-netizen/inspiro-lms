@@ -198,12 +198,14 @@ function AddStudentButton({ onCreated }: { onCreated: () => void }) {
               <Input
                 value={phone}
                 inputMode="numeric"
-                maxLength={10}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                 placeholder="98765 43210"
                 className="flex-1"
               />
             </div>
+            {phone.length > 0 && !/^[6-9]\d{9}$/.test(phone) && (
+              <p className="text-xs text-amber-400 mt-1">Enter 10 digits, starting with 6-9 — don&apos;t include +91, it&apos;s added automatically</p>
+            )}
           </Field>
           <Field label="Email (optional)">
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="student@example.com" />
