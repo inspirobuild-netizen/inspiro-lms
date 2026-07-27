@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { authenticate } from '../../middleware/authenticate.js';
-import { requireRole } from '../../middleware/require-role.js';
+import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import {
   answerDoubtSchema,
   createDoubtSchema,
@@ -81,7 +81,7 @@ export default async function doubtsRoutes(app: FastifyInstance) {
   // Staff: escalation queue / all doubts
   app.get(
     '/admin/doubts',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'doubts.view')] },
     async (req, reply) => {
       const input = validate(listDoubtsSchema, req.query, reply);
       if (!input) return;
@@ -97,7 +97,7 @@ export default async function doubtsRoutes(app: FastifyInstance) {
   // Staff: answer a doubt (resolves it and notifies the student)
   app.post(
     '/admin/doubts/:id/answer',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'doubts.manage')] },
     async (req, reply) => {
       const params = validate(doubtIdParamSchema, req.params, reply);
       if (!params) return;

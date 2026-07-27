@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../../middleware/authenticate.js';
 import { requireRole } from '../../middleware/require-role.js';
+import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import {
   updateProfileSchema,
   createUserSchema,
@@ -40,7 +41,7 @@ export default async function usersRoutes(app: FastifyInstance) {
   // ── Admin: create user ────────────────────────────────────────────────────
   app.post(
     '/admin/users',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'students.manage')] },
     async (req, reply) => {
       const parsed = createUserSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -57,7 +58,7 @@ export default async function usersRoutes(app: FastifyInstance) {
   // ── Admin: list users ─────────────────────────────────────────────────────
   app.get(
     '/admin/users',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'students.view')] },
     async (req, reply) => {
       const parsed = listUsersSchema.safeParse(req.query);
       if (!parsed.success) {
@@ -75,7 +76,7 @@ export default async function usersRoutes(app: FastifyInstance) {
   // ── Admin: single user ────────────────────────────────────────────────────
   app.get(
     '/admin/users/:id',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'students.view')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const user = await getUserById(id);
@@ -104,7 +105,7 @@ export default async function usersRoutes(app: FastifyInstance) {
   // ── Admin: suspend / reactivate ───────────────────────────────────────────
   app.patch(
     '/admin/users/:id/status',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'students.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const parsed = updateUserStatusSchema.safeParse(req.body);

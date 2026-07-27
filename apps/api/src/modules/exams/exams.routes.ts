@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate.js';
-import { requireRole } from '../../middleware/require-role.js';
+import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import {
   createExamSchema,
   updateExamSchema,
@@ -120,7 +120,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   // List all exams (admin view — no filtering by enrollment)
   app.get(
     '/admin/exams',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'exams.view')] },
     async (req, reply) => {
       const input = validate(listExamsSchema, req.query, reply);
       if (!input) return;
@@ -132,7 +132,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   // Create exam
   app.post(
     '/admin/exams',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'exams.manage')] },
     async (req, reply) => {
       const input = validate(createExamSchema, req.body, reply);
       if (!input) return;
@@ -145,7 +145,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/exams/generate-ai',
     {
-      preHandler: [authenticate, requireRole(['admin', 'instructor'])],
+      preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'exams.manage')],
       config: {
         // LLM generation is slow and metered
         rateLimit: { max: 10, timeWindow: '1 hour', keyGenerator: (req) => `ai-exam:${(req as { user?: { sub: string } }).user?.sub ?? req.ip}` },
@@ -169,7 +169,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   // Get single exam (admin)
   app.get(
     '/admin/exams/:id',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'exams.view')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const exam = await getExamById(id);
@@ -180,7 +180,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   // Update exam
   app.patch(
     '/admin/exams/:id',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'exams.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const input = validate(updateExamSchema, req.body, reply);
@@ -193,7 +193,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   // Publish exam (requires ≥1 question)
   app.post(
     '/admin/exams/:id/publish',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'exams.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const exam = await publishExam(id);
@@ -204,7 +204,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   // Delete exam
   app.delete(
     '/admin/exams/:id',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'exams.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const result = await deleteExam(id);
@@ -215,7 +215,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   // Exam analytics
   app.get(
     '/admin/exams/:id/analytics',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'exams.view')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const analytics = await getExamAnalytics(id);
@@ -228,7 +228,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   // List questions for an exam
   app.get(
     '/admin/exams/:id/questions',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'exams.view')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const input = validate(listQuestionsSchema, req.query, reply);
@@ -241,7 +241,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   // Add single question
   app.post(
     '/admin/exams/:id/questions',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'exams.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const input = validate(createQuestionSchema, req.body, reply);
@@ -254,7 +254,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   // Bulk import questions
   app.post(
     '/admin/exams/:id/questions/bulk',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'exams.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const input = validate(bulkImportQuestionsSchema, req.body, reply);
@@ -267,7 +267,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   // Update question
   app.patch(
     '/admin/questions/:id',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'exams.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const input = validate(updateQuestionSchema, req.body, reply);
@@ -281,7 +281,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/questions/:id/auto-tag',
     {
-      preHandler: [authenticate, requireRole(['admin', 'instructor'])],
+      preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'exams.manage')],
       config: {
         rateLimit: { max: 60, timeWindow: '1 hour', keyGenerator: (req) => `ai-tag:${(req as { user?: { sub: string } }).user?.sub ?? req.ip}` },
       },
@@ -306,7 +306,7 @@ export default async function examsRoutes(app: FastifyInstance) {
   // Delete question
   app.delete(
     '/admin/questions/:id',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'exams.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const result = await deleteQuestion(id);

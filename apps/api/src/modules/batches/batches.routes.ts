@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../../middleware/authenticate.js';
-import { requireRole } from '../../middleware/require-role.js';
+import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import {
   createBatchSchema,
   updateBatchSchema,
@@ -63,7 +63,7 @@ export default async function batchesRoutes(app: FastifyInstance) {
   // ── Admin: create batch ────────────────────────────────────────────────────
   app.post(
     '/admin/batches',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
     async (req, reply) => {
       const parsed = createBatchSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -80,7 +80,7 @@ export default async function batchesRoutes(app: FastifyInstance) {
   // ── Admin: update batch ────────────────────────────────────────────────────
   app.patch(
     '/admin/batches/:id',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const parsed = updateBatchSchema.safeParse(req.body);
@@ -98,7 +98,7 @@ export default async function batchesRoutes(app: FastifyInstance) {
   // ── Admin: archive batch ───────────────────────────────────────────────────
   app.delete(
     '/admin/batches/:id',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const batch = await archiveBatch(id);
@@ -109,7 +109,7 @@ export default async function batchesRoutes(app: FastifyInstance) {
   // ── Admin: get enrolled students ───────────────────────────────────────────
   app.get(
     '/admin/batches/:id/students',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'batches.view')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const parsed = pageSchema.safeParse(req.query);
@@ -127,7 +127,7 @@ export default async function batchesRoutes(app: FastifyInstance) {
   // ── Admin: enroll single student ───────────────────────────────────────────
   app.post(
     '/admin/batches/:id/enroll',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const parsed = enrollStudentSchema.safeParse(req.body);
@@ -145,7 +145,7 @@ export default async function batchesRoutes(app: FastifyInstance) {
   // ── Admin: bulk enroll ─────────────────────────────────────────────────────
   app.post(
     '/admin/batches/:id/enroll/bulk',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const parsed = bulkEnrollSchema.safeParse(req.body);
@@ -163,7 +163,7 @@ export default async function batchesRoutes(app: FastifyInstance) {
   // ── Admin: unenroll student ────────────────────────────────────────────────
   app.delete(
     '/admin/batches/:id/students/:userId',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
     async (req, reply) => {
       const { id, userId } = req.params as { id: string; userId: string };
       const result = await unenrollStudent(id, userId);
@@ -174,7 +174,7 @@ export default async function batchesRoutes(app: FastifyInstance) {
   // ── Admin: assign instructor ───────────────────────────────────────────────
   app.post(
     '/admin/batches/:id/instructors',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const parsed = assignInstructorSchema.safeParse(req.body);
@@ -192,7 +192,7 @@ export default async function batchesRoutes(app: FastifyInstance) {
   // ── Admin: remove instructor ───────────────────────────────────────────────
   app.delete(
     '/admin/batches/:id/instructors/:instructorId',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
     async (req, reply) => {
       const { id, instructorId } = req.params as { id: string; instructorId: string };
       const result = await removeInstructor(id, instructorId);
@@ -203,7 +203,7 @@ export default async function batchesRoutes(app: FastifyInstance) {
   // ── Admin: assign course to batch ──────────────────────────────────────────
   app.post(
     '/admin/batches/:id/courses',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const parsed = z.object({ courseId: z.string().uuid() }).safeParse(req.body);
@@ -221,7 +221,7 @@ export default async function batchesRoutes(app: FastifyInstance) {
   // ── Admin: remove course from batch ───────────────────────────────────────
   app.delete(
     '/admin/batches/:id/courses/:courseId',
-    { preHandler: [authenticate, requireRole(['admin'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
     async (req, reply) => {
       const { id, courseId } = req.params as { id: string; courseId: string };
       const result = await removeCourse(id, courseId);

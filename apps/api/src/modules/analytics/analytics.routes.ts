@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { authenticate } from '../../middleware/authenticate.js';
-import { requireRole } from '../../middleware/require-role.js';
+import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import {
   getOverviewStats,
   getEnrollmentTrend,
@@ -39,7 +39,7 @@ const topStudentsSchema = z.object({
 });
 
 export default async function analyticsRoutes(app: FastifyInstance) {
-  const guard = { preHandler: [authenticate, requireRole(['admin', 'instructor'])] };
+  const guard = { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'analytics.view_all')] };
 
   // ── JSON analytics endpoints ───────────────────────────────────────────────
 
