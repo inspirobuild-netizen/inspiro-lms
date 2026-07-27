@@ -66,6 +66,32 @@ export function staffWelcomeEmail(
   };
 }
 
+// Student welcome/credentials email (sent when a counsellor converts a lead
+// and sets a password, giving the student immediate app access without OTP).
+export function studentWelcomeEmail(
+  name: string,
+  loginEmail: string,
+  tempPassword: string,
+): { subject: string; html: string } {
+  const safeName = name && name.trim().length > 0 ? name.trim() : 'there';
+  return {
+    subject: 'Welcome to Inspiro IAS Academy — your login details',
+    html: `
+<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#0f172a">
+  <h2 style="color:#1668E3;margin:0 0 8px">Inspiro IAS Academy</h2>
+  <p style="font-size:15px;line-height:1.5">Hi ${safeName},</p>
+  <p style="font-size:15px;line-height:1.5">Welcome aboard! Your admission is confirmed and your course access is now active. Sign in to the Inspiro app with:</p>
+  <div style="background:#f1f5f9;border-radius:10px;padding:16px;margin:16px 0;font-size:14px">
+    <div><strong>Email:</strong> ${loginEmail}</div>
+    <div style="margin-top:6px"><strong>Password:</strong> <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px">${tempPassword}</code></div>
+  </div>
+  <p style="font-size:13px;color:#64748b;line-height:1.5">Use "Sign in with email &amp; password" on the login screen. Please change your password after your first sign-in.</p>
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+  <p style="font-size:12px;color:#94a3b8">Inspiro IAS Academy · by Bizence Solutions</p>
+</div>`,
+  };
+}
+
 // Password-reset email template.
 export function passwordResetEmail(name: string, resetUrl: string): { subject: string; html: string } {
   const safeName = name && name.trim().length > 0 ? name.trim() : 'there';

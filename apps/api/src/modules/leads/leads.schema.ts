@@ -59,6 +59,9 @@ export const convertLeadSchema = z.object({
   amountPaid: z.number().nonnegative().default(0),
   paymentStatus: z.enum(['pending', 'partial', 'paid']).default('pending'),
   targetExam: z.enum(['upsc', 'kerala_psc', 'other_psc']).optional(),
+  // Optional: gives the student immediate email+password app access (bypasses
+  // OTP, useful while MSG91 DLT template approval is pending).
+  password: z.string().min(8).max(128).optional(),
 });
 
 export type CreateLeadInput = z.infer<typeof createLeadSchema>;

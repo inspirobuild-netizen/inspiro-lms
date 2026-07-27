@@ -27,7 +27,7 @@ export const difficultyEnum = pgEnum('difficulty', ['easy', 'medium', 'hard']);
 export const doubtStatusEnum = pgEnum('doubt_status', ['open', 'ai_answered', 'escalated', 'resolved']);
 export const attendanceTypeEnum = pgEnum('attendance_type', ['live_class', 'offline']);
 export const attendanceStatusEnum = pgEnum('attendance_status', ['present', 'absent', 'late']);
-export const notificationTypeEnum = pgEnum('notification_type', ['class_reminder', 'exam_alert', 'result', 'announcement', 'doubt_reply', 'achievement']);
+export const notificationTypeEnum = pgEnum('notification_type', ['class_reminder', 'exam_alert', 'result', 'announcement', 'doubt_reply', 'achievement', 'lead_assigned', 'verification_update', 'admission_update', 'credentials_issued']);
 export const leaderboardPeriodEnum = pgEnum('leaderboard_period', ['weekly', 'monthly', 'all_time']);
 export const enrollmentStatusEnum = pgEnum('enrollment_status', ['active', 'expired', 'suspended']);
 export const targetExamEnum = pgEnum('target_exam', ['upsc', 'kerala_psc', 'other_psc']);
@@ -36,6 +36,8 @@ export const leadSourceEnum = pgEnum('lead_source', ['facebook', 'instagram', 'g
 export const leadPriorityEnum = pgEnum('lead_priority', ['hot', 'warm', 'cold']);
 export const leadStatusEnum = pgEnum('lead_status', ['new', 'contacted', 'interested', 'demo', 'counselling', 'fee_discussion', 'admission_confirmed', 'converted', 'not_interested', 'lost']);
 export const paymentStatusEnum = pgEnum('payment_status', ['pending', 'partial', 'paid']);
+// Student Verification (Phase 3)
+export const verificationStatusEnum = pgEnum('verification_status', ['pending', 'verified', 'rejected']);
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 export const users = pgTable('users', {
@@ -52,6 +54,9 @@ export const users = pgTable('users', {
   // Staff members (role='staff') get a data-driven role + home branch
   staffRoleId: uuid('staff_role_id').references((): AnyPgColumn => staffRoles.id, { onDelete: 'set null' }),
   branchId: uuid('branch_id').references((): AnyPgColumn => branches.id, { onDelete: 'set null' }),
+  // Students created by staff/lead-conversion are verified immediately; only a
+  // future self-registration flow would leave this as 'pending'.
+  verificationStatus: verificationStatusEnum('verification_status').notNull().default('verified'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -234,6 +239,23 @@ export const counsellorTargets = pgTable('counsellor_targets', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   uqTarget: uniqueIndex('uq_counsellor_target').on(t.counsellorId, t.period),
+}));
+
+// Review queue/history for student verification (self-registration → pending
+// approval). Counsellor-created students are verified immediately and never
+// need a row here unless later flagged for re-review.
+export const studentVerification = pgTable('student_verification', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  studentId: uuid('student_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  status: verificationStatusEnum('status').notNull().default('pending'),
+  submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull().defaultNow(),
+  reviewedBy: uuid('reviewed_by').references(() => users.id, { onDelete: 'set null' }),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  rejectionReason: text('rejection_reason'),
+  documents: jsonb('documents').$type<{ name: string; url: string }[]>(),
+}, (t) => ({
+  studentIdx: index('idx_verification_student').on(t.studentId),
+  statusIdx: index('idx_verification_status').on(t.status),
 }));
 
 // ── Batches ───────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { eq, and, count, asc, inArray } from 'drizzle-orm';
+import { eq, and, count, asc, inArray, gt, isNull, or } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { signBunnyUrl, signBunnyFileUrl } from '../../lib/bunny.js';
 import {
@@ -8,6 +8,7 @@ import {
   lessonProgress,
   batchCourses,
   batchEnrollments,
+  users,
 } from '../../../drizzle/schema.js';
 import type {
   CreateCourseInput,
@@ -31,9 +32,45 @@ function forbidden(msg: string) {
   return Object.assign(new Error(msg), { statusCode: 403, code: 'FORBIDDEN' });
 }
 
-// ── Verify student is enrolled in a batch that has this course ────────────────
+// ── Course access gate ─────────────────────────────────────────────────────────
+// A student gets access only when ALL of: account active, verified, AND
+// enrolled (active, non-expired) in a batch carrying this course. Each failure
+// mode gets a distinct code so the app/mobile UI can show the right message.
+function denied(code: string, msg: string) {
+  return Object.assign(new Error(msg), { statusCode: 403, code });
+}
+
 async function assertEnrolled(userId: string, courseId: string): Promise<void> {
+  const [account] = await db
+    .select({ isActive: users.isActive, verificationStatus: users.verificationStatus })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!account) throw denied('ACCOUNT_NOT_FOUND', 'Account not found');
+  if (!account.isActive) throw denied('ACCOUNT_SUSPENDED', 'Your account has been suspended');
+  if (account.verificationStatus !== 'verified') {
+    throw denied('NOT_VERIFIED', 'Your account is pending verification — you cannot access courses yet');
+  }
+
+  const now = new Date();
   const [row] = await db
+    .select({ id: batchCourses.courseId })
+    .from(batchCourses)
+    .innerJoin(
+      batchEnrollments,
+      and(
+        eq(batchEnrollments.batchId, batchCourses.batchId),
+        eq(batchEnrollments.userId, userId),
+        eq(batchEnrollments.status, 'active'),
+        or(isNull(batchEnrollments.expiresAt), gt(batchEnrollments.expiresAt, now)),
+      ),
+    )
+    .where(eq(batchCourses.courseId, courseId))
+    .limit(1);
+  if (row) return;
+
+  // Distinguish "never enrolled" from "enrolled but subscription expired" for a clearer message.
+  const [expired] = await db
     .select({ id: batchCourses.courseId })
     .from(batchCourses)
     .innerJoin(
@@ -46,8 +83,9 @@ async function assertEnrolled(userId: string, courseId: string): Promise<void> {
     )
     .where(eq(batchCourses.courseId, courseId))
     .limit(1);
+  if (expired) throw denied('SUBSCRIPTION_EXPIRED', 'Your access to this batch has expired — contact admissions to renew');
 
-  if (!row) throw forbidden('You are not enrolled in a batch that includes this course');
+  throw denied('NOT_ENROLLED', 'You are not enrolled in a batch that includes this course');
 }
 
 // ── Check drip unlock: module is unlocked for today ──────────────────────────

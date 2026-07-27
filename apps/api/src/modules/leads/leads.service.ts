@@ -9,6 +9,9 @@ import {
   batches,
   batchEnrollments,
 } from '../../../drizzle/schema.js';
+import { hashPassword } from '../../lib/password.js';
+import { sendNotificationToUser, notifyAdmins } from '../notifications/notifications.service.js';
+import { sendEmail, studentWelcomeEmail } from '../../lib/mailer.js';
 import type { CreateLeadInput, UpdateLeadInput, ConvertLeadInput } from './leads.schema.js';
 
 function err(msg: string, statusCode: number, code: string) {
@@ -136,10 +139,17 @@ export async function createLead(input: CreateLeadInput, creatorId: string, defa
 }
 
 export async function updateLead(id: string, input: UpdateLeadInput) {
+  const [before] = await db.select({ ownerId: leads.ownerId }).from(leads).where(eq(leads.id, id)).limit(1);
+  if (!before) throw err('Lead not found', 404, 'LEAD_NOT_FOUND');
+
   const patch: Record<string, unknown> = { ...input, updatedAt: new Date() };
   if (input.nextFollowupAt !== undefined) patch.nextFollowupAt = input.nextFollowupAt ? new Date(input.nextFollowupAt) : null;
   const [lead] = await db.update(leads).set(patch).where(eq(leads.id, id)).returning();
   if (!lead) throw err('Lead not found', 404, 'LEAD_NOT_FOUND');
+
+  if (input.ownerId && input.ownerId !== before.ownerId) {
+    await sendNotificationToUser(input.ownerId, 'New lead assigned', `${lead.studentName} (${lead.leadCode}) has been assigned to you.`, 'lead_assigned', { leadId: id });
+  }
   return lead;
 }
 
@@ -173,7 +183,7 @@ export async function changeStatus(leadId: string, toStatus: string, changedBy: 
 
 // ── Convert a lead into a verified student + admission (atomic) ────────────────
 export async function convertLead(leadId: string, input: ConvertLeadInput, counsellorId: string) {
-  return db.transaction(async (tx) => {
+  const result = db.transaction(async (tx) => {
     const [lead] = await tx.select().from(leads).where(eq(leads.id, leadId)).limit(1);
     if (!lead) throw err('Lead not found', 404, 'LEAD_NOT_FOUND');
     if (lead.status === 'converted') throw err('Lead already converted', 400, 'LEAD_CONVERTED');
@@ -185,6 +195,7 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
     const [existing] = await tx.select({ id: users.id }).from(users).where(eq(users.phone, phone)).limit(1);
     if (existing) throw err('A user with this phone already exists — enrol them manually', 409, 'PHONE_EXISTS');
 
+    const passwordHash = input.password ? await hashPassword(input.password) : null;
     const [student] = await tx
       .insert(users)
       .values({
@@ -194,6 +205,7 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
         role: 'student',
         targetExam: input.targetExam ?? 'kerala_psc',
         branchId: lead.branchId ?? null,
+        passwordHash,
       })
       .returning();
 
@@ -231,6 +243,28 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
       .where(eq(leads.id, leadId));
     await tx.insert(leadStatusHistory).values({ leadId, fromStatus: lead.status, toStatus: 'converted', changedBy: counsellorId });
 
-    return { studentId: student!.id, admissionId: admission!.id, admissionNo };
+    return {
+      studentId: student!.id, admissionId: admission!.id, admissionNo,
+      studentName: student!.name, studentEmail: student!.email, leadCode: lead.leadCode,
+      passwordSet: !!input.password,
+    };
   });
+
+  // Notifications fire after the transaction commits — never let a delivery
+  // failure roll back a successful admission.
+  const finish = async () => {
+    const r = await result;
+    if (r.passwordSet && r.studentEmail) {
+      const { subject, html } = studentWelcomeEmail(r.studentName, r.studentEmail, input.password!);
+      void sendEmail({ to: r.studentEmail, subject, html });
+    }
+    if (r.passwordSet) {
+      await sendNotificationToUser(r.studentId, 'Welcome to Inspiro!', 'Your admission is confirmed and course access is now active.', 'credentials_issued');
+    } else {
+      await sendNotificationToUser(r.studentId, 'Admission confirmed', 'Your admission is confirmed and course access is now active.', 'admission_update');
+    }
+    await notifyAdmins('Lead converted', `${r.studentName} (${r.leadCode}) converted to admission ${r.admissionNo}.`, 'admission_update', { admissionId: r.admissionId });
+    return r;
+  };
+  return finish();
 }

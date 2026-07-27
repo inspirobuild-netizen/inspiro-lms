@@ -1,9 +1,100 @@
 import { and, count, desc, eq, gte, lte, isNotNull, notInArray, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '../../lib/db.js';
-import { leads, admissions, users, courses, branches, counsellorTargets } from '../../../drizzle/schema.js';
+import { leads, admissions, users, courses, batches, branches, counsellorTargets, studentVerification } from '../../../drizzle/schema.js';
 
 const TERMINAL = ['converted', 'lost', 'not_interested'];
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CSV REPORTS
+// ═════════════════════════════════════════════════════════════════════════════
+
+function toCsv(headers: string[], rows: (string | number | null | undefined)[][]): string {
+  const escape = (v: string | number | null | undefined): string => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  return [headers.join(','), ...rows.map((r) => r.map(escape).join(','))].join('\n');
+}
+
+export async function exportAdmissionsCsv(): Promise<string> {
+  const counsellor = alias(users, 'counsellor');
+  const rows = await db
+    .select({
+      admissionNo: admissions.admissionNo, studentName: users.name, studentPhone: users.phone,
+      counsellorName: counsellor.name, branchName: branches.name, courseTitle: courses.title, batchName: batches.name,
+      admissionDate: admissions.admissionDate, feeAmount: admissions.feeAmount, amountPaid: admissions.amountPaid, paymentStatus: admissions.paymentStatus,
+    })
+    .from(admissions)
+    .leftJoin(users, eq(users.id, admissions.studentId))
+    .leftJoin(counsellor, eq(counsellor.id, admissions.counsellorId))
+    .leftJoin(branches, eq(branches.id, admissions.branchId))
+    .leftJoin(courses, eq(courses.id, admissions.courseId))
+    .leftJoin(batches, eq(batches.id, admissions.batchId))
+    .orderBy(desc(admissions.createdAt));
+  return toCsv(
+    ['Admission No', 'Student', 'Phone', 'Counsellor', 'Branch', 'Course', 'Batch', 'Admission Date', 'Fee Amount', 'Amount Paid', 'Payment Status'],
+    rows.map((r) => [r.admissionNo, r.studentName, r.studentPhone, r.counsellorName, r.branchName, r.courseTitle, r.batchName, r.admissionDate, r.feeAmount, r.amountPaid, r.paymentStatus]),
+  );
+}
+
+export async function exportLeadSourceCsv(): Promise<string> {
+  const rows = await db.select({ source: leads.source, n: count() }).from(leads).groupBy(leads.source).orderBy(desc(count()));
+  return toCsv(['Source', 'Leads'], rows.map((r) => [r.source, Number(r.n)]));
+}
+
+export async function exportRevenueCsv(period: 'daily' | 'monthly' | 'yearly'): Promise<string> {
+  const trunc = period === 'daily' ? 'day' : period === 'monthly' ? 'month' : 'year';
+  const fmt = period === 'daily' ? 'YYYY-MM-DD' : period === 'monthly' ? 'YYYY-MM' : 'YYYY';
+  const rows = (await db.execute(sql`
+    SELECT to_char(date_trunc(${trunc}, admission_date), ${fmt}) AS period,
+           count(*)::int AS admissions, coalesce(sum(fee_amount),0)::float AS revenue, coalesce(sum(amount_paid),0)::float AS collected
+    FROM admissions GROUP BY 1 ORDER BY 1
+  `)) as unknown as { rows: { period: string; admissions: number; revenue: number; collected: number }[] };
+  return toCsv(['Period', 'Admissions', 'Revenue', 'Collected'], rows.rows.map((r) => [r.period, r.admissions, r.revenue, r.collected]));
+}
+
+export async function exportPendingLeadsCsv(): Promise<string> {
+  const rows = await db
+    .select({ leadCode: leads.leadCode, studentName: leads.studentName, phone: leads.phone, status: leads.status, ownerName: users.name, nextFollowupAt: leads.nextFollowupAt, createdAt: leads.createdAt })
+    .from(leads).leftJoin(users, eq(users.id, leads.ownerId))
+    .where(notInArray(leads.status, TERMINAL as never[]))
+    .orderBy(desc(leads.createdAt));
+  return toCsv(['Lead Code', 'Student', 'Phone', 'Status', 'Owner', 'Next Follow-up', 'Created'], rows.map((r) => [r.leadCode, r.studentName, r.phone, r.status, r.ownerName, r.nextFollowupAt?.toISOString() ?? '', r.createdAt.toISOString()]));
+}
+
+export async function exportFollowupReportCsv(): Promise<string> {
+  const rows = await db
+    .select({ leadCode: leads.leadCode, studentName: leads.studentName, status: leads.status, ownerName: users.name, nextFollowupAt: leads.nextFollowupAt })
+    .from(leads).leftJoin(users, eq(users.id, leads.ownerId))
+    .where(and(isNotNull(leads.nextFollowupAt), notInArray(leads.status, TERMINAL as never[])))
+    .orderBy(leads.nextFollowupAt);
+  return toCsv(['Lead Code', 'Student', 'Status', 'Owner', 'Next Follow-up'], rows.map((r) => [r.leadCode, r.studentName, r.status, r.ownerName, r.nextFollowupAt?.toISOString() ?? '']));
+}
+
+export async function exportInactiveLeadsCsv(days: number): Promise<string> {
+  const cutoff = new Date(Date.now() - days * 86400_000);
+  const rows = await db
+    .select({ leadCode: leads.leadCode, studentName: leads.studentName, phone: leads.phone, status: leads.status, ownerName: users.name, updatedAt: leads.updatedAt })
+    .from(leads).leftJoin(users, eq(users.id, leads.ownerId))
+    .where(and(notInArray(leads.status, TERMINAL as never[]), lte(leads.updatedAt, cutoff)))
+    .orderBy(leads.updatedAt);
+  return toCsv(['Lead Code', 'Student', 'Phone', 'Status', 'Owner', 'Last Updated'], rows.map((r) => [r.leadCode, r.studentName, r.phone, r.status, r.ownerName, r.updatedAt.toISOString()]));
+}
+
+export async function exportVerificationReportCsv(): Promise<string> {
+  const reviewer = alias(users, 'reviewer');
+  const student = alias(users, 'student');
+  const rows = await db
+    .select({ studentName: student.name, phone: student.phone, status: studentVerification.status, submittedAt: studentVerification.submittedAt, reviewedAt: studentVerification.reviewedAt, reviewerName: reviewer.name, rejectionReason: studentVerification.rejectionReason })
+    .from(studentVerification)
+    .leftJoin(student, eq(student.id, studentVerification.studentId))
+    .leftJoin(reviewer, eq(reviewer.id, studentVerification.reviewedBy))
+    .orderBy(desc(studentVerification.submittedAt));
+  return toCsv(['Student', 'Phone', 'Status', 'Submitted', 'Reviewed', 'Reviewer', 'Note'], rows.map((r) => [r.studentName, r.phone, r.status, r.submittedAt.toISOString(), r.reviewedAt?.toISOString() ?? '', r.reviewerName, r.rejectionReason]));
+}
 
 // ── Counsellor (or scoped) dashboard KPIs ─────────────────────────────────────
 export async function getCounsellorDashboard(counsellorId: string, viewAll: boolean) {

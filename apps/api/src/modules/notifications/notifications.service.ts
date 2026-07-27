@@ -124,7 +124,7 @@ export async function sendNotificationToUser(
   userId: string,
   title: string,
   body: string,
-  type: 'class_reminder' | 'exam_alert' | 'result' | 'announcement' | 'doubt_reply' | 'achievement',
+  type: 'class_reminder' | 'exam_alert' | 'result' | 'announcement' | 'doubt_reply' | 'achievement' | 'lead_assigned' | 'verification_update' | 'admission_update' | 'credentials_issued',
   data?: Record<string, unknown>,
 ) {
   // Persist in DB (userId null = broadcast — here always targeted)
@@ -152,7 +152,7 @@ export async function broadcastToBatch(
   batchId: string,
   title: string,
   body: string,
-  type: 'class_reminder' | 'exam_alert' | 'result' | 'announcement' | 'doubt_reply' | 'achievement',
+  type: 'class_reminder' | 'exam_alert' | 'result' | 'announcement' | 'doubt_reply' | 'achievement' | 'lead_assigned' | 'verification_update' | 'admission_update' | 'credentials_issued',
   data?: Record<string, unknown>,
 ) {
   // Get all enrolled student IDs
@@ -193,6 +193,17 @@ export async function broadcastToBatch(
   const sent = results.filter((r) => r.status === 'fulfilled' && r.value).length;
   logger.info({ batchId, total: tokens.length, sent }, 'Batch broadcast done');
   return { sent, total: tokens.length };
+}
+
+// ── Notify every active admin (e.g. lead converted, new admission) ───────────
+export async function notifyAdmins(
+  title: string,
+  body: string,
+  type: 'class_reminder' | 'exam_alert' | 'result' | 'announcement' | 'doubt_reply' | 'achievement' | 'lead_assigned' | 'verification_update' | 'admission_update' | 'credentials_issued',
+  data?: Record<string, unknown>,
+) {
+  const admins = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'admin'), eq(users.isActive, true)));
+  await Promise.allSettled(admins.map((a) => sendNotificationToUser(a.id, title, body, type, data)));
 }
 
 // ── List notifications for current user ───────────────────────────────────────
