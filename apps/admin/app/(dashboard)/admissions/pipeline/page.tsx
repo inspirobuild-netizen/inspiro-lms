@@ -82,7 +82,7 @@ export default function PipelinePage() {
         <p className="text-slate-500">Loading…</p>
       ) : (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-          <div className="flex gap-4 overflow-x-auto pb-4">
+          <div className="flex gap-3 overflow-x-auto pb-4">
             {STAGES.map((s) => (
               <Column key={s.key} id={s.key} label={s.label} cards={byStage.get(s.key) ?? []} />
             ))}
@@ -99,11 +99,11 @@ function Column({ id, label, cards }: { id: string; label: string; cards: Card[]
   return (
     <div
       ref={setNodeRef}
-      className={`w-72 flex-shrink-0 rounded-2xl border p-3 transition-colors ${isOver ? 'border-brand-violet bg-brand-violet/5' : 'border-white/8 bg-surface-1'}`}
+      className={`flex-1 min-w-[145px] max-w-[280px] rounded-2xl border p-2 transition-colors ${isOver ? 'border-brand-violet bg-brand-violet/5' : 'border-white/8 bg-surface-1'}`}
     >
       <div className="flex items-center justify-between mb-3 px-1">
-        <h3 className="text-sm font-semibold text-slate-200">{label}</h3>
-        <span className="text-xs text-slate-500">{cards.length}</span>
+        <h3 className="text-xs font-semibold text-slate-200 leading-tight">{label}</h3>
+        <span className="text-xs text-slate-500 shrink-0 ml-1">{cards.length}</span>
       </div>
       <div className="space-y-2 min-h-[80px]">
         {cards.map((c) => <DraggableCard key={c.id} card={c} />)}
@@ -127,15 +127,15 @@ function LeadCard({ card, dragging }: { card: Card; dragging?: boolean }) {
     <Link
       href={`/admissions/leads/${card.id}`}
       onClick={(e) => dragging && e.preventDefault()}
-      className={`block rounded-xl bg-surface-2 border border-white/8 p-3 hover:bg-surface-high transition-colors cursor-grab active:cursor-grabbing ${dragging ? 'shadow-2xl rotate-2' : ''}`}
+      className={`block rounded-xl bg-surface-2 border border-white/8 p-2.5 hover:bg-surface-high transition-colors cursor-grab active:cursor-grabbing overflow-hidden ${dragging ? 'shadow-2xl rotate-2' : ''}`}
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-1">
         <p className="text-sm font-medium text-slate-200 truncate">{card.studentName}</p>
-        <Badge variant={priorityVariant[card.priority]}>{card.priority}</Badge>
+        <Badge variant={priorityVariant[card.priority]} className="shrink-0">{card.priority}</Badge>
       </div>
-      <p className="text-xs text-slate-500 mt-1">{card.leadCode} · {formatPhone(card.phone)}</p>
+      <p className="text-xs text-slate-500 mt-1 truncate">{card.leadCode} · {formatPhone(card.phone)}</p>
       {card.courseInterested && <p className="text-xs text-slate-400 mt-1 truncate">{card.courseInterested}</p>}
-      {card.ownerName && <p className="text-xs text-slate-500 mt-1">{card.ownerName}</p>}
+      {card.ownerName && <p className="text-xs text-slate-500 mt-1 truncate">{card.ownerName}</p>}
     </Link>
   );
 }
