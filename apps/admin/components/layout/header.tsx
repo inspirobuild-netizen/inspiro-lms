@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import { GlobalSearch } from './global-search';
 
 const titles: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -13,6 +14,8 @@ const titles: Record<string, string> = {
   '/staff': 'Staff Management',
   '/branches': 'Branches',
   '/admissions': 'Admission CRM',
+  '/reports': 'Reports',
+  '/audit-log': 'Audit Log',
 };
 
 export function Header() {
@@ -21,8 +24,9 @@ export function Header() {
   const title = titles[segment] ?? 'Admin';
 
   return (
-    <header className="h-16 flex items-center px-8 border-b border-white/8 bg-surface/80 backdrop-blur sticky top-0 z-10">
+    <header className="h-16 flex items-center justify-between px-8 border-b border-white/8 bg-surface/80 backdrop-blur sticky top-0 z-10">
       <h1 className="font-display font-bold text-lg text-slate-100">{title}</h1>
+      <GlobalSearch />
     </header>
   );
 }
