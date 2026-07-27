@@ -7,19 +7,30 @@ import { useAuthStore, useHasPermission, type AdminUser } from '@/lib/auth';
 import { authApi } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 
+type Group = 'general' | 'academic' | 'admissions' | 'staffing' | 'insights';
+
 type NavItem = {
   label: string;
   href: string;
   icon: React.ReactNode;
+  group: Group;
   permission?: string; // shown to staff who hold this permission
   always?: boolean; // shown to every signed-in user
-  legacy?: boolean; // existing admin/instructor-only page (not yet permission-scoped)
 };
+
+const GROUP_LABELS: Record<Exclude<Group, 'general'>, string> = {
+  academic: 'Academic',
+  admissions: 'Admissions CRM',
+  staffing: 'Staffing',
+  insights: 'Insights',
+};
+const GROUP_ORDER: Group[] = ['general', 'academic', 'admissions', 'staffing', 'insights'];
 
 const navItems: NavItem[] = [
   {
     label: 'Dashboard',
     href: '/dashboard',
+    group: 'general',
     always: true,
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -27,10 +38,13 @@ const navItems: NavItem[] = [
       </svg>
     ),
   },
+
+  // ── Academic ────────────────────────────────────────────────────────────────
   {
     label: 'Students',
     href: '/students',
-    legacy: true,
+    group: 'academic',
+    permission: 'students.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
@@ -40,7 +54,8 @@ const navItems: NavItem[] = [
   {
     label: 'Batches',
     href: '/batches',
-    legacy: true,
+    group: 'academic',
+    permission: 'batches.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
@@ -50,7 +65,8 @@ const navItems: NavItem[] = [
   {
     label: 'Courses',
     href: '/courses',
-    legacy: true,
+    group: 'academic',
+    permission: 'courses.manage',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
@@ -60,7 +76,8 @@ const navItems: NavItem[] = [
   {
     label: 'Exams',
     href: '/exams',
-    legacy: true,
+    group: 'academic',
+    permission: 'exams.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
@@ -70,26 +87,20 @@ const navItems: NavItem[] = [
   {
     label: 'Doubts',
     href: '/doubts',
-    legacy: true,
+    group: 'academic',
+    permission: 'doubts.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
   },
-  {
-    label: 'Analytics',
-    href: '/analytics',
-    legacy: true,
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    ),
-  },
+
+  // ── Admissions CRM ──────────────────────────────────────────────────────────
   {
     label: 'Admissions',
     href: '/admissions',
+    group: 'admissions',
     permission: 'leads.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -100,6 +111,7 @@ const navItems: NavItem[] = [
   {
     label: 'Leads',
     href: '/admissions/leads',
+    group: 'admissions',
     permission: 'leads.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -111,6 +123,7 @@ const navItems: NavItem[] = [
   {
     label: 'Pipeline',
     href: '/admissions/pipeline',
+    group: 'admissions',
     permission: 'leads.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -119,19 +132,9 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: 'CRM Analytics',
-    href: '/admissions/analytics',
-    permission: 'analytics.view_all',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
-      </svg>
-    ),
-  },
-  {
     label: 'Verification',
     href: '/students/verification',
+    group: 'admissions',
     permission: 'students.verify',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -140,28 +143,23 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: 'Reports',
-    href: '/reports',
-    permission: 'reports.view',
+    label: 'CRM Analytics',
+    href: '/admissions/analytics',
+    group: 'admissions',
+    permission: 'analytics.view_all',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2a4 4 0 014-4h4m0 0l-3-3m3 3l-3 3M4 6h16M4 12h4m-4 6h4" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
       </svg>
     ),
   },
-  {
-    label: 'Audit Log',
-    href: '/audit-log',
-    permission: 'audit.view',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>
-    ),
-  },
+
+  // ── Staffing ────────────────────────────────────────────────────────────────
   {
     label: 'Staff',
     href: '/staff',
+    group: 'staffing',
     permission: 'staff.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -172,6 +170,7 @@ const navItems: NavItem[] = [
   {
     label: 'Roles & Permissions',
     href: '/staff/roles',
+    group: 'staffing',
     permission: 'roles.manage',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -182,10 +181,46 @@ const navItems: NavItem[] = [
   {
     label: 'Branches',
     href: '/branches',
+    group: 'staffing',
     permission: 'branches.manage',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0H5m14 0h2M5 21H3m6-14h.01M9 11h.01M9 15h.01M15 7h.01M15 11h.01M15 15h.01" />
+      </svg>
+    ),
+  },
+
+  // ── Insights ────────────────────────────────────────────────────────────────
+  {
+    label: 'Analytics',
+    href: '/analytics',
+    group: 'insights',
+    permission: 'analytics.view_all',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+      </svg>
+    ),
+  },
+  {
+    label: 'Reports',
+    href: '/reports',
+    group: 'insights',
+    permission: 'reports.view',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2a4 4 0 014-4h4m0 0l-3-3m3 3l-3 3M4 6h16M4 12h4m-4 6h4" />
+      </svg>
+    ),
+  },
+  {
+    label: 'Audit Log',
+    href: '/audit-log',
+    group: 'insights',
+    permission: 'audit.view',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
     ),
   },
@@ -195,7 +230,6 @@ function visible(item: NavItem, user: AdminUser, has: (c: string) => boolean): b
   if (user.role === 'admin') return true;
   if (item.always) return true;
   if (item.permission) return has(item.permission);
-  if (item.legacy) return user.role === 'instructor';
   return false;
 }
 
@@ -210,6 +244,10 @@ export function Sidebar() {
   const activeHref = items
     .filter((i) => pathname === i.href || pathname.startsWith(i.href + '/'))
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+
+  const byGroup = GROUP_ORDER.map((g) => ({ group: g, items: items.filter((i) => i.group === g) })).filter(
+    (g) => g.items.length > 0,
+  );
 
   async function handleLogout() {
     if (accessToken) {
@@ -233,25 +271,36 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {items.map((item) => {
-          const active = item.href === activeHref;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
-                active
-                  ? 'bg-brand-violet/20 text-violet-300'
-                  : 'text-slate-400 hover:bg-surface-high hover:text-slate-200',
-              )}
-            >
-              <span className={active ? 'text-violet-400' : ''}>{item.icon}</span>
-              {item.label}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
+        {byGroup.map(({ group, items: groupItems }) => (
+          <div key={group}>
+            {group !== 'general' && (
+              <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                {GROUP_LABELS[group]}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {groupItems.map((item) => {
+                const active = item.href === activeHref;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
+                      active
+                        ? 'bg-brand-violet/20 text-violet-300'
+                        : 'text-slate-400 hover:bg-surface-high hover:text-slate-200',
+                    )}
+                  >
+                    <span className={active ? 'text-violet-400' : ''}>{item.icon}</span>
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* User */}
