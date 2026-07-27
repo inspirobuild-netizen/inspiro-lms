@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../../middleware/authenticate.js';
 import { requirePermission, hasPermission } from '../../middleware/require-permission.js';
 import { updatePaymentSchema, setTargetSchema } from './admissions.schema.js';
-import { listAdmissions, updatePayment, setTarget, getTarget } from './admissions.service.js';
+import { listAdmissions, getAdmissionsSummary, updatePayment, setTarget, getTarget } from './admissions.service.js';
 import { logAudit } from '../../lib/audit.js';
 
 export default async function admissionsRoutes(app: FastifyInstance) {
@@ -13,10 +13,17 @@ export default async function admissionsRoutes(app: FastifyInstance) {
     const viewAll = await hasPermission(req, 'admissions.view_all');
     const { items, total } = await listAdmissions({
       page, limit, counsellorId: req.user.sub, viewAll,
-      batchId: q.batchId || undefined, branchId: q.branchId || undefined,
+      batchId: q.batchId || undefined, courseId: q.courseId || undefined, branchId: q.branchId || undefined,
       paymentStatus: q.paymentStatus || undefined, search: q.search?.trim() || undefined,
     });
     return reply.send({ success: true, data: items, meta: { page, limit, total } });
+  });
+
+  app.get('/admissions/summary', { preHandler: [authenticate, requirePermission('admissions.view')] }, async (req, reply) => {
+    const q = req.query as Record<string, string | undefined>;
+    const viewAll = await hasPermission(req, 'admissions.view_all');
+    const data = await getAdmissionsSummary({ counsellorId: req.user.sub, viewAll, branchId: q.branchId || undefined });
+    return reply.send({ success: true, data });
   });
 
   app.patch('/admissions/:id/payment', { preHandler: [authenticate, requirePermission('admissions.manage')] }, async (req, reply) => {

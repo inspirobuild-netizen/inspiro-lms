@@ -12,11 +12,12 @@ const counsellor = alias(users, 'counsellor');
 
 export async function listAdmissions(opts: {
   page: number; limit: number; counsellorId: string; viewAll: boolean;
-  batchId?: string; branchId?: string; paymentStatus?: string; search?: string;
+  batchId?: string; courseId?: string; branchId?: string; paymentStatus?: string; search?: string;
 }) {
   const conds = [];
   if (!opts.viewAll) conds.push(eq(admissions.counsellorId, opts.counsellorId));
   if (opts.batchId) conds.push(eq(admissions.batchId, opts.batchId));
+  if (opts.courseId) conds.push(eq(admissions.courseId, opts.courseId));
   if (opts.branchId) conds.push(eq(admissions.branchId, opts.branchId));
   if (opts.paymentStatus) conds.push(eq(admissions.paymentStatus, opts.paymentStatus as never));
   if (opts.search) conds.push(or(ilike(admissions.admissionNo, `%${opts.search}%`), ilike(users.name, `%${opts.search}%`))!);
@@ -41,6 +42,45 @@ export async function listAdmissions(opts: {
     .limit(opts.limit)
     .offset((opts.page - 1) * opts.limit);
   return { items, total };
+}
+
+export async function getAdmissionsSummary(opts: { counsellorId: string; viewAll: boolean; branchId?: string }) {
+  const conds = [];
+  if (!opts.viewAll) conds.push(eq(admissions.counsellorId, opts.counsellorId));
+  if (opts.branchId) conds.push(eq(admissions.branchId, opts.branchId));
+  const where = conds.length ? and(...conds) : undefined;
+
+  const byBatch = await db
+    .select({
+      batchId: batches.id,
+      batchName: batches.name,
+      count: count(admissions.id),
+      totalFee: sql<number>`coalesce(sum(${admissions.feeAmount}), 0)`,
+      totalPaid: sql<number>`coalesce(sum(${admissions.amountPaid}), 0)`,
+    })
+    .from(admissions)
+    .innerJoin(batches, eq(batches.id, admissions.batchId))
+    .where(where)
+    .groupBy(batches.id, batches.name)
+    .orderBy(desc(count(admissions.id)));
+
+  const byCourse = await db
+    .select({
+      courseId: courses.id,
+      courseTitle: courses.title,
+      count: count(admissions.id),
+      totalFee: sql<number>`coalesce(sum(${admissions.feeAmount}), 0)`,
+      totalPaid: sql<number>`coalesce(sum(${admissions.amountPaid}), 0)`,
+    })
+    .from(admissions)
+    .innerJoin(courses, eq(courses.id, admissions.courseId))
+    .where(where)
+    .groupBy(courses.id, courses.title)
+    .orderBy(desc(count(admissions.id)));
+
+  const [{ total }] = await db.select({ total: count() }).from(admissions).where(where);
+
+  return { total, byBatch, byCourse };
 }
 
 export async function updatePayment(id: string, input: UpdatePaymentInput) {

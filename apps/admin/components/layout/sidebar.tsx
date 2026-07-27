@@ -143,6 +143,17 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    label: 'Admitted Students',
+    href: '/admissions/students',
+    group: 'admissions',
+    permission: 'admissions.view',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422A12.083 12.083 0 0121 17.618 11.955 11.955 0 0012 22.75 11.955 11.955 0 003 17.618a12.083 12.083 0 012.84-6.68L12 14z" />
+      </svg>
+    ),
+  },
+  {
     label: 'CRM Analytics',
     href: '/admissions/analytics',
     group: 'admissions',
