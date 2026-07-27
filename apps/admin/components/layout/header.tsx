@@ -12,6 +12,7 @@ const titles: Record<string, string> = {
   '/analytics': 'Analytics',
   '/staff': 'Staff Management',
   '/branches': 'Branches',
+  '/admissions': 'Admission CRM',
 };
 
 export function Header() {
