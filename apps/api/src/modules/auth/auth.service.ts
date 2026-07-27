@@ -157,7 +157,7 @@ function resetTokenKey(token: string): string {
 
 export async function requestPasswordReset(email: string): Promise<void> {
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
-  if (!user || (user.role !== 'admin' && user.role !== 'instructor') || !user.isActive) {
+  if (!user || (user.role !== 'admin' && user.role !== 'instructor' && user.role !== 'staff') || !user.isActive) {
     return; // silent — never disclose account existence
   }
 
