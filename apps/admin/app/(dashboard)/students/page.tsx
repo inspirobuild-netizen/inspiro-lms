@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createApiClient, ApiError } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth';
@@ -29,6 +29,15 @@ export default function StudentsPage() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const limit = 20;
+
+  // Prefill from ?q= (e.g. arriving via the global search dropdown)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q');
+    if (q) {
+      setSearch(q);
+      setDebouncedSearch(q);
+    }
+  }, []);
 
   // Debounce search input
   function handleSearchChange(val: string) {

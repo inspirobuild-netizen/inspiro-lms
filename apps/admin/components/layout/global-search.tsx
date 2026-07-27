@@ -76,7 +76,9 @@ export function GlobalSearch() {
           {!!r?.students.length && (
             <Section title="Students">
               {r.students.map((s) => (
-                <ResultRow key={s.id} onClick={() => go(`/students/${s.id}`)} title={s.name} sub={s.phone} />
+                // No per-student detail page exists yet — land on the Students
+                // list pre-filtered to this phone number (unique per student).
+                <ResultRow key={s.id} onClick={() => go(`/students?q=${encodeURIComponent(s.phone)}`)} title={s.name} sub={s.phone} />
               ))}
             </Section>
           )}
