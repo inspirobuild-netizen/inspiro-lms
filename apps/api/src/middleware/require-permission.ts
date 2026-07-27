@@ -23,6 +23,18 @@ export async function bustStaffRoleCache(userId: string): Promise<void> {
   await redis.del(`user:staffrole:${userId}`);
 }
 
+// Non-throwing permission check for finer-grained logic inside handlers
+// (e.g. "own leads" vs "all leads"). Admins hold every permission.
+export async function hasPermission(req: FastifyRequest, code: string): Promise<boolean> {
+  if (!req.user) return false;
+  if (req.user.role === 'admin') return true;
+  if (req.user.role !== 'staff') return false;
+  const staffRoleId = await getStaffRoleId(req.user.sub);
+  if (!staffRoleId) return false;
+  const perms = await getRolePermissions(staffRoleId);
+  return perms.includes(code);
+}
+
 // Gate a route on a permission code. Admins bypass (full access). Staff are
 // checked against their role's permission set. Must run after `authenticate`.
 export function requirePermission(code: string) {

@@ -61,6 +61,10 @@ await app.register(import('./modules/rag/rag.routes.js'), { prefix: '/api/v1' })
 await app.register(import('./modules/branches/branches.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/staff-roles/staff-roles.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/staff/staff.routes.js'), { prefix: '/api/v1' });
+// Lead Management + Admission CRM (Phase 2 of the admissions module)
+await app.register(import('./modules/leads/leads.routes.js'), { prefix: '/api/v1' });
+await app.register(import('./modules/admissions/admissions.routes.js'), { prefix: '/api/v1' });
+await app.register(import('./modules/crm/crm.routes.js'), { prefix: '/api/v1' });
 
 // ── Cron jobs ─────────────────────────────────────────────────────────────────
 if (process.env['NODE_ENV'] !== 'test') {

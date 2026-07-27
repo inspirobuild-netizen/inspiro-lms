@@ -31,6 +31,11 @@ export const notificationTypeEnum = pgEnum('notification_type', ['class_reminder
 export const leaderboardPeriodEnum = pgEnum('leaderboard_period', ['weekly', 'monthly', 'all_time']);
 export const enrollmentStatusEnum = pgEnum('enrollment_status', ['active', 'expired', 'suspended']);
 export const targetExamEnum = pgEnum('target_exam', ['upsc', 'kerala_psc', 'other_psc']);
+// Admission CRM (Phase 2)
+export const leadSourceEnum = pgEnum('lead_source', ['facebook', 'instagram', 'google', 'website', 'walk_in', 'referral', 'seminar', 'campaign', 'other']);
+export const leadPriorityEnum = pgEnum('lead_priority', ['hot', 'warm', 'cold']);
+export const leadStatusEnum = pgEnum('lead_status', ['new', 'contacted', 'interested', 'demo', 'counselling', 'fee_discussion', 'admission_confirmed', 'converted', 'not_interested', 'lost']);
+export const paymentStatusEnum = pgEnum('payment_status', ['pending', 'partial', 'paid']);
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 export const users = pgTable('users', {
@@ -138,6 +143,97 @@ export const auditLogs = pgTable('audit_logs', {
   actorIdx: index('idx_audit_actor').on(t.actorUserId),
   entityIdx: index('idx_audit_entity').on(t.entityType, t.entityId),
   createdIdx: index('idx_audit_created').on(t.createdAt),
+}));
+
+// ── Admission CRM (Phase 2) ───────────────────────────────────────────────────
+export const leads = pgTable('leads', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  leadCode: varchar('lead_code', { length: 30 }).notNull().unique(),
+  studentName: varchar('student_name', { length: 255 }).notNull(),
+  parentName: varchar('parent_name', { length: 255 }),
+  phone: varchar('phone', { length: 20 }).notNull(),
+  whatsapp: varchar('whatsapp', { length: 20 }),
+  email: varchar('email', { length: 255 }),
+  city: varchar('city', { length: 120 }),
+  state: varchar('state', { length: 120 }),
+  courseInterested: varchar('course_interested', { length: 255 }),
+  source: leadSourceEnum('source').notNull().default('other'),
+  priority: leadPriorityEnum('priority').notNull().default('warm'),
+  status: leadStatusEnum('status').notNull().default('new'),
+  ownerId: uuid('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  branchId: uuid('branch_id').references(() => branches.id, { onDelete: 'set null' }),
+  remarks: text('remarks'),
+  nextFollowupAt: timestamp('next_followup_at', { withTimezone: true }),
+  convertedStudentId: uuid('converted_student_id').references(() => users.id, { onDelete: 'set null' }),
+  convertedAt: timestamp('converted_at', { withTimezone: true }),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  ownerIdx: index('idx_leads_owner').on(t.ownerId),
+  statusIdx: index('idx_leads_status').on(t.status),
+  branchIdx: index('idx_leads_branch').on(t.branchId),
+  followupIdx: index('idx_leads_followup').on(t.nextFollowupAt),
+}));
+
+export const leadFollowups = pgTable('lead_followups', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  leadId: uuid('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  staffId: uuid('staff_id').references(() => users.id, { onDelete: 'set null' }),
+  remarks: text('remarks').notNull(),
+  callSummary: text('call_summary'),
+  nextAction: varchar('next_action', { length: 255 }),
+  reminderAt: timestamp('reminder_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  leadIdx: index('idx_followups_lead').on(t.leadId),
+}));
+
+export const leadStatusHistory = pgTable('lead_status_history', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  leadId: uuid('lead_id').notNull().references(() => leads.id, { onDelete: 'cascade' }),
+  fromStatus: leadStatusEnum('from_status'),
+  toStatus: leadStatusEnum('to_status').notNull(),
+  changedBy: uuid('changed_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  leadIdx: index('idx_lead_history_lead').on(t.leadId),
+}));
+
+export const admissions = pgTable('admissions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  admissionNo: varchar('admission_no', { length: 30 }).notNull().unique(),
+  studentId: uuid('student_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  leadId: uuid('lead_id').references(() => leads.id, { onDelete: 'set null' }),
+  counsellorId: uuid('counsellor_id').references(() => users.id, { onDelete: 'set null' }),
+  courseId: uuid('course_id').references(() => courses.id, { onDelete: 'set null' }),
+  batchId: uuid('batch_id').references(() => batches.id, { onDelete: 'set null' }),
+  branchId: uuid('branch_id').references(() => branches.id, { onDelete: 'set null' }),
+  admissionDate: date('admission_date').notNull(),
+  feePlan: varchar('fee_plan', { length: 120 }),
+  feeAmount: real('fee_amount').notNull().default(0),
+  amountPaid: real('amount_paid').notNull().default(0),
+  paymentStatus: paymentStatusEnum('payment_status').notNull().default('pending'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  studentIdx: index('idx_admissions_student').on(t.studentId),
+  counsellorIdx: index('idx_admissions_counsellor').on(t.counsellorId),
+  batchIdx: index('idx_admissions_batch').on(t.batchId),
+  branchIdx: index('idx_admissions_branch').on(t.branchId),
+  dateIdx: index('idx_admissions_date').on(t.admissionDate),
+}));
+
+export const counsellorTargets = pgTable('counsellor_targets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  counsellorId: uuid('counsellor_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  period: varchar('period', { length: 7 }).notNull(), // 'YYYY-MM'
+  targetAdmissions: integer('target_admissions').notNull().default(0),
+  targetRevenue: real('target_revenue').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uqTarget: uniqueIndex('uq_counsellor_target').on(t.counsellorId, t.period),
 }));
 
 // ── Batches ───────────────────────────────────────────────────────────────────
