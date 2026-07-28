@@ -17,8 +17,8 @@ type DataTableProps<T> = {
 
 export function DataTable<T>({ columns, data, loading, emptyMessage = 'No data', getKey }: DataTableProps<T>) {
   return (
-    <div className="rounded-2xl border border-white/8 bg-surface-1 overflow-hidden">
-      <table className="w-full text-sm">
+    <div className="rounded-2xl border border-white/8 bg-surface-1 overflow-x-auto">
+      <table className="w-full text-sm min-w-[640px]">
         <thead>
           <tr className="border-b border-white/8">
             {columns.map((col) => (

@@ -249,7 +249,7 @@ function AddLessonForm({ moduleId, nextOrder, onAdded }: { moduleId: string; nex
           <Field label="Title">
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="01. Historical Background" autoFocus />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Type">
               <Select value={type} onChange={(e) => setType(e.target.value)}>
                 <option value="video">Video</option>

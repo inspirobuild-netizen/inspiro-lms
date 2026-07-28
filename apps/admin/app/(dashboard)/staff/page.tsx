@@ -137,7 +137,7 @@ function AddStaffButton({ roles, onCreated }: { roles: RoleOpt[]; onCreated: () 
     <>
       <Button onClick={() => setOpen(true)}>+ Add staff</Button>
       <Modal open={open} onClose={() => setOpen(false)} title="Add staff member" description="They sign in with this email + password" wide>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="Full name"><Input value={f.name} onChange={(e) => set('name')(e.target.value)} placeholder="Priya Nair" autoFocus /></Field>
           <Field label="Role">
             <Select value={f.staffRoleId} onChange={(e) => set('staffRoleId')(e.target.value)}>

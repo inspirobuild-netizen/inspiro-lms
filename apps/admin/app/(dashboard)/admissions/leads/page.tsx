@@ -129,7 +129,7 @@ function AddLeadModal({ open, onClose, onCreated }: { open: boolean; onClose: ()
 
   return (
     <Modal open={open} onClose={onClose} title="Add lead" wide>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Student name"><Input value={f.studentName} onChange={(e) => set('studentName')(e.target.value)} autoFocus /></Field>
         <Field label="Parent name"><Input value={f.parentName} onChange={(e) => set('parentName')(e.target.value)} /></Field>
         <Field label="Phone"><Input value={f.phone} onChange={(e) => set('phone')(e.target.value)} placeholder="+91…" /></Field>

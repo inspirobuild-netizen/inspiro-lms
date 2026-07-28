@@ -75,7 +75,7 @@ export default function GenerateExamPage() {
         </div>
       ) : (
         <div className="rounded-2xl bg-surface-1 border border-white/8 p-6 space-y-5">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className="block text-sm font-medium text-slate-300 mb-1.5">Topic</label>
               <Input

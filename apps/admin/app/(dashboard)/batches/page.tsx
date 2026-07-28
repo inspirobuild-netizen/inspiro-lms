@@ -167,7 +167,7 @@ function NewBatchButton({ onCreated }: { onCreated: () => void }) {
           <Field label="Name">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`Kerala PSC ${currentYear + 1} — Batch A`} autoFocus />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Mode">
               <Select value={type} onChange={(e) => setType(e.target.value)}>
                 <option value="hybrid">Hybrid</option>

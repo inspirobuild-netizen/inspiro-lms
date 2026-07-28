@@ -210,7 +210,7 @@ function AddStudentButton({ onCreated }: { onCreated: () => void }) {
           <Field label="Email (optional)">
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="student@example.com" />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Role">
               <Select value={role} onChange={(e) => setRole(e.target.value)}>
                 <option value="student">Student</option>

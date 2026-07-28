@@ -244,7 +244,7 @@ function visible(item: NavItem, user: AdminUser, has: (c: string) => boolean): b
   return false;
 }
 
-export function Sidebar() {
+export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, accessToken, clearAuth } = useAuthStore();
@@ -269,16 +269,41 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-50 w-60 flex flex-col bg-surface-1 border-r border-white/8">
+    <>
+      {/* Mobile backdrop */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 lg:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-50 w-60 flex flex-col bg-surface-1 border-r border-white/8 transition-transform duration-200 lg:translate-x-0',
+          open ? 'translate-x-0' : '-translate-x-full',
+        )}
+      >
       {/* Logo */}
-      <div className="flex items-center gap-3 px-6 py-5 border-b border-white/8">
-        <div className="w-8 h-8 rounded-lg bg-brand-violet flex items-center justify-center">
-          <span className="text-white font-bold text-sm">I</span>
+      <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-white/8">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-brand-violet flex items-center justify-center">
+            <span className="text-white font-bold text-sm">I</span>
+          </div>
+          <div>
+            <p className="font-display font-bold text-sm text-slate-100">Inspiro</p>
+            <p className="text-[10px] text-slate-500 -mt-0.5">Civil Connect LMS</p>
+          </div>
         </div>
-        <div>
-          <p className="font-display font-bold text-sm text-slate-100">Inspiro</p>
-          <p className="text-[10px] text-slate-500 -mt-0.5">Civil Connect LMS</p>
-        </div>
+        <button
+          onClick={onClose}
+          aria-label="Close menu"
+          className="lg:hidden text-slate-500 hover:text-slate-200 transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       </div>
 
       {/* Nav */}
@@ -332,6 +357,7 @@ export function Sidebar() {
           Sign out
         </Button>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

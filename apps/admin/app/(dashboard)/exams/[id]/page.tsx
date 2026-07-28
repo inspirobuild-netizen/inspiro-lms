@@ -224,7 +224,7 @@ function AddQuestionButton({ examId, defaultSubject, onAdded }: { examId: string
               </Field>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Difficulty">
               <Select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
                 <option value="easy">Easy</option>

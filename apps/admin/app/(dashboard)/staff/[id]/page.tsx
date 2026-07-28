@@ -128,7 +128,7 @@ function EditForm({ staff, roles, branches, onSaved }: { staff: Staff; roles: Ro
   return (
     <div className="rounded-2xl border border-white/8 bg-surface-1 p-5">
       <h3 className="font-semibold text-slate-200 mb-4 text-sm">Profile</h3>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Full name"><Input value={f.name} onChange={(e) => set('name')(e.target.value)} /></Field>
         <Field label="Role">
           <Select value={f.staffRoleId} onChange={(e) => set('staffRoleId')(e.target.value)}>

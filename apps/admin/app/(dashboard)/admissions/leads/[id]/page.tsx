@@ -132,7 +132,7 @@ function FollowupTimeline({ leadId, followups, loading, onAdded }: { leadId: str
 
       <div className="space-y-3 mb-3">
         <Textarea rows={2} placeholder="Call summary / remarks…" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Input placeholder="Next action (e.g. Send brochure)" value={nextAction} onChange={(e) => setNextAction(e.target.value)} />
           <Input type="datetime-local" value={nextFollowupAt} onChange={(e) => setNextFollowupAt(e.target.value)} />
         </div>
@@ -197,11 +197,11 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
             {(coursesQ.data?.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
           </Select>
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Fee amount"><Input type="number" min={0} value={f.feeAmount} onChange={(e) => set('feeAmount')(e.target.value)} placeholder="25000" /></Field>
           <Field label="Amount paid"><Input type="number" min={0} value={f.amountPaid} onChange={(e) => set('amountPaid')(e.target.value)} placeholder="0" /></Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Fee plan"><Input value={f.feePlan} onChange={(e) => set('feePlan')(e.target.value)} placeholder="2 installments" /></Field>
           <Field label="Payment status">
             <Select value={f.paymentStatus} onChange={(e) => set('paymentStatus')(e.target.value)}>

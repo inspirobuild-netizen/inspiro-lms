@@ -195,7 +195,7 @@ function NewExamButton({ onCreated }: { onCreated: () => void }) {
           <Field label="Title">
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Kerala PSC Mock Test #1" autoFocus />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Subject">
               <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="General Studies" />
             </Field>
