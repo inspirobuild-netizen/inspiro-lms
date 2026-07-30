@@ -53,6 +53,8 @@ await app.register(import('./modules/notifications/notifications.routes.js'), { 
 await app.register(import('./modules/leaderboard/leaderboard.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/analytics/analytics.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/doubts/doubts.routes.js'), { prefix: '/api/v1' });
+await app.register(import('./modules/mentors/mentors.routes.js'), { prefix: '/api/v1' });
+await app.register(import('./modules/academics/academics.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/current-affairs/current-affairs.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/coach/coach.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/reports/reports.routes.js'), { prefix: '/api/v1' });

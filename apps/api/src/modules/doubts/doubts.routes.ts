@@ -3,12 +3,14 @@ import { authenticate } from '../../middleware/authenticate.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import {
   answerDoubtSchema,
+  assignDoubtSchema,
   createDoubtSchema,
   doubtIdParamSchema,
   listDoubtsSchema,
 } from './doubts.schema.js';
 import {
   answerDoubt,
+  assignDoubt,
   createDoubt,
   ForbiddenError,
   getDoubt,
@@ -16,6 +18,7 @@ import {
   listMyDoubts,
   NotFoundError,
 } from './doubts.service.js';
+import { logAudit } from '../../lib/audit.js';
 
 type ZodSchema<T> = {
   safeParse: (v: unknown) => { success: true; data: T } | { success: false; error: { flatten: () => unknown } };
@@ -105,6 +108,28 @@ export default async function doubtsRoutes(app: FastifyInstance) {
       if (!input) return;
       try {
         const doubt = await answerDoubt(params.id, req.user.sub, input);
+        return reply.send({ success: true, data: doubt });
+      } catch (err) {
+        if (err instanceof NotFoundError) {
+          return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Doubt not found' } });
+        }
+        throw err;
+      }
+    },
+  );
+
+  // Staff: pre-assign an open/escalated doubt to a mentor before it's answered
+  app.patch(
+    '/admin/doubts/:id/assign',
+    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'doubts.manage')] },
+    async (req, reply) => {
+      const params = validate(doubtIdParamSchema, req.params, reply);
+      if (!params) return;
+      const input = validate(assignDoubtSchema, req.body, reply);
+      if (!input) return;
+      try {
+        const doubt = await assignDoubt(params.id, input);
+        await logAudit(req, { action: 'doubt.assigned', entityType: 'doubt', entityId: params.id, meta: { assignedTo: input.assignedTo } });
         return reply.send({ success: true, data: doubt });
       } catch (err) {
         if (err instanceof NotFoundError) {

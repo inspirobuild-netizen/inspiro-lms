@@ -1,11 +1,11 @@
-import { and, count, desc, eq, ilike, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, isNull, or } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { courses, currentAffairs, doubts } from '../../../drizzle/schema.js';
 import { aiEnabled, aiResolveDoubt, AiUnavailableError } from '../../lib/ai-client.js';
 import { searchChunks } from '../rag/rag.service.js';
 import { logger } from '../../lib/logger.js';
 import { sendNotificationToUser } from '../notifications/notifications.service.js';
-import type { AnswerDoubtInput, CreateDoubtInput, ListDoubtsInput } from './doubts.schema.js';
+import type { AnswerDoubtInput, AssignDoubtInput, CreateDoubtInput, ListDoubtsInput } from './doubts.schema.js';
 
 export class NotFoundError extends Error {}
 export class ForbiddenError extends Error {}
@@ -145,20 +145,44 @@ export async function getDoubt(doubtId: string, userId: string, role: string) {
 }
 
 export async function listAllDoubts(input: ListDoubtsInput) {
-  const where = input.status ? eq(doubts.status, input.status) : undefined;
+  const conds = [];
+  if (input.status) conds.push(eq(doubts.status, input.status));
+  if (input.assignedTo) conds.push(eq(doubts.assignedTo, input.assignedTo));
+  if (input.unassigned) conds.push(isNull(doubts.assignedTo));
+  const where = conds.length ? and(...conds) : undefined;
+  const order = input.sort === 'oldest' ? asc(doubts.createdAt) : desc(doubts.createdAt);
 
   const [items, [total]] = await Promise.all([
     db
       .select()
       .from(doubts)
       .where(where)
-      .orderBy(desc(doubts.createdAt))
+      .orderBy(order)
       .limit(input.limit)
       .offset((input.page - 1) * input.limit),
     db.select({ value: count() }).from(doubts).where(where),
   ]);
 
-  return { items, total: total?.value ?? 0 };
+  const now = Date.now();
+  const withAge = items.map((d) => ({ ...d, ageMins: Math.round((now - d.createdAt.getTime()) / 60000) }));
+
+  return { items: withAge, total: total?.value ?? 0 };
+}
+
+/** Pre-assign an open/escalated doubt to a staff member before it's answered. */
+export async function assignDoubt(doubtId: string, input: AssignDoubtInput) {
+  const [doubt] = await db.select().from(doubts).where(eq(doubts.id, doubtId)).limit(1);
+  if (!doubt) throw new NotFoundError('Doubt not found');
+  if (doubt.status === 'resolved') {
+    throw Object.assign(new Error('This doubt is already resolved'), { statusCode: 400, code: 'ALREADY_RESOLVED' });
+  }
+
+  const [updated] = await db
+    .update(doubts)
+    .set({ assignedTo: input.assignedTo, assignedAt: new Date() })
+    .where(eq(doubts.id, doubtId))
+    .returning();
+  return updated!;
 }
 
 export async function answerDoubt(doubtId: string, mentorId: string, input: AnswerDoubtInput) {

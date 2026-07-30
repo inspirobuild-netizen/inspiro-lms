@@ -38,11 +38,14 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { code: 'exams.view', label: 'View exams', category: 'Academics' },
   { code: 'exams.manage', label: 'Manage exams & questions', category: 'Academics' },
   { code: 'doubts.view', label: 'View doubts', category: 'Academics' },
-  { code: 'doubts.manage', label: 'Answer / resolve doubts', category: 'Academics' },
+  { code: 'doubts.manage', label: 'Answer, assign & resolve doubts', category: 'Academics' },
+  { code: 'mentors.view', label: 'View mentor / instructor workload', category: 'Academics' },
+  { code: 'content.manage', label: 'Curate current-affairs & AI content', category: 'Academics' },
 
   // Insights
   { code: 'analytics.view', label: 'View own analytics', category: 'Insights' },
   { code: 'analytics.view_all', label: 'View full analytics', category: 'Insights' },
+  { code: 'leaderboard.view', label: 'View leaderboard analytics', category: 'Insights' },
   { code: 'revenue.view', label: 'View revenue', category: 'Insights' },
   { code: 'reports.view', label: 'Generate reports', category: 'Insights' },
   { code: 'audit.view', label: 'View audit log', category: 'Insights' },
@@ -75,7 +78,7 @@ export const DEFAULT_STAFF_ROLES: DefaultRole[] = [
     permissions: [
       'dashboard.view', 'staff.view', 'leads.view_all', 'leads.manage', 'admissions.view_all',
       'admissions.manage', 'students.view', 'students.verify', 'batches.view', 'courses.view',
-      'exams.view', 'analytics.view_all', 'revenue.view', 'reports.view',
+      'exams.view', 'mentors.view', 'leaderboard.view', 'analytics.view_all', 'revenue.view', 'reports.view',
     ],
   },
   {
@@ -87,10 +90,11 @@ export const DEFAULT_STAFF_ROLES: DefaultRole[] = [
   {
     name: 'Academic Coordinator',
     slug: 'academic-coordinator',
-    description: 'Coordinates courses, batches and exams across the academy.',
+    description: 'Coordinates courses, batches, exams, doubts, mentors and content across the academy.',
     permissions: [
       'dashboard.view', 'batches.view', 'batches.manage', 'courses.view', 'courses.manage',
-      'exams.view', 'exams.manage', 'students.view', 'analytics.view',
+      'exams.view', 'exams.manage', 'doubts.view', 'doubts.manage', 'mentors.view',
+      'leaderboard.view', 'content.manage', 'students.view', 'analytics.view',
     ],
   },
   {
@@ -118,8 +122,8 @@ export const DEFAULT_STAFF_ROLES: DefaultRole[] = [
     permissions: [
       'dashboard.view', 'staff.view', 'staff.manage', 'branches.manage', 'leads.view_all', 'leads.manage',
       'admissions.view_all', 'admissions.manage', 'students.view', 'students.manage', 'students.verify',
-      'batches.view', 'batches.manage', 'courses.view', 'exams.view', 'analytics.view_all',
-      'revenue.view', 'reports.view', 'audit.view',
+      'batches.view', 'batches.manage', 'courses.view', 'exams.view', 'mentors.view', 'leaderboard.view',
+      'analytics.view_all', 'revenue.view', 'reports.view', 'audit.view',
     ],
   },
 ];

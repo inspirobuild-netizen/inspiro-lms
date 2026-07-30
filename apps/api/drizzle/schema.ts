@@ -22,7 +22,7 @@ export const userRoleEnum = pgEnum('user_role', ['student', 'instructor', 'admin
 export const batchTypeEnum = pgEnum('batch_type', ['online', 'offline', 'hybrid']);
 export const batchStatusEnum = pgEnum('batch_status', ['upcoming', 'active', 'completed', 'archived']);
 export const lessonTypeEnum = pgEnum('lesson_type', ['video', 'pdf', 'audio', 'live_recording']);
-export const examTypeEnum = pgEnum('exam_type', ['practice', 'chapter', 'mock', 'previous_year']);
+export const examTypeEnum = pgEnum('exam_type', ['practice', 'chapter', 'mock', 'previous_year', 'topic_quiz']);
 export const difficultyEnum = pgEnum('difficulty', ['easy', 'medium', 'hard']);
 export const doubtStatusEnum = pgEnum('doubt_status', ['open', 'ai_answered', 'escalated', 'resolved']);
 export const attendanceTypeEnum = pgEnum('attendance_type', ['live_class', 'offline']);
@@ -365,11 +365,15 @@ export const exams = pgTable('exams', {
   scheduleStart: timestamp('schedule_start', { withTimezone: true }),
   scheduleEnd: timestamp('schedule_end', { withTimezone: true }),
   batchIds: uuid('batch_ids').array(),
+  // Set when type='topic_quiz' — the class/lesson this quiz follows.
+  lessonId: uuid('lesson_id').references(() => lessons.id, { onDelete: 'set null' }),
   isPublished: boolean('is_published').notNull().default(false),
   createdBy: uuid('created_by').notNull().references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  lessonIdx: index('idx_exams_lesson').on(t.lessonId),
+}));
 
 export const questions = pgTable('questions', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -452,6 +456,8 @@ export const doubts = pgTable('doubts', {
   humanAnswer: text('human_answer'),
   status: doubtStatusEnum('status').notNull().default('open'),
   assignedTo: uuid('assigned_to').references(() => users.id),
+  // When assignedTo was set — pre-assignment routing, distinct from resolvedAt.
+  assignedAt: timestamp('assigned_at', { withTimezone: true }),
   resolvedAt: timestamp('resolved_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
