@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createApiClient } from '@/lib/api';
+import { createApiClient, ApiError } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth';
 import { Pagination } from '@/components/shared/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/modal';
 import { formatDate } from '@/lib/utils';
 
 type Doubt = {
@@ -19,14 +20,24 @@ type Doubt = {
   aiConfidence: number | null;
   humanAnswer: string | null;
   status: 'open' | 'ai_answered' | 'escalated' | 'resolved';
+  assignedTo: string | null;
+  assignedAt: string | null;
   createdAt: string;
+  ageMins: number;
 };
+type StaffOption = { id: string; name: string };
 
 const statusTabs = [
   { key: 'escalated', label: 'Needs Answer' },
   { key: 'ai_answered', label: 'AI Answered' },
   { key: 'resolved', label: 'Resolved' },
   { key: '', label: 'All' },
+] as const;
+
+const scopeTabs = [
+  { key: 'all', label: 'All' },
+  { key: 'unassigned', label: 'Unassigned' },
+  { key: 'mine', label: 'My queue' },
 ] as const;
 
 const statusBadge: Record<Doubt['status'], { variant: 'amber' | 'teal' | 'success' | 'slate'; label: string }> = {
@@ -36,27 +47,42 @@ const statusBadge: Record<Doubt['status'], { variant: 'amber' | 'teal' | 'succes
   open: { variant: 'slate', label: 'Open' },
 };
 
+function formatAge(mins: number): string {
+  if (mins < 60) return `${mins}m`;
+  if (mins < 1440) return `${Math.round(mins / 60)}h`;
+  return `${Math.round(mins / 1440)}d`;
+}
+
 export default function DoubtsPage() {
-  const { accessToken } = useAuthStore();
+  const { accessToken, user } = useAuthStore();
   const api = createApiClient(accessToken);
   const qc = useQueryClient();
 
   const [status, setStatus] = useState<string>('escalated');
+  const [scope, setScope] = useState<(typeof scopeTabs)[number]['key']>('all');
+  const [sort, setSort] = useState<'newest' | 'oldest'>('newest');
   const [page, setPage] = useState(1);
   const limit = 20;
 
+  const staffQ = useQuery({
+    queryKey: ['admin', 'staff', 'assign-picker'],
+    queryFn: () => api.get<StaffOption[]>('/api/v1/admin/staff?limit=100'),
+    enabled: !!accessToken,
+  });
+
   const { data, isLoading } = useQuery({
-    queryKey: ['admin', 'doubts', status, page],
+    queryKey: ['admin', 'doubts', status, scope, sort, page],
     queryFn: () => {
-      const params = new URLSearchParams({
-        page: String(page),
-        limit: String(limit),
-        ...(status ? { status } : {}),
-      });
+      const params = new URLSearchParams({ page: String(page), limit: String(limit), sort });
+      if (status) params.set('status', status);
+      if (scope === 'unassigned') params.set('unassigned', 'true');
+      if (scope === 'mine' && user?.id) params.set('assignedTo', user.id);
       return api.get<Doubt[]>(`/api/v1/admin/doubts?${params.toString()}`);
     },
     enabled: !!accessToken,
   });
+
+  const invalidate = () => void qc.invalidateQueries({ queryKey: ['admin', 'doubts'] });
 
   return (
     <div className="space-y-6">
@@ -67,21 +93,43 @@ export default function DoubtsPage() {
         </p>
       </div>
 
-      {/* Status tabs */}
-      <div className="flex gap-2">
-        {statusTabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => { setStatus(tab.key); setPage(1); }}
-            className={
-              status === tab.key
-                ? 'px-4 py-1.5 rounded-full text-sm font-medium bg-brand-violet/20 text-violet-300'
-                : 'px-4 py-1.5 rounded-full text-sm font-medium text-slate-400 hover:bg-surface-high hover:text-slate-200'
-            }
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex gap-2">
+          {statusTabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => { setStatus(tab.key); setPage(1); }}
+              className={
+                status === tab.key
+                  ? 'px-4 py-1.5 rounded-full text-sm font-medium bg-brand-violet/20 text-violet-300'
+                  : 'px-4 py-1.5 rounded-full text-sm font-medium text-slate-400 hover:bg-surface-high hover:text-slate-200'
+              }
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1 rounded-full bg-surface-2 p-1">
+          {scopeTabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => { setScope(tab.key); setPage(1); }}
+              className={
+                scope === tab.key
+                  ? 'px-3 py-1 rounded-full text-xs font-medium bg-brand-violet text-white'
+                  : 'px-3 py-1 rounded-full text-xs font-medium text-slate-400 hover:text-slate-200'
+              }
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setSort((s) => (s === 'newest' ? 'oldest' : 'newest'))}
+          className="ml-auto text-xs text-slate-400 hover:text-slate-200"
+        >
+          Sort: {sort === 'newest' ? 'Newest first' : 'Oldest first'} ↕
+        </button>
       </div>
 
       {isLoading ? (
@@ -96,7 +144,8 @@ export default function DoubtsPage() {
             <DoubtCard
               key={doubt.id}
               doubt={doubt}
-              onAnswered={() => void qc.invalidateQueries({ queryKey: ['admin', 'doubts'] })}
+              staffOptions={staffQ.data?.data ?? []}
+              onChanged={invalidate}
             />
           ))}
         </div>
@@ -107,7 +156,7 @@ export default function DoubtsPage() {
   );
 }
 
-function DoubtCard({ doubt, onAnswered }: { doubt: Doubt; onAnswered: () => void }) {
+function DoubtCard({ doubt, staffOptions, onChanged }: { doubt: Doubt; staffOptions: StaffOption[]; onChanged: () => void }) {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
 
@@ -119,16 +168,25 @@ function DoubtCard({ doubt, onAnswered }: { doubt: Doubt; onAnswered: () => void
     onSuccess: () => {
       setAnswering(false);
       setAnswer('');
-      onAnswered();
+      onChanged();
     },
+  });
+
+  const assign = useMutation({
+    mutationFn: (assignedTo: string) => api.patch(`/api/v1/admin/doubts/${doubt.id}/assign`, { assignedTo }),
+    onSuccess: onChanged,
+    onError: (e) => alert(e instanceof ApiError ? e.message : 'Failed to assign'),
   });
 
   const badge = statusBadge[doubt.status];
   const canAnswer = doubt.status !== 'resolved';
+  const canAssign = doubt.status !== 'resolved';
+  const assignedName = staffOptions.find((s) => s.id === doubt.assignedTo)?.name;
+  const isStale = doubt.status !== 'resolved' && doubt.ageMins > 120;
 
   return (
     <div className="rounded-2xl bg-surface-1 border border-white/8 p-5">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <Badge variant={badge.variant}>{badge.label}</Badge>
         <Badge variant="slate">{doubt.subject}</Badge>
         {doubt.aiConfidence !== null && (
@@ -136,6 +194,9 @@ function DoubtCard({ doubt, onAnswered }: { doubt: Doubt; onAnswered: () => void
             AI confidence {(doubt.aiConfidence * 100).toFixed(0)}%
           </span>
         )}
+        <span className={`text-xs ${isStale ? 'text-rose-400 font-medium' : 'text-slate-500'}`}>
+          {formatAge(doubt.ageMins)} old
+        </span>
         <span className="ml-auto text-xs text-slate-500">{formatDate(doubt.createdAt)}</span>
       </div>
 
@@ -155,13 +216,27 @@ function DoubtCard({ doubt, onAnswered }: { doubt: Doubt; onAnswered: () => void
         </div>
       )}
 
-      {canAnswer && !answering && (
-        <div className="mt-4">
+      <div className="mt-4 flex items-center gap-3 flex-wrap">
+        {canAssign && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">{assignedName ? `Assigned to ${assignedName}` : 'Unassigned'}</span>
+            <Select
+              value=""
+              onChange={(e) => e.target.value && assign.mutate(e.target.value)}
+              disabled={assign.isPending}
+              className="h-8 max-w-[180px] text-xs"
+            >
+              <option value="">{assignedName ? 'Reassign to…' : 'Assign to…'}</option>
+              {staffOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </Select>
+          </div>
+        )}
+        {canAnswer && !answering && (
           <Button variant="outline" size="sm" onClick={() => setAnswering(true)}>
             {doubt.status === 'escalated' ? 'Answer this doubt' : 'Add mentor answer'}
           </Button>
-        </div>
-      )}
+        )}
+      </div>
 
       {answering && (
         <div className="mt-4 space-y-3">

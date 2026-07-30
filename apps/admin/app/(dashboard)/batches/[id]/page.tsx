@@ -66,6 +66,11 @@ export default function BatchDetailPage() {
     onSuccess: invalidate,
   });
 
+  const removeInstructor = useMutation({
+    mutationFn: (instructorId: string) => api.delete(`/api/v1/admin/batches/${id}/instructors/${instructorId}`),
+    onSuccess: invalidate,
+  });
+
   if (isError)
     return (
       <div className="space-y-3">
@@ -116,6 +121,33 @@ export default function BatchDetailPage() {
                   onClick={() => { if (confirm(`Remove ${s.user.name} from this batch?`)) unenroll.mutate(s.user.id); }}
                 >
                   Unenroll
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Instructors */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-display font-semibold text-lg text-slate-200">Instructors</h3>
+          <AssignInstructorButton batchId={id} assigned={batch?.instructors.map((i) => i.id) ?? []} onAssigned={invalidate} />
+        </div>
+        {(batch?.instructors ?? []).length === 0 ? (
+          <p className="text-slate-500 text-sm rounded-2xl border border-white/8 bg-surface-1 p-6 text-center">
+            No instructors assigned to this batch yet.
+          </p>
+        ) : (
+          <div className="rounded-2xl border border-white/8 bg-surface-1 divide-y divide-white/5">
+            {batch!.instructors.map((i) => (
+              <div key={i.id} className="flex items-center justify-between px-5 py-3">
+                <p className="text-sm text-slate-200">{i.name}</p>
+                <button
+                  className="text-xs text-rose-400/70 hover:text-rose-400"
+                  onClick={() => { if (confirm(`Remove ${i.name} as an instructor for this batch?`)) removeInstructor.mutate(i.id); }}
+                >
+                  Remove
                 </button>
               </div>
             ))}
@@ -204,6 +236,67 @@ function EnrollStudentButton({ batchId, onEnrolled }: { batchId: string; onEnrol
             ))}
             {(data?.data ?? []).length === 0 && (
               <p className="text-sm text-slate-500 text-center py-6">No students found — add them from the Students page first.</p>
+            )}
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+// ── Assign instructor picker ────────────────────────────────────────────────────
+function AssignInstructorButton({ batchId, assigned, onAssigned }: { batchId: string; assigned: string[]; onAssigned: () => void }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const instructorsQ = useQuery({
+    queryKey: ['admin', 'users', 'instructor-picker'],
+    queryFn: () => api.get<UserRow[]>('/api/v1/admin/users?role=instructor&limit=100'),
+    enabled: !!accessToken && open,
+  });
+  const staffQ = useQuery({
+    queryKey: ['admin', 'staff', 'instructor-picker'],
+    queryFn: () => api.get<UserRow[]>('/api/v1/admin/staff?limit=100'),
+    enabled: !!accessToken && open,
+  });
+
+  const assign = useMutation({
+    mutationFn: (instructorId: string) => api.post(`/api/v1/admin/batches/${batchId}/instructors`, { instructorId }),
+    onSuccess: () => { setError(null); onAssigned(); },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to assign'),
+  });
+
+  const candidates = [...(instructorsQ.data?.data ?? []), ...(staffQ.data?.data ?? [])];
+  const available = candidates.filter((c) => !assigned.includes(c.id));
+
+  return (
+    <>
+      <Button size="sm" onClick={() => setOpen(true)}>+ Assign instructor</Button>
+      <Modal open={open} onClose={() => setOpen(false)} title="Assign instructor" description="They'll be listed as teaching this batch">
+        <div className="space-y-3">
+          {error && <p className="text-sm text-rose-400">{error}</p>}
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {available.map((u) => (
+              <button
+                key={u.id}
+                className="w-full flex items-center justify-between rounded-xl bg-surface-2 border border-white/5 px-4 py-3 hover:bg-surface-high transition-colors text-left"
+                onClick={() => assign.mutate(u.id)}
+                disabled={assign.isPending}
+              >
+                <div>
+                  <p className="text-sm text-slate-200">{u.name}</p>
+                  <p className="text-xs text-slate-500">{formatPhone(u.phone)}</p>
+                </div>
+                <span className="text-xs text-teal-300">Assign →</span>
+              </button>
+            ))}
+            {available.length === 0 && (
+              <p className="text-sm text-slate-500 text-center py-6">
+                No instructors available — add a Teacher via Staff, or a legacy instructor account.
+              </p>
             )}
           </div>
         </div>
