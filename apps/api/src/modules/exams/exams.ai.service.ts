@@ -13,6 +13,8 @@ export const generateAiExamSchema = z.object({
   language: z.enum(['en', 'ml']).default('en'),
   durationMins: z.coerce.number().int().min(5).max(300).default(30),
   negMarks: z.coerce.number().min(0).max(2).default(0),
+  // When set, the generated exam becomes a topic_quiz tied to this lesson.
+  lessonId: z.string().uuid().optional(),
 });
 export type GenerateAiExamInput = z.infer<typeof generateAiExamSchema>;
 
@@ -36,7 +38,8 @@ export async function generateExamWithAi(input: GenerateAiExamInput, createdBy: 
     .values({
       title: `${input.topic} — AI Draft`,
       subject: input.subject,
-      type: 'practice',
+      type: input.lessonId ? 'topic_quiz' : 'practice',
+      lessonId: input.lessonId,
       durationMins: input.durationMins,
       negMarks: input.negMarks,
       isPublished: false,

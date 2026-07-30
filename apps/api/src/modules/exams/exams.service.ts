@@ -74,12 +74,13 @@ export async function getExamById(examId: string) {
 }
 
 export async function listAllExams(input: ListExamsInput) {
-  const { page, limit, subject, type } = input;
+  const { page, limit, subject, type, lessonId } = input;
   const offset = (page - 1) * limit;
 
   const conditions = [];
   if (subject) conditions.push(eq(exams.subject, subject));
   if (type) conditions.push(eq(exams.type, type));
+  if (lessonId) conditions.push(eq(exams.lessonId, lessonId));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [{ total }] = await db.select({ total: count() }).from(exams).where(where);

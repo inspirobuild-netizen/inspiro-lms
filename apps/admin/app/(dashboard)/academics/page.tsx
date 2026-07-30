@@ -13,6 +13,8 @@ type CoordinatorDashboard = {
   activeBatches: number;
   examsPendingPublish: number;
   topicQuizCount: number;
+  topicQuizAttempts: number;
+  topicQuizPassRate: number;
 };
 
 function formatMins(mins: number): string {
@@ -52,6 +54,12 @@ export default function AcademicsDashboardPage() {
         <StatCard label="Active batches" value={isLoading ? '…' : d?.activeBatches ?? 0} accent="violet" />
         <StatCard label="Exams pending publish" value={isLoading ? '…' : d?.examsPendingPublish ?? 0} accent="amber" />
         <StatCard label="Topic quizzes" value={isLoading ? '…' : d?.topicQuizCount ?? 0} accent="teal" />
+        <StatCard
+          label="Topic quiz pass rate"
+          value={isLoading ? '…' : d?.topicQuizAttempts ? `${d.topicQuizPassRate}%` : '—'}
+          sub={isLoading || !d?.topicQuizAttempts ? undefined : `${d.topicQuizAttempts} attempts`}
+          accent="violet"
+        />
       </div>
     </div>
   );

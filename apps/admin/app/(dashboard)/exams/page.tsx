@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createApiClient } from '@/lib/api';
@@ -30,18 +30,40 @@ const typeColor: Record<string, 'default' | 'teal' | 'amber' | 'rose'> = {
   mock: 'amber',
   sectional: 'default',
   live: 'rose',
+  topic_quiz: 'default',
 };
+
+const typeTabs = [
+  { key: '', label: 'All' },
+  { key: 'topic_quiz', label: 'Topic Quizzes' },
+  { key: 'mock', label: 'Mock' },
+  { key: 'practice', label: 'Practice' },
+] as const;
 
 export default function ExamsPage() {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
+  const [type, setType] = useState('');
+  const [createForLessonId, setCreateForLessonId] = useState<string | null>(null);
+  const [createForTitle, setCreateForTitle] = useState('');
   const limit = 20;
 
+  // Arriving from a lesson's "+ Quiz" action (courses/[id]/page.tsx).
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    setCreateForLessonId(q.get('createFor'));
+    setCreateForTitle(q.get('title') ?? '');
+  }, []);
+
   const { data, isLoading } = useQuery({
-    queryKey: ['admin', 'exams', page],
-    queryFn: () => api.get<Exam[]>(`/api/v1/admin/exams?page=${page}&limit=${limit}`),
+    queryKey: ['admin', 'exams', page, type],
+    queryFn: () => {
+      const p = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (type) p.set('type', type);
+      return api.get<Exam[]>(`/api/v1/admin/exams?${p.toString()}`);
+    },
     enabled: !!accessToken,
   });
 
@@ -129,7 +151,11 @@ export default function ExamsPage() {
           <p className="text-slate-400 text-sm mt-1">{data?.meta?.total ?? 0} exams</p>
         </div>
         <div className="flex gap-2">
-          <NewExamButton onCreated={() => void qc.invalidateQueries({ queryKey: ['admin', 'exams'] })} />
+          <NewExamButton
+            defaultLessonId={createForLessonId}
+            defaultTitle={createForTitle}
+            onCreated={() => void qc.invalidateQueries({ queryKey: ['admin', 'exams'] })}
+          />
           <Link href="/exams/generate">
             <Button size="sm" variant="outline">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -139,6 +165,22 @@ export default function ExamsPage() {
             </Button>
           </Link>
         </div>
+      </div>
+
+      <div className="flex gap-2">
+        {typeTabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => { setType(tab.key); setPage(1); }}
+            className={
+              type === tab.key
+                ? 'px-4 py-1.5 rounded-full text-sm font-medium bg-brand-violet/20 text-violet-300'
+                : 'px-4 py-1.5 rounded-full text-sm font-medium text-slate-400 hover:bg-surface-high hover:text-slate-200'
+            }
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       <DataTable
@@ -154,7 +196,13 @@ export default function ExamsPage() {
   );
 }
 
-function NewExamButton({ onCreated }: { onCreated: () => void }) {
+function NewExamButton({
+  onCreated, defaultLessonId, defaultTitle,
+}: {
+  onCreated: () => void;
+  defaultLessonId?: string | null;
+  defaultTitle?: string;
+}) {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
 
@@ -168,6 +216,16 @@ function NewExamButton({ onCreated }: { onCreated: () => void }) {
   const [maxAttempts, setMaxAttempts] = useState('1');
   const [error, setError] = useState<string | null>(null);
 
+  // Arriving from a lesson's "+ Quiz" action — pre-fill and auto-open once.
+  useEffect(() => {
+    if (defaultLessonId) {
+      setTitle(defaultTitle ? `${defaultTitle} — Quiz` : '');
+      setType('topic_quiz');
+      setOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultLessonId]);
+
   const create = useMutation({
     mutationFn: () =>
       api.post('/api/v1/admin/exams', {
@@ -178,6 +236,7 @@ function NewExamButton({ onCreated }: { onCreated: () => void }) {
         negMarks: Number(negMarks) || 0,
         passPercent: Number(passPercent) || 40,
         maxAttempts: Number(maxAttempts) || 1,
+        ...(type === 'topic_quiz' && defaultLessonId ? { lessonId: defaultLessonId } : {}),
       }),
     onSuccess: () => {
       setOpen(false);
@@ -192,6 +251,9 @@ function NewExamButton({ onCreated }: { onCreated: () => void }) {
       <Button size="sm" onClick={() => setOpen(true)}>+ New exam</Button>
       <Modal open={open} onClose={() => setOpen(false)} title="Create exam" description="Created as a draft — add questions, then publish">
         <div className="space-y-4">
+          {defaultLessonId && type === 'topic_quiz' && (
+            <p className="text-xs text-teal-300 -mb-2">This quiz will be linked to the lesson it was created from.</p>
+          )}
           <Field label="Title">
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Kerala PSC Mock Test #1" autoFocus />
           </Field>
@@ -205,6 +267,7 @@ function NewExamButton({ onCreated }: { onCreated: () => void }) {
                 <option value="chapter">Chapter test</option>
                 <option value="mock">Mock exam</option>
                 <option value="previous_year">Previous year</option>
+                <option value="topic_quiz">Topic quiz</option>
               </Select>
             </Field>
             <Field label="Duration (mins)">

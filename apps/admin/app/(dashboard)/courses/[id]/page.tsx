@@ -203,6 +203,7 @@ function ModuleCard({
                 </button>
               </div>
               {l.type === 'video' && <VideoLessonControl lesson={l} onChanged={refresh} />}
+              <LessonQuizControl lesson={l} />
             </div>
           ))}
           <AddLessonForm moduleId={mod.id} nextOrder={lessons?.data?.length ?? 0} onAdded={refresh} />
@@ -282,6 +283,48 @@ function AddLessonForm({ moduleId, nextOrder, onAdded }: { moduleId: string; nex
         </div>
       </Modal>
     </>
+  );
+}
+
+// ── Topic quiz control ──────────────────────────────────────────────────────────
+// Every lesson (any type) can have one auto-graded MCQ quiz tied to it —
+// the "30-min class → quiz on that topic" flow.
+function LessonQuizControl({ lesson }: { lesson: Lesson }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+
+  const { data } = useQuery({
+    queryKey: ['admin', 'lesson', lesson.id, 'quiz'],
+    queryFn: () => api.get<{ id: string; title: string; isPublished: boolean }[]>(`/api/v1/admin/exams?lessonId=${lesson.id}&limit=1`),
+    enabled: !!accessToken,
+  });
+
+  const quiz = data?.data?.[0];
+
+  if (quiz) {
+    return (
+      <div className="mt-2">
+        <Link href={`/exams/${quiz.id}`} className="inline-flex items-center gap-1.5 text-xs text-teal-300 hover:text-teal-200">
+          <Badge variant={quiz.isPublished ? 'success' : 'slate'}>Quiz</Badge>
+          {quiz.title} →
+        </Link>
+      </div>
+    );
+  }
+
+  const params = new URLSearchParams({ title: lesson.title });
+  return (
+    <div className="mt-2 flex items-center gap-3">
+      <Link href={`/exams?createFor=${lesson.id}&${params.toString()}`} className="text-xs text-slate-400 hover:text-slate-200">
+        + Quiz (manual)
+      </Link>
+      <Link
+        href={`/exams/generate?lessonId=${lesson.id}&${new URLSearchParams({ topic: lesson.title }).toString()}`}
+        className="text-xs text-slate-400 hover:text-slate-200"
+      >
+        + Quiz (AI)
+      </Link>
+    </div>
   );
 }
 

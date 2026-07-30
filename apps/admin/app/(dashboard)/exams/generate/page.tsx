@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { createApiClient, ApiError } from '@/lib/api';
@@ -28,11 +28,25 @@ export default function GenerateExamPage() {
   const [language, setLanguage] = useState('en');
   const [durationMins, setDurationMins] = useState(30);
   const [negMarks, setNegMarks] = useState(0);
+  const [lessonId, setLessonId] = useState<string | null>(null);
+
+  // Arriving from a lesson's "+ Quiz (AI)" action (courses/[id]/page.tsx).
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const lid = q.get('lessonId');
+    if (lid) {
+      setLessonId(lid);
+      setTopic(q.get('topic') ?? '');
+      setDurationMins(15);
+      setCount(5);
+    }
+  }, []);
 
   const generate = useMutation<GenerateResult, ApiError>({
     mutationFn: async () => {
       const res = await api.post<GenerateResult>('/api/v1/admin/exams/generate-ai', {
         topic, subject, difficulty, count, examStyle, language, durationMins, negMarks,
+        ...(lessonId ? { lessonId } : {}),
       });
       return res.data;
     },
@@ -47,6 +61,9 @@ export default function GenerateExamPage() {
         <p className="text-slate-400 text-sm mt-1">
           Generates a <span className="text-slate-200">draft</span> exam — review every question before publishing
         </p>
+        {lessonId && (
+          <p className="text-xs text-teal-300 mt-1">This will be created as a topic quiz linked to that lesson.</p>
+        )}
       </div>
 
       {generate.isSuccess ? (
