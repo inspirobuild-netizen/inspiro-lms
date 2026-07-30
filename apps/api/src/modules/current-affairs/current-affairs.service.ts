@@ -1,9 +1,13 @@
-import { and, count, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
-import { currentAffairs } from '../../../drizzle/schema.js';
+import { contentChunks, courses, currentAffairs } from '../../../drizzle/schema.js';
 import { aiEnabled, aiSummarizeArticle } from '../../lib/ai-client.js';
 import { embedChunk } from '../rag/rag.service.js';
 import { logger } from '../../lib/logger.js';
+
+function err(msg: string, statusCode: number, code: string) {
+  return Object.assign(new Error(msg), { statusCode, code });
+}
 
 const DEFAULT_FEEDS = [
   'https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3', // PIB press releases
@@ -169,4 +173,39 @@ export async function listCurrentAffairs(input: {
   ]);
 
   return { items, total: total?.value ?? 0 };
+}
+
+export async function updateCurrentAffair(id: string, data: Partial<{
+  title: string; summary: string; category: string; sourceUrl: string | null;
+}>) {
+  const [updated] = await db.update(currentAffairs).set(data).where(eq(currentAffairs.id, id)).returning();
+  if (!updated) throw err('Current-affairs item not found', 404, 'CURRENT_AFFAIR_NOT_FOUND');
+  return updated;
+}
+
+export async function deleteCurrentAffair(id: string) {
+  const result = await db.delete(currentAffairs).where(eq(currentAffairs.id, id)).returning();
+  if (result.length === 0) throw err('Current-affairs item not found', 404, 'CURRENT_AFFAIR_NOT_FOUND');
+  return { deleted: true };
+}
+
+/** RAG coverage: which courses have an indexed content chunk, and how much current-affairs content is indexed. */
+export async function getContentCoverage() {
+  const courseRows = await db.select({ id: courses.id, title: courses.title }).from(courses);
+  const chunkedCourseIds = await db
+    .select({ sourceId: contentChunks.sourceId })
+    .from(contentChunks)
+    .where(and(eq(contentChunks.sourceType, 'course'), inArray(contentChunks.sourceId, courseRows.map((c) => c.id))));
+  const chunked = new Set(chunkedCourseIds.map((c) => c.sourceId));
+
+  const [{ value: totalCurrentAffairs }] = await db.select({ value: count() }).from(currentAffairs);
+  const [{ value: chunkedCurrentAffairs }] = await db
+    .select({ value: count() })
+    .from(contentChunks)
+    .where(eq(contentChunks.sourceType, 'current_affair'));
+
+  return {
+    courses: courseRows.map((c) => ({ id: c.id, title: c.title, hasContentChunk: chunked.has(c.id) })),
+    currentAffairs: { total: totalCurrentAffairs, indexed: chunkedCurrentAffairs },
+  };
 }
