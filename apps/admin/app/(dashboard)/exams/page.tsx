@@ -89,7 +89,7 @@ export default function ExamsPage() {
       width: 'w-24',
       render: (e) => (
         <Badge variant={typeColor[e.type] ?? 'default'} className="capitalize">
-          {e.type}
+          {e.type.replace('_', ' ')}
         </Badge>
       ),
     },
