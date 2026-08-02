@@ -79,16 +79,21 @@ export default function DashboardPage() {
   const has = useHasPermission();
   const enabled = !!accessToken;
 
-  const students = useCount(['admin', 'users', 'count'], '/api/v1/admin/users?role=student&limit=1', enabled, api);
-  const batches = useCount(['admin', 'batches', 'count'], '/api/v1/batches?limit=1', enabled, api);
-  const exams = useCount(['admin', 'exams', 'count'], '/api/v1/admin/exams?limit=1', enabled, api);
-  const courses = useCount(['admin', 'courses', 'count'], '/api/v1/courses?limit=1', enabled, api);
-  const doubts = useCount(['admin', 'doubts', 'escalated', 'count'], '/api/v1/admin/doubts?status=escalated&limit=1', enabled, api);
-
+  const canStudents = has('students.view');
+  const canBatches = has('batches.view');
+  const canExams = has('exams.view');
+  const canCourses = has('courses.view');
+  const canDoubts = has('doubts.view');
   const canVerify = has('students.verify');
   const canLeads = has('leads.view');
   const canAdmissions = has('admissions.view');
   const canAnalytics = has('analytics.view_all');
+
+  const students = useCount(['admin', 'users', 'count'], '/api/v1/admin/users?role=student&limit=1', enabled && canStudents, api);
+  const batches = useCount(['admin', 'batches', 'count'], '/api/v1/batches?limit=1', enabled && canBatches, api);
+  const exams = useCount(['admin', 'exams', 'count'], '/api/v1/admin/exams?limit=1', enabled && canExams, api);
+  const courses = useCount(['admin', 'courses', 'count'], '/api/v1/courses?limit=1', enabled && canCourses, api);
+  const doubts = useCount(['admin', 'doubts', 'escalated', 'count'], '/api/v1/admin/doubts?status=escalated&limit=1', enabled && canDoubts, api);
 
   const verification = useQuery({
     queryKey: ['verification', 'counts'],
@@ -123,8 +128,11 @@ export default function DashboardPage() {
   const sub = (q: { isError: boolean }, ok: string) => (q.isError ? 'failed to load — retry below' : ok);
   const money = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
-  const anyError = [students, batches, exams, courses, doubts].some((q) => q.isError);
-  const refetchAll = () => [students, batches, exams, courses, doubts].forEach((q) => void q.refetch());
+  const topStats = [
+    canStudents && students, canBatches && batches, canExams && exams, canCourses && courses,
+  ].filter((q): q is ReturnType<typeof useCount> => !!q);
+  const anyError = topStats.some((q) => q.isError);
+  const refetchAll = () => topStats.forEach((q) => void q.refetch());
 
   const trendFormatted = (trend.data?.data ?? []).map((t) => ({
     ...t,
@@ -156,12 +164,14 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Students" value={stat(students)} sub={sub(students, 'registered')} accent="violet" icon={<UsersIcon />} />
-        <StatCard label="Batches" value={stat(batches)} sub={sub(batches, 'total')} accent="teal" icon={<BatchIcon />} />
-        <StatCard label="Exams" value={stat(exams)} sub={sub(exams, 'created')} accent="amber" icon={<ExamIcon />} />
-        <StatCard label="Courses" value={stat(courses)} sub={sub(courses, 'total')} accent="rose" icon={<CourseIcon />} />
-      </div>
+      {(canStudents || canBatches || canExams || canCourses) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {canStudents && <StatCard label="Students" value={stat(students)} sub={sub(students, 'registered')} accent="violet" icon={<UsersIcon />} />}
+          {canBatches && <StatCard label="Batches" value={stat(batches)} sub={sub(batches, 'total')} accent="teal" icon={<BatchIcon />} />}
+          {canExams && <StatCard label="Exams" value={stat(exams)} sub={sub(exams, 'created')} accent="amber" icon={<ExamIcon />} />}
+          {canCourses && <StatCard label="Courses" value={stat(courses)} sub={sub(courses, 'total')} accent="rose" icon={<CourseIcon />} />}
+        </div>
+      )}
 
       {(canLeads || canVerify) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -179,18 +189,20 @@ export default function DashboardPage() {
       )}
 
       {/* Doubts needing attention */}
-      <Link
-        href="/doubts"
-        className="block rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5 hover:bg-amber-500/10 transition-colors"
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-display font-semibold text-slate-200">Doubts waiting for a mentor</p>
-            <p className="text-sm text-slate-400 mt-0.5">Escalated questions the AI couldn&apos;t answer confidently</p>
+      {canDoubts && (
+        <Link
+          href="/doubts"
+          className="block rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5 hover:bg-amber-500/10 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-display font-semibold text-slate-200">Doubts waiting for a mentor</p>
+              <p className="text-sm text-slate-400 mt-0.5">Escalated questions the AI couldn&apos;t answer confidently</p>
+            </div>
+            <span className="font-display font-bold text-3xl text-amber-300">{stat(doubts)}</span>
           </div>
-          <span className="font-display font-bold text-3xl text-amber-300">{stat(doubts)}</span>
-        </div>
-      </Link>
+        </Link>
+      )}
 
       {(canAnalytics || canAdmissions) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -245,25 +257,31 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="rounded-2xl border border-white/8 bg-surface-1 p-6">
-        <h3 className="font-display font-semibold text-slate-200 mb-4">Quick actions</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[
-            { label: 'Add student', href: '/students' },
-            { label: 'Create batch', href: '/batches' },
-            { label: 'New exam', href: '/exams' },
-            { label: 'Generate exam with AI', href: '/exams/generate' },
-          ].map((action) => (
-            <Link
-              key={action.href}
-              href={action.href}
-              className="flex items-center justify-center rounded-xl bg-surface-2 border border-white/8 hover:bg-surface-high transition-colors px-4 py-3 text-sm font-medium text-slate-300"
-            >
-              {action.label}
-            </Link>
-          ))}
-        </div>
-      </div>
+      {(() => {
+        const actions = [
+          canStudents && has('students.manage') && { label: 'Add student', href: '/students' },
+          canBatches && has('batches.manage') && { label: 'Create batch', href: '/batches' },
+          canExams && has('exams.manage') && { label: 'New exam', href: '/exams' },
+          canExams && has('exams.manage') && { label: 'Generate exam with AI', href: '/exams/generate' },
+        ].filter((a): a is { label: string; href: string } => !!a);
+        if (actions.length === 0) return null;
+        return (
+          <div className="rounded-2xl border border-white/8 bg-surface-1 p-6">
+            <h3 className="font-display font-semibold text-slate-200 mb-4">Quick actions</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {actions.map((action) => (
+                <Link
+                  key={action.href}
+                  href={action.href}
+                  className="flex items-center justify-center rounded-xl bg-surface-2 border border-white/8 hover:bg-surface-high transition-colors px-4 py-3 text-sm font-medium text-slate-300"
+                >
+                  {action.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

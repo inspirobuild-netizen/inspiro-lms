@@ -65,10 +65,9 @@ export const DEFAULT_STAFF_ROLES: DefaultRole[] = [
   {
     name: 'Admission Counsellor',
     slug: 'admission-counsellor',
-    description: 'Owns leads, follow-ups and admissions for their own pipeline.',
+    description: 'Owns leads, follow-ups and admissions for their own pipeline — no visibility into other counsellors\' students, leads, or org-wide data.',
     permissions: [
-      'dashboard.view', 'leads.view', 'leads.manage', 'admissions.view', 'admissions.manage',
-      'students.view', 'students.manage', 'batches.view', 'analytics.view',
+      'dashboard.view', 'leads.view', 'leads.manage', 'admissions.view', 'admissions.manage', 'batches.view',
     ],
   },
   {
