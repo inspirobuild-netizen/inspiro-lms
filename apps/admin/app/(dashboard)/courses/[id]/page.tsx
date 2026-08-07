@@ -721,3 +721,4 @@ function VideoLessonControl({ lesson, onChanged }: { lesson: Lesson; onChanged: 
     </div>
   );
 }
+
