@@ -18,6 +18,8 @@ type Branch = {
   address: string | null;
   phone: string | null;
   isActive: boolean;
+  upiVpa: string | null;
+  upiPayeeName: string | null;
 };
 
 export default function BranchesPage() {
@@ -86,6 +88,8 @@ function BranchModal({ open, branch, onClose, onSaved }: { open: boolean; branch
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [upiVpa, setUpiVpa] = useState('');
+  const [upiPayeeName, setUpiPayeeName] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // Sync fields when the modal opens for a given branch
@@ -97,13 +101,15 @@ function BranchModal({ open, branch, onClose, onSaved }: { open: boolean; branch
     setAddress(branch?.address ?? '');
     setPhone(branch?.phone ?? '');
     setIsActive(branch?.isActive ?? true);
+    setUpiVpa(branch?.upiVpa ?? '');
+    setUpiPayeeName(branch?.upiPayeeName ?? '');
     setError(null);
   }
 
   const save = useMutation({
     mutationFn: () => {
       const body: Record<string, unknown> = { name: name.trim(), address: address.trim() || undefined, phone: phone.trim() || undefined };
-      if (isEdit) return api.patch(`/api/v1/admin/branches/${branch!.id}`, { ...body, isActive });
+      if (isEdit) return api.patch(`/api/v1/admin/branches/${branch!.id}`, { ...body, isActive, upiVpa: upiVpa.trim() || null, upiPayeeName: upiPayeeName.trim() || null });
       return api.post('/api/v1/admin/branches', { ...body, code: code.trim() });
     },
     onSuccess: () => { toast(isEdit ? 'Branch updated' : 'Branch created', 'success'); onSaved(); },
@@ -122,10 +128,16 @@ function BranchModal({ open, branch, onClose, onSaved }: { open: boolean; branch
         <Field label="Address"><Textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city…" /></Field>
         <Field label="Phone"><Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91…" /></Field>
         {isEdit && (
-          <label className="flex items-center gap-2 text-sm text-slate-300">
-            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="accent-brand-violet" />
-            Active
-          </label>
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="UPI ID (for fee QR codes)"><Input value={upiVpa} onChange={(e) => setUpiVpa(e.target.value)} placeholder="academy@upi" /></Field>
+              <Field label="UPI payee name"><Input value={upiPayeeName} onChange={(e) => setUpiPayeeName(e.target.value)} placeholder="Inspiro IAS Academy" /></Field>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="accent-brand-violet" />
+              Active
+            </label>
+          </>
         )}
         {error && <p className="text-sm text-rose-400">{error}</p>}
         <div className="flex justify-end gap-2 pt-1">

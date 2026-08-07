@@ -12,6 +12,10 @@ export const updateBranchSchema = z.object({
   address: z.string().max(1000).optional(),
   phone: z.string().max(20).optional(),
   isActive: z.boolean().optional(),
+  // UPI collection account for this branch's fee QR codes — falls back to
+  // the UPI_VPA env var when left unset.
+  upiVpa: z.string().max(120).nullable().optional(),
+  upiPayeeName: z.string().max(120).nullable().optional(),
 });
 
 export type CreateBranchInput = z.infer<typeof createBranchSchema>;
