@@ -54,14 +54,20 @@ export const convertLeadSchema = z.object({
   batchId: z.string().uuid(),
   courseId: z.string().uuid().optional(),
   admissionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  // Preferred: pick a preset plan — its installments are materialised onto
+  // the admission automatically. Falls back to a manual amount when no plan
+  // applies (e.g. a course with no configured plans yet).
+  feePlanId: z.string().uuid().optional(),
   feePlan: z.string().max(120).optional(),
   feeAmount: z.number().nonnegative().default(0),
-  amountPaid: z.number().nonnegative().default(0),
-  paymentStatus: z.enum(['pending', 'partial', 'paid']).default('pending'),
   targetExam: z.enum(['upsc', 'kerala_psc', 'other_psc']).optional(),
   // Optional: gives the student immediate email+password app access (bypasses
   // OTP, useful while MSG91 DLT template approval is pending).
   password: z.string().min(8).max(128).optional(),
+  // Optional: collect the first installment right at the admission desk.
+  collectAmount: z.number().positive().optional(),
+  collectMethod: z.enum(['upi', 'cash', 'card', 'bank_transfer', 'other']).default('upi'),
+  collectReference: z.string().max(120).optional(),
 });
 
 export type CreateLeadInput = z.infer<typeof createLeadSchema>;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -12,7 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Modal, Select, Field, Textarea } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
-import { formatDate, formatPhone } from '@/lib/utils';
+import { PaymentModal } from '@/components/shared/payment-modal';
+import { formatDate, formatPhone, money } from '@/lib/utils';
 
 type Lead = {
   id: string; leadCode: string; studentName: string; parentName: string | null; phone: string;
@@ -162,53 +163,164 @@ function FollowupTimeline({ leadId, followups, loading, onAdded }: { leadId: str
   );
 }
 
+type FeePlan = { id: string; name: string; totalAmount: number; installments: { label: string; amount: number; dueAfterDays: number }[] };
+type ConvertResult = { admissionId: string; admissionNo: string };
+
 function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; leadId: string; onClose: () => void; onConverted: (admissionNo: string) => void }) {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
 
   const batchesQ = useQuery({ queryKey: ['admin', 'batches', 'all'], queryFn: () => api.get<{ id: string; name: string }[]>('/api/v1/batches?limit=100'), enabled: open && !!accessToken });
-  const coursesQ = useQuery({ queryKey: ['admin', 'courses', 'all'], queryFn: () => api.get<{ id: string; title: string }[]>('/api/v1/courses?limit=100'), enabled: open && !!accessToken });
+  const coursesQ = useQuery({ queryKey: ['admin', 'courses', 'all'], queryFn: () => api.get<{ id: string; title: string; feeAmount: number }[]>('/api/v1/courses?limit=100'), enabled: open && !!accessToken });
 
-  const [f, setF] = useState({ batchId: '', courseId: '', feeAmount: '', amountPaid: '', feePlan: '', paymentStatus: 'pending' });
+  const [f, setF] = useState({ batchId: '', courseId: '', feePlanId: '', manualFeeAmount: '', collectMode: 'skip' as 'skip' | 'cash' | 'upi', collectAmount: '' });
   const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<ConvertResult | null>(null);
+  const [paymentOpen, setPaymentOpen] = useState(false);
   const set = (k: keyof typeof f) => (v: string) => setF((s) => ({ ...s, [k]: v }));
 
+  useEffect(() => {
+    if (!open) { setF({ batchId: '', courseId: '', feePlanId: '', manualFeeAmount: '', collectMode: 'skip', collectAmount: '' }); setError(null); setResult(null); setPaymentOpen(false); }
+  }, [open]);
+
+  const plansQ = useQuery({
+    queryKey: ['courses', f.courseId, 'fee-plans'],
+    queryFn: () => api.get<FeePlan[]>(`/api/v1/courses/${f.courseId}/fee-plans`),
+    enabled: open && !!f.courseId && !!accessToken,
+  });
+  const plans = plansQ.data?.data ?? [];
+  const selectedPlan = plans.find((p) => p.id === f.feePlanId);
+  const selectedCourse = (coursesQ.data?.data ?? []).find((c) => c.id === f.courseId);
+  const feeAmount = selectedPlan?.totalAmount ?? (Number(f.manualFeeAmount) || 0);
+  const firstInstallment = selectedPlan?.installments[0]?.amount ?? feeAmount;
+
+  useEffect(() => {
+    // Default the collect amount to the first installment whenever the plan changes.
+    setF((s) => ({ ...s, collectAmount: String(firstInstallment || '') }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.feePlanId, f.courseId]);
+
   const convert = useMutation({
-    mutationFn: () => api.post<{ admissionNo: string }>(`/api/v1/leads/${leadId}/convert`, {
-      batchId: f.batchId, courseId: f.courseId || undefined, feePlan: f.feePlan.trim() || undefined,
-      feeAmount: Number(f.feeAmount) || 0, amountPaid: Number(f.amountPaid) || 0, paymentStatus: f.paymentStatus,
+    mutationFn: () => api.post<ConvertResult>(`/api/v1/leads/${leadId}/convert`, {
+      batchId: f.batchId,
+      courseId: f.courseId || undefined,
+      feePlanId: f.feePlanId || undefined,
+      feeAmount: f.feePlanId ? undefined : Number(f.manualFeeAmount) || 0,
+      ...(f.collectMode === 'cash' && Number(f.collectAmount) > 0
+        ? { collectAmount: Number(f.collectAmount), collectMethod: 'cash' }
+        : {}),
     }),
-    onSuccess: (r) => onConverted(r.data.admissionNo),
+    onSuccess: (r) => {
+      setResult(r.data);
+      if (f.collectMode === 'upi' && Number(f.collectAmount) > 0) setPaymentOpen(true);
+    },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to convert lead'),
   });
 
+  if (result) {
+    return (
+      <>
+        <Modal open={open && !paymentOpen} onClose={() => onConverted(result.admissionNo)} title="Admission created">
+          <div className="space-y-4 text-center py-2">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto">
+              <svg className="w-6 h-6 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <p className="text-slate-200 font-medium">Admission {result.admissionNo} created</p>
+            <div className="flex justify-center gap-2 pt-2">
+              {feeAmount > 0 && (
+                <Button size="sm" onClick={() => setPaymentOpen(true)}>Collect payment</Button>
+              )}
+              <Button size="sm" variant="outline" onClick={() => onConverted(result.admissionNo)}>Done</Button>
+            </div>
+          </div>
+        </Modal>
+        <PaymentModal
+          open={paymentOpen}
+          admissionId={result.admissionId}
+          defaultAmount={Number(f.collectAmount) || firstInstallment || feeAmount}
+          onClose={() => { setPaymentOpen(false); onConverted(result.admissionNo); }}
+          onRecorded={() => { setPaymentOpen(false); onConverted(result.admissionNo); }}
+        />
+      </>
+    );
+  }
+
   return (
-    <Modal open={open} onClose={onClose} title="Convert to student" description="Creates a verified student account, enrols them in the batch, and records the admission.">
+    <Modal open={open} onClose={onClose} title="Convert to student" description="Creates a verified student account, enrols them in the batch, and records the admission." wide>
       <div className="space-y-4">
-        <Field label="Batch">
-          <Select value={f.batchId} onChange={(e) => set('batchId')(e.target.value)}>
-            <option value="">Select batch…</option>
-            {(batchesQ.data?.data ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </Select>
-        </Field>
-        <Field label="Course (optional)">
-          <Select value={f.courseId} onChange={(e) => set('courseId')(e.target.value)}>
-            <option value="">— None —</option>
-            {(coursesQ.data?.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-          </Select>
-        </Field>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Fee amount"><Input type="number" min={0} value={f.feeAmount} onChange={(e) => set('feeAmount')(e.target.value)} placeholder="25000" /></Field>
-          <Field label="Amount paid"><Input type="number" min={0} value={f.amountPaid} onChange={(e) => set('amountPaid')(e.target.value)} placeholder="0" /></Field>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Fee plan"><Input value={f.feePlan} onChange={(e) => set('feePlan')(e.target.value)} placeholder="2 installments" /></Field>
-          <Field label="Payment status">
-            <Select value={f.paymentStatus} onChange={(e) => set('paymentStatus')(e.target.value)}>
-              <option value="pending">Pending</option><option value="partial">Partial</option><option value="paid">Paid</option>
+          <Field label="Batch">
+            <Select value={f.batchId} onChange={(e) => set('batchId')(e.target.value)}>
+              <option value="">Select batch…</option>
+              {(batchesQ.data?.data ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Course (optional)">
+            <Select value={f.courseId} onChange={(e) => { set('courseId')(e.target.value); set('feePlanId')(''); }}>
+              <option value="">— None —</option>
+              {(coursesQ.data?.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
             </Select>
           </Field>
         </div>
+
+        {f.courseId && (
+          <Field label="Fee plan">
+            <Select value={f.feePlanId} onChange={(e) => set('feePlanId')(e.target.value)}>
+              <option value="">
+                {plansQ.isLoading ? 'Loading plans…' : plans.length === 0 ? 'No preset plans — enter amount manually' : 'Select a plan…'}
+              </option>
+              {plans.map((p) => <option key={p.id} value={p.id}>{p.name} — {money(p.totalAmount)}</option>)}
+            </Select>
+          </Field>
+        )}
+
+        {selectedPlan ? (
+          <div className="rounded-xl bg-surface-2 border border-white/5 p-3 flex flex-wrap gap-2">
+            {selectedPlan.installments.map((inst, i) => (
+              <span key={i} className="text-xs text-slate-400 bg-surface-1 rounded-lg px-2 py-1">
+                {inst.label}: {money(inst.amount)}{inst.dueAfterDays > 0 ? ` (+${inst.dueAfterDays}d)` : ' (now)'}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <Field label={`Fee amount${selectedCourse ? ` (course default: ${money(selectedCourse.feeAmount)})` : ''}`}>
+            <Input type="number" min={0} value={f.manualFeeAmount} onChange={(e) => set('manualFeeAmount')(e.target.value)} placeholder={selectedCourse ? String(selectedCourse.feeAmount) : '25000'} />
+          </Field>
+        )}
+
+        {feeAmount > 0 && (
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-slate-300">Collect {money(firstInstallment)} now?</p>
+            <div className="flex gap-2">
+              {([
+                { key: 'skip', label: 'Not now' },
+                { key: 'cash', label: 'Cash / card in hand' },
+                { key: 'upi', label: 'UPI QR' },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => set('collectMode')(opt.key)}
+                  className={
+                    f.collectMode === opt.key
+                      ? 'px-3 py-1.5 rounded-full text-xs font-medium bg-brand-violet text-white'
+                      : 'px-3 py-1.5 rounded-full text-xs font-medium bg-surface-2 text-slate-400 hover:text-slate-200'
+                  }
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {f.collectMode !== 'skip' && (
+              <Input type="number" min={0} value={f.collectAmount} onChange={(e) => set('collectAmount')(e.target.value)} className="max-w-[160px]" />
+            )}
+            {f.collectMode === 'upi' && (
+              <p className="text-xs text-slate-500">A QR with this amount opens right after the admission is created.</p>
+            )}
+          </div>
+        )}
+
         {error && <p className="text-sm text-rose-400">{error}</p>}
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>

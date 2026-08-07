@@ -8,10 +8,12 @@ import {
   users,
   batches,
   batchEnrollments,
+  feePlans,
 } from '../../../drizzle/schema.js';
 import { hashPassword } from '../../lib/password.js';
 import { sendNotificationToUser, notifyAdmins } from '../notifications/notifications.service.js';
 import { sendEmail, studentWelcomeEmail } from '../../lib/mailer.js';
+import { materialiseInstallments, recordPayment } from '../fees/fees.service.js';
 import type { CreateLeadInput, UpdateLeadInput, ConvertLeadInput } from './leads.schema.js';
 
 function err(msg: string, statusCode: number, code: string) {
@@ -217,6 +219,24 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
     if (Number(enrolled) >= batch.capacity) throw err('Batch is at full capacity', 409, 'BATCH_FULL');
     await tx.insert(batchEnrollments).values({ userId: student!.id, batchId: input.batchId, status: 'active' });
 
+    // Resolve fee: a preset plan (preferred, materialised into real
+    // installment rows) or a manual amount when no plan applies. amountPaid/
+    // paymentStatus are never trusted from input — they start at zero and are
+    // only ever updated by the payments ledger (see recordPayment).
+    let feePlan: string | undefined = input.feePlan;
+    let feeAmount = input.feeAmount;
+    let plan: { id: string; installments: { label: string; amount: number; dueAfterDays: number }[] } | null = null;
+    if (input.feePlanId) {
+      const [p] = await tx.select().from(feePlans).where(eq(feePlans.id, input.feePlanId)).limit(1);
+      if (!p) throw err('Fee plan not found', 404, 'FEE_PLAN_NOT_FOUND');
+      plan = p;
+      feePlan = p.name;
+      feeAmount = p.totalAmount;
+    }
+    if (input.collectAmount !== undefined && input.collectAmount > feeAmount + 0.01) {
+      throw err('Amount to collect cannot exceed the fee', 400, 'COLLECT_EXCEEDS_FEE');
+    }
+
     const admissionNo = await nextCode(tx, 'adm_seq', 'ADM');
     const admissionDate = input.admissionDate ?? new Date().toISOString().slice(0, 10);
     const [admission] = await tx
@@ -230,12 +250,17 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
         batchId: input.batchId,
         branchId: lead.branchId ?? null,
         admissionDate,
-        feePlan: input.feePlan,
-        feeAmount: input.feeAmount,
-        amountPaid: input.amountPaid,
-        paymentStatus: input.paymentStatus,
+        feePlanId: plan?.id,
+        feePlan,
+        feeAmount,
+        amountPaid: 0,
+        paymentStatus: 'pending',
       })
       .returning();
+
+    if (plan) {
+      await materialiseInstallments(tx, admission!.id, plan, new Date(admissionDate));
+    }
 
     await tx
       .update(leads)
@@ -250,10 +275,18 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
     };
   });
 
-  // Notifications fire after the transaction commits — never let a delivery
-  // failure roll back a successful admission.
+  // Notifications + the first-payment record fire after the transaction
+  // commits — never let a delivery/payment hiccup roll back a successful
+  // admission that's already been created.
   const finish = async () => {
     const r = await result;
+    if (input.collectAmount) {
+      await recordPayment(
+        r.admissionId,
+        { amount: input.collectAmount, method: input.collectMethod, reference: input.collectReference },
+        counsellorId,
+      );
+    }
     if (r.passwordSet && r.studentEmail) {
       const { subject, html } = studentWelcomeEmail(r.studentName, r.studentEmail, input.password!);
       void sendEmail({ to: r.studentEmail, subject, html });
