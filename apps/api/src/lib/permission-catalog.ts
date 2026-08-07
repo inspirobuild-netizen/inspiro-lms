@@ -30,6 +30,10 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { code: 'admissions.view_all', label: 'View all / branch admissions', category: 'Admissions CRM' },
   { code: 'admissions.manage', label: 'Convert leads & manage admissions', category: 'Admissions CRM' },
 
+  // Fees
+  { code: 'fees.configure', label: 'Set course fees & installment plans', category: 'Fees' },
+  { code: 'payments.record', label: 'Record / confirm fee payments', category: 'Fees' },
+
   // Academics
   { code: 'batches.view', label: 'View batches', category: 'Academics' },
   { code: 'batches.manage', label: 'Manage batches & enrolment', category: 'Academics' },
@@ -68,6 +72,7 @@ export const DEFAULT_STAFF_ROLES: DefaultRole[] = [
     description: 'Owns leads, follow-ups and admissions for their own pipeline — no visibility into other counsellors\' students, leads, or org-wide data.',
     permissions: [
       'dashboard.view', 'leads.view', 'leads.manage', 'admissions.view', 'admissions.manage', 'batches.view',
+      'payments.record',
     ],
   },
   {
@@ -106,7 +111,10 @@ export const DEFAULT_STAFF_ROLES: DefaultRole[] = [
     name: 'Finance Staff',
     slug: 'finance-staff',
     description: 'Fees, payments and revenue reporting.',
-    permissions: ['dashboard.view', 'admissions.view_all', 'revenue.view', 'reports.view', 'students.view'],
+    permissions: [
+      'dashboard.view', 'admissions.view_all', 'revenue.view', 'reports.view', 'students.view',
+      'fees.configure', 'payments.record',
+    ],
   },
   {
     name: 'Marketing Executive',
@@ -123,6 +131,7 @@ export const DEFAULT_STAFF_ROLES: DefaultRole[] = [
       'admissions.view_all', 'admissions.manage', 'students.view', 'students.manage', 'students.verify',
       'batches.view', 'batches.manage', 'courses.view', 'exams.view', 'mentors.view', 'leaderboard.view',
       'analytics.view_all', 'revenue.view', 'reports.view', 'audit.view',
+      'fees.configure', 'payments.record',
     ],
   },
 ];

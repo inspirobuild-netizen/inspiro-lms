@@ -16,3 +16,7 @@ export function formatPhone(phone: string | null | undefined): string {
   const digits = phone.replace(/^\+/, '');
   return digits.replace(/(\d{2})(\d{5})(\d{5})/, '+$1 $2 $3');
 }
+
+export function money(n: number): string {
+  return `₹${n.toLocaleString('en-IN')}`;
+}

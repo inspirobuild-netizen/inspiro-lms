@@ -6,6 +6,7 @@ import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { createApiClient } from '@/lib/api';
 import { useAuthStore, useHasPermission } from '@/lib/auth';
 import { StatCard } from '@/components/shared/stat-card';
+import { money } from '@/lib/utils';
 
 function UsersIcon() {
   return (
@@ -126,7 +127,6 @@ export default function DashboardPage() {
     return q.data?.meta?.total ?? 0;
   };
   const sub = (q: { isError: boolean }, ok: string) => (q.isError ? 'failed to load — retry below' : ok);
-  const money = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
   const topStats = [
     canStudents && students, canBatches && batches, canExams && exams, canCourses && courses,

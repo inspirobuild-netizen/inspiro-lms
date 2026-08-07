@@ -38,6 +38,9 @@ export const leadStatusEnum = pgEnum('lead_status', ['new', 'contacted', 'intere
 export const paymentStatusEnum = pgEnum('payment_status', ['pending', 'partial', 'paid']);
 // Student Verification (Phase 3)
 export const verificationStatusEnum = pgEnum('verification_status', ['pending', 'verified', 'rejected']);
+// Fee management
+export const installmentStatusEnum = pgEnum('installment_status', ['pending', 'paid', 'waived']);
+export const paymentMethodEnum = pgEnum('payment_method', ['upi', 'cash', 'card', 'bank_transfer', 'other']);
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 export const users = pgTable('users', {
@@ -82,6 +85,9 @@ export const branches = pgTable('branches', {
   code: varchar('code', { length: 30 }).notNull().unique(),
   address: text('address'),
   phone: varchar('phone', { length: 20 }),
+  // Optional per-branch UPI collection account; falls back to env UPI_VPA.
+  upiVpa: varchar('upi_vpa', { length: 120 }),
+  upiPayeeName: varchar('upi_payee_name', { length: 120 }),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -215,8 +221,12 @@ export const admissions = pgTable('admissions', {
   batchId: uuid('batch_id').references(() => batches.id, { onDelete: 'set null' }),
   branchId: uuid('branch_id').references(() => branches.id, { onDelete: 'set null' }),
   admissionDate: date('admission_date').notNull(),
+  // feePlan is the plan's display name (kept for historical rows predating
+  // fee_plans); feePlanId is the real reference for new admissions.
   feePlan: varchar('fee_plan', { length: 120 }),
+  feePlanId: uuid('fee_plan_id').references((): AnyPgColumn => feePlans.id, { onDelete: 'set null' }),
   feeAmount: real('fee_amount').notNull().default(0),
+  // Rollup maintained from the payments ledger — never write these directly.
   amountPaid: real('amount_paid').notNull().default(0),
   paymentStatus: paymentStatusEnum('payment_status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -227,6 +237,60 @@ export const admissions = pgTable('admissions', {
   batchIdx: index('idx_admissions_batch').on(t.batchId),
   branchIdx: index('idx_admissions_branch').on(t.branchId),
   dateIdx: index('idx_admissions_date').on(t.admissionDate),
+}));
+
+// ── Fee management ────────────────────────────────────────────────────────────
+// Preset fee plans per course. A "Full payment" plan is a single installment
+// with dueAfterDays 0; totalAmount may be below the course fee to encode a
+// discount. installments always sum to totalAmount (enforced in the service).
+export const feePlans = pgTable('fee_plans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  courseId: uuid('course_id').notNull().references((): AnyPgColumn => courses.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 120 }).notNull(),
+  totalAmount: real('total_amount').notNull(),
+  installments: jsonb('installments').notNull().$type<{ label: string; amount: number; dueAfterDays: number }[]>(),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  courseIdx: index('idx_fee_plans_course').on(t.courseId),
+}));
+
+// The chosen plan materialised onto an admission at conversion time, so due
+// dates and overdue state are queryable rather than buried in jsonb.
+export const admissionInstallments = pgTable('admission_installments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  admissionId: uuid('admission_id').notNull().references(() => admissions.id, { onDelete: 'cascade' }),
+  seq: integer('seq').notNull(),
+  label: varchar('label', { length: 120 }).notNull(),
+  amount: real('amount').notNull(),
+  dueDate: date('due_date').notNull(),
+  status: installmentStatusEnum('status').notNull().default('pending'),
+  paidAmount: real('paid_amount').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  admissionIdx: index('idx_installments_admission').on(t.admissionId),
+  dueIdx: index('idx_installments_due').on(t.dueDate),
+  statusIdx: index('idx_installments_status').on(t.status),
+}));
+
+// Immutable payment ledger — the source of truth for money collected.
+// admissions.amountPaid/paymentStatus are recomputed from these rows.
+export const payments = pgTable('payments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  admissionId: uuid('admission_id').notNull().references(() => admissions.id, { onDelete: 'cascade' }),
+  installmentId: uuid('installment_id').references((): AnyPgColumn => admissionInstallments.id, { onDelete: 'set null' }),
+  amount: real('amount').notNull(),
+  method: paymentMethodEnum('method').notNull().default('upi'),
+  reference: varchar('reference', { length: 120 }),
+  note: text('note'),
+  collectedBy: uuid('collected_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  admissionIdx: index('idx_payments_admission').on(t.admissionId),
+  createdIdx: index('idx_payments_created').on(t.createdAt),
 }));
 
 export const counsellorTargets = pgTable('counsellor_targets', {
@@ -301,6 +365,8 @@ export const courses = pgTable('courses', {
   subject: varchar('subject', { length: 100 }).notNull(),
   description: text('description'),
   thumbnailUrl: text('thumbnail_url'),
+  // Standard course fee; fee_plans may discount this (e.g. full-payment offer).
+  feeAmount: real('fee_amount').notNull().default(0),
   isPublished: boolean('is_published').notNull().default(false),
   createdBy: uuid('created_by').notNull().references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

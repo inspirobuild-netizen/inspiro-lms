@@ -6,7 +6,7 @@ import { createApiClient } from '@/lib/api';
 import { useAuthStore, useHasPermission } from '@/lib/auth';
 import { StatCard } from '@/components/shared/stat-card';
 import { Badge } from '@/components/ui/badge';
-import { formatDate, formatPhone } from '@/lib/utils';
+import { formatDate, formatPhone, money } from '@/lib/utils';
 
 type Dashboard = {
   todayLeads: number;
@@ -38,8 +38,6 @@ export default function AdmissionsDashboardPage() {
     enabled: !!accessToken,
   });
   const d = data?.data;
-
-  const money = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
   return (
     <div className="space-y-6">

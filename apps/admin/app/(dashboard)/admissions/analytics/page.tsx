@@ -9,6 +9,7 @@ import { useAuthStore } from '@/lib/auth';
 import { StatCard } from '@/components/shared/stat-card';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { Badge } from '@/components/ui/badge';
+import { money } from '@/lib/utils';
 
 type Overview = {
   totals: { leads: number; admissions: number; revenue: number; collected: number; conversionRate: number };
@@ -40,7 +41,6 @@ export default function CrmAnalyticsPage() {
   });
   const d = data?.data;
 
-  const money = (n: number) => `₹${n.toLocaleString('en-IN')}`;
   const funnelData = FUNNEL_ORDER.map((k) => ({ stage: funnelLabel[k], count: d?.funnel[k] ?? 0 }));
 
   const perfColumns: Column<Overview['counsellorPerformance'][number]>[] = [

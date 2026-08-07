@@ -10,7 +10,7 @@ import { StatCard } from '@/components/shared/stat-card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/modal';
-import { formatDate, formatPhone } from '@/lib/utils';
+import { formatDate, formatPhone, money } from '@/lib/utils';
 
 type AdmissionRow = {
   id: string;
@@ -85,7 +85,6 @@ export default function AdmittedStudentsPage() {
     enabled: !!accessToken,
   });
 
-  const money = (n: number) => `₹${n.toLocaleString('en-IN')}`;
   const s = summary.data?.data;
 
   const columns: Column<AdmissionRow>[] = [

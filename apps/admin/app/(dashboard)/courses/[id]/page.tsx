@@ -5,11 +5,12 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createApiClient, ApiError } from '@/lib/api';
-import { useAuthStore } from '@/lib/auth';
+import { useAuthStore, useHasPermission } from '@/lib/auth';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, Select, Field } from '@/components/ui/modal';
+import { money } from '@/lib/utils';
 
 type CourseDetail = {
   id: string;
@@ -17,7 +18,18 @@ type CourseDetail = {
   subject: string;
   description: string | null;
   isPublished: boolean;
+  feeAmount: number;
   modules: { id: string; title: string; order: number; lessonCount: number }[];
+};
+
+type Installment = { label: string; amount: number; dueAfterDays: number };
+type FeePlan = {
+  id: string;
+  name: string;
+  totalAmount: number;
+  installments: Installment[];
+  isActive: boolean;
+  sortOrder: number;
 };
 
 type Lesson = {
@@ -35,6 +47,7 @@ export default function CourseBuilderPage() {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
   const qc = useQueryClient();
+  const has = useHasPermission();
 
   const courseKey = ['admin', 'course', id];
   const { data, isLoading, isError, refetch } = useQuery({
@@ -83,6 +96,8 @@ export default function CourseBuilderPage() {
           </div>
         </div>
       </div>
+
+      {has('fees.configure') && <FeesSection courseId={id} feeAmount={course.feeAmount} onCourseFeeChanged={invalidate} />}
 
       {/* Modules */}
       <div className="space-y-4">
@@ -283,6 +298,202 @@ function AddLessonForm({ moduleId, nextOrder, onAdded }: { moduleId: string; nex
         </div>
       </Modal>
     </>
+  );
+}
+
+// ── Fees & plans ─────────────────────────────────────────────────────────────────
+function FeesSection({ courseId, feeAmount, onCourseFeeChanged }: { courseId: string; feeAmount: number; onCourseFeeChanged: () => void }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const qc = useQueryClient();
+
+  const plansKey = ['admin', 'course', courseId, 'fee-plans'];
+  const { data: plansData } = useQuery({
+    queryKey: plansKey,
+    queryFn: () => api.get<FeePlan[]>(`/api/v1/admin/courses/${courseId}/fee-plans`),
+    enabled: !!accessToken,
+  });
+  const plans = plansData?.data ?? [];
+  const invalidatePlans = () => void qc.invalidateQueries({ queryKey: plansKey });
+
+  const [feeInput, setFeeInput] = useState(String(feeAmount));
+  const [editingPlan, setEditingPlan] = useState<FeePlan | null>(null);
+  const [creatingPlan, setCreatingPlan] = useState(false);
+
+  const saveFee = useMutation({
+    mutationFn: () => api.patch(`/api/v1/admin/courses/${courseId}/fee`, { feeAmount: Number(feeInput) || 0 }),
+    onSuccess: onCourseFeeChanged,
+  });
+
+  const deletePlan = useMutation({
+    mutationFn: (planId: string) => api.delete(`/api/v1/admin/fee-plans/${planId}`),
+    onSuccess: invalidatePlans,
+  });
+
+  return (
+    <section className="space-y-4">
+      <h3 className="font-display font-semibold text-lg text-slate-200">Fees &amp; plans</h3>
+
+      <div className="rounded-2xl border border-white/8 bg-surface-1 p-5">
+        <p className="text-sm font-medium text-slate-300 mb-2">Standard course fee</p>
+        <div className="flex items-center gap-2">
+          <span className="text-slate-500">₹</span>
+          <Input
+            type="number"
+            min={0}
+            value={feeInput}
+            onChange={(e) => setFeeInput(e.target.value)}
+            className="max-w-[160px]"
+          />
+          <Button size="sm" loading={saveFee.isPending} disabled={Number(feeInput) === feeAmount} onClick={() => saveFee.mutate()}>
+            Save
+          </Button>
+        </div>
+        <p className="text-xs text-slate-500 mt-2">Fee plans below may discount this (e.g. a full-payment offer).</p>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-slate-300">Installment plans</p>
+        <Button size="sm" variant="outline" onClick={() => setCreatingPlan(true)}>+ Add plan</Button>
+      </div>
+
+      {plans.length === 0 ? (
+        <p className="text-slate-500 text-sm rounded-2xl border border-white/8 bg-surface-1 p-6 text-center">
+          No fee plans yet — counsellors won&apos;t be able to select one when converting a lead into this course.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {plans.map((plan) => (
+            <div key={plan.id} className="rounded-xl bg-surface-2 border border-white/5 px-4 py-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-slate-200">{plan.name}</p>
+                    {!plan.isActive && <Badge variant="slate">Inactive</Badge>}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">{money(plan.totalAmount)} · {plan.installments.length} installment{plan.installments.length > 1 ? 's' : ''}</p>
+                </div>
+                <div className="flex gap-3 shrink-0">
+                  <button className="text-xs text-slate-400 hover:text-slate-200" onClick={() => setEditingPlan(plan)}>Edit</button>
+                  <button
+                    className="text-xs text-rose-400/70 hover:text-rose-400"
+                    onClick={() => { if (confirm(`Delete plan "${plan.name}"?`)) deletePlan.mutate(plan.id); }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {plan.installments.map((inst, i) => (
+                  <span key={i} className="text-xs text-slate-400 bg-surface-1 rounded-lg px-2 py-1">
+                    {inst.label}: {money(inst.amount)}{inst.dueAfterDays > 0 ? ` (+${inst.dueAfterDays}d)` : ' (now)'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <FeePlanModal
+        courseId={courseId}
+        plan={editingPlan}
+        open={creatingPlan || !!editingPlan}
+        defaultTotal={feeAmount}
+        onClose={() => { setCreatingPlan(false); setEditingPlan(null); }}
+        onSaved={() => { setCreatingPlan(false); setEditingPlan(null); invalidatePlans(); }}
+      />
+    </section>
+  );
+}
+
+function FeePlanModal({
+  courseId, plan, open, defaultTotal, onClose, onSaved,
+}: {
+  courseId: string;
+  plan: FeePlan | null;
+  open: boolean;
+  defaultTotal: number;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+
+  const [name, setName] = useState('');
+  const [installments, setInstallments] = useState<Installment[]>([{ label: 'Full payment', amount: 0, dueAfterDays: 0 }]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    if (plan) {
+      setName(plan.name);
+      setInstallments(plan.installments);
+    } else {
+      setName('');
+      setInstallments([{ label: 'Full payment', amount: defaultTotal, dueAfterDays: 0 }]);
+    }
+    setError(null);
+  }, [open, plan, defaultTotal]);
+
+  const total = installments.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const balanced = installments.length > 0 && installments.every((i) => i.label.trim() && Number(i.amount) > 0);
+
+  function updateRow(i: number, patch: Partial<Installment>) {
+    setInstallments((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+  function addRow() {
+    setInstallments((rows) => [...rows, { label: `Installment ${rows.length + 1}`, amount: 0, dueAfterDays: 30 * rows.length }]);
+  }
+  function removeRow(i: number) {
+    setInstallments((rows) => rows.filter((_, idx) => idx !== i));
+  }
+
+  const save = useMutation({
+    mutationFn: () => {
+      const payload = { name: name.trim(), totalAmount: total, installments: installments.map((i) => ({ ...i, amount: Number(i.amount) || 0, dueAfterDays: Number(i.dueAfterDays) || 0 })) };
+      return plan
+        ? api.patch(`/api/v1/admin/fee-plans/${plan.id}`, payload)
+        : api.post(`/api/v1/admin/courses/${courseId}/fee-plans`, payload);
+    },
+    onSuccess: onSaved,
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to save plan'),
+  });
+
+  return (
+    <Modal open={open} onClose={onClose} title={plan ? 'Edit fee plan' : 'Add fee plan'} description="Installment amounts must add up to the plan total" wide>
+      <div className="space-y-4">
+        <Field label="Plan name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="2 installments — 5% off" autoFocus /></Field>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-slate-300">Installments</p>
+          {installments.map((inst, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input value={inst.label} onChange={(e) => updateRow(i, { label: e.target.value })} placeholder="Label" className="flex-1" />
+              <Input type="number" min={0} value={inst.amount || ''} onChange={(e) => updateRow(i, { amount: Number(e.target.value) })} placeholder="Amount" className="w-28" />
+              <Input type="number" min={0} value={inst.dueAfterDays} onChange={(e) => updateRow(i, { dueAfterDays: Number(e.target.value) })} placeholder="Days" className="w-20" />
+              {installments.length > 1 && (
+                <button className="text-rose-400/70 hover:text-rose-400 text-sm px-1" onClick={() => removeRow(i)}>✕</button>
+              )}
+            </div>
+          ))}
+          <Button variant="ghost" size="sm" onClick={addRow}>+ Add installment</Button>
+        </div>
+
+        <div className="flex items-center justify-between text-sm rounded-xl bg-surface-2 px-4 py-2.5">
+          <span className="text-slate-400">Total</span>
+          <span className="font-semibold text-slate-100">{money(total)}</span>
+        </div>
+
+        {error && <p className="text-sm text-rose-400">{error}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button loading={save.isPending} disabled={!balanced || name.trim().length < 2} onClick={() => save.mutate()}>
+            {plan ? 'Save changes' : 'Create plan'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
