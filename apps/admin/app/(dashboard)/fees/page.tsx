@@ -160,6 +160,8 @@ export default function FeesPage() {
 
       <PaymentAccountsSection branches={branchesQ.data?.data ?? []} />
 
+      <EnrollmentRequestsSection />
+
       <div>
         <h3 className="font-display font-semibold text-lg text-slate-200 mb-3">Outstanding installments</h3>
         <DataTable columns={columns} data={outstandingQ.data?.data ?? []} loading={outstandingQ.isLoading} getKey={(r) => r.installmentId} emptyMessage="Nothing outstanding 🎉" />
@@ -298,6 +300,131 @@ function PaymentAccountsSection({ branches }: { branches: Option[] }) {
         onSaved={() => { setOpen(false); void qc.invalidateQueries({ queryKey: ['admin', 'payment-accounts'] }); }}
       />
     </div>
+  );
+}
+
+type EnrollmentRequest = {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentPhone: string;
+  courseId: string;
+  courseTitle: string;
+  amount: number;
+  method: string;
+  reference: string | null;
+  status: 'pending' | 'verified' | 'rejected';
+  createdAt: string;
+};
+
+function EnrollmentRequestsSection() {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const qc = useQueryClient();
+  const can = useHasPermission();
+  const toast = useToast();
+  const [verifying, setVerifying] = useState<EnrollmentRequest | null>(null);
+
+  const canVerify = can('payments.record');
+  const requestsQ = useQuery({
+    queryKey: ['admin', 'enrollment-requests', 'pending'],
+    queryFn: () => api.get<EnrollmentRequest[]>('/api/v1/admin/enrollment-requests?status=pending'),
+    enabled: !!accessToken && canVerify,
+  });
+
+  const reject = useMutation({
+    mutationFn: (id: string) => api.post(`/api/v1/admin/enrollment-requests/${id}/reject`, {}),
+    onSuccess: () => { toast('Request rejected', 'success'); void qc.invalidateQueries({ queryKey: ['admin', 'enrollment-requests'] }); },
+    onError: (e) => toast(e instanceof ApiError ? e.message : 'Failed to reject', 'error'),
+  });
+
+  if (!canVerify) return null;
+
+  const requests = requestsQ.data?.data ?? [];
+
+  return (
+    <div className="rounded-2xl border border-white/8 bg-surface-1 p-5">
+      <h3 className="font-semibold text-slate-200 text-sm">Enrollment requests</h3>
+      <p className="text-xs text-slate-500 mt-0.5 mb-3">Students who paid via the app and submitted a UPI reference — verify against your bank before admitting.</p>
+
+      {requestsQ.isLoading ? (
+        <p className="text-sm text-slate-500">Loading…</p>
+      ) : requests.length === 0 ? (
+        <p className="text-sm text-slate-500">Nothing pending 🎉</p>
+      ) : (
+        <div className="space-y-2">
+          {requests.map((r) => (
+            <div key={r.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-surface-2 border border-white/5">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-200 truncate">{r.studentName} <span className="text-slate-500 font-normal">· {formatPhone(r.studentPhone)}</span></p>
+                <p className="text-xs text-slate-500 mt-0.5 truncate">{r.courseTitle} · {money(r.amount)} · {r.reference ? `Ref ${r.reference}` : <span className="text-amber-400/80">No reference submitted yet</span>}</p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button size="sm" disabled={!r.reference} onClick={() => setVerifying(r)}>Verify</Button>
+                <button
+                  className="text-xs text-rose-400/70 hover:text-rose-400 px-2"
+                  onClick={() => { if (confirm(`Reject ${r.studentName}'s enrollment request?`)) reject.mutate(r.id); }}
+                >
+                  Reject
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <VerifyEnrollmentModal
+        request={verifying}
+        onClose={() => setVerifying(null)}
+        onVerified={() => { setVerifying(null); void qc.invalidateQueries({ queryKey: ['admin', 'enrollment-requests'] }); void qc.invalidateQueries({ queryKey: ['admin', 'fees'] }); }}
+      />
+    </div>
+  );
+}
+
+function VerifyEnrollmentModal({ request, onClose, onVerified }: { request: EnrollmentRequest | null; onClose: () => void; onVerified: () => void }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const toast = useToast();
+  const [batchId, setBatchId] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const batchesQ = useQuery({
+    queryKey: ['courses', request?.courseId, 'batches'],
+    queryFn: () => api.get<{ id: string; name: string }[]>(`/api/v1/courses/${request!.courseId}/batches`),
+    enabled: !!request && !!accessToken,
+  });
+
+  const verify = useMutation({
+    mutationFn: () => api.post(`/api/v1/admin/enrollment-requests/${request!.id}/verify`, { batchId }),
+    onSuccess: () => { toast('Enrollment verified — admission created', 'success'); setBatchId(''); setError(null); onVerified(); },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to verify'),
+  });
+
+  return (
+    <Modal open={!!request} onClose={onClose} title="Verify enrollment" description="Confirm the payment landed, then pick which batch to admit into">
+      {request && (
+        <div className="space-y-4">
+          <div className="rounded-xl bg-surface-2 border border-white/5 px-4 py-3">
+            <p className="text-sm text-slate-200">{request.studentName} · {formatPhone(request.studentPhone)}</p>
+            <p className="text-xs text-slate-500 mt-1">{request.courseTitle} · {money(request.amount)} · Ref {request.reference}</p>
+          </div>
+          <Field label="Batch">
+            <Select value={batchId} onChange={(e) => setBatchId(e.target.value)}>
+              <option value="">
+                {batchesQ.isLoading ? 'Loading batches…' : (batchesQ.data?.data ?? []).length === 0 ? 'No batches for this course' : 'Select batch…'}
+              </option>
+              {(batchesQ.data?.data ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
+          </Field>
+          {error && <p className="text-sm text-rose-400">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button loading={verify.isPending} disabled={!batchId} onClick={() => verify.mutate()}>Confirm &amp; admit</Button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 

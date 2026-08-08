@@ -32,7 +32,7 @@ export const leaderboardPeriodEnum = pgEnum('leaderboard_period', ['weekly', 'mo
 export const enrollmentStatusEnum = pgEnum('enrollment_status', ['active', 'expired', 'suspended']);
 export const targetExamEnum = pgEnum('target_exam', ['upsc', 'kerala_psc', 'other_psc']);
 // Admission CRM (Phase 2)
-export const leadSourceEnum = pgEnum('lead_source', ['facebook', 'instagram', 'google', 'website', 'walk_in', 'referral', 'seminar', 'campaign', 'other']);
+export const leadSourceEnum = pgEnum('lead_source', ['facebook', 'instagram', 'google', 'website', 'walk_in', 'referral', 'seminar', 'campaign', 'mobile_app', 'other']);
 export const leadPriorityEnum = pgEnum('lead_priority', ['hot', 'warm', 'cold']);
 export const leadStatusEnum = pgEnum('lead_status', ['new', 'contacted', 'interested', 'demo', 'counselling', 'fee_discussion', 'admission_confirmed', 'converted', 'not_interested', 'lost']);
 export const paymentStatusEnum = pgEnum('payment_status', ['pending', 'partial', 'paid']);
@@ -190,7 +190,11 @@ export const leads = pgTable('leads', {
   source: leadSourceEnum('source').notNull().default('other'),
   priority: leadPriorityEnum('priority').notNull().default('warm'),
   status: leadStatusEnum('status').notNull().default('new'),
-  ownerId: uuid('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // Nullable: self-registered app leads start unowned, sitting in an
+  // "unassigned" queue until a counsellor is assigned. set null (not
+  // cascade) so deleting a staff account unassigns their leads rather than
+  // deleting the leads themselves.
+  ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'set null' }),
   branchId: uuid('branch_id').references(() => branches.id, { onDelete: 'set null' }),
   remarks: text('remarks'),
   nextFollowupAt: timestamp('next_followup_at', { withTimezone: true }),
@@ -310,6 +314,38 @@ export const payments = pgTable('payments', {
 }, (t) => ({
   admissionIdx: index('idx_payments_admission').on(t.admissionId),
   createdIdx: index('idx_payments_created').on(t.createdAt),
+}));
+
+// A student's self-serve "I want to enrol + I've paid" claim from the mobile
+// app. Deliberately separate from student_verification (identity docs) —
+// different concern, different lifecycle. Staff verifies the claim, which
+// materialises a real admission (see fees/enroll service) — never trusted
+// or auto-admitted.
+export const enrollmentRequestStatusEnum = pgEnum('enrollment_request_status', ['pending', 'verified', 'rejected']);
+
+export const enrollmentRequests = pgTable('enrollment_requests', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  studentId: uuid('student_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  leadId: uuid('lead_id').references((): AnyPgColumn => leads.id, { onDelete: 'set null' }),
+  courseId: uuid('course_id').notNull().references(() => courses.id, { onDelete: 'restrict' }),
+  feePlanId: uuid('fee_plan_id').references((): AnyPgColumn => feePlans.id, { onDelete: 'set null' }),
+  // Preset amount, resolved server-side at request time exactly like the
+  // admin flows — never trusted from the student's client on verify.
+  amount: real('amount').notNull(),
+  method: paymentMethodEnum('method').notNull().default('upi'),
+  // The UPI reference/UTR the student typed after paying — set when they
+  // submit "I've paid"; null while still just a QR shown, unconfirmed.
+  reference: varchar('reference', { length: 120 }),
+  status: enrollmentRequestStatusEnum('status').notNull().default('pending'),
+  rejectionReason: text('rejection_reason'),
+  verifiedBy: uuid('verified_by').references(() => users.id, { onDelete: 'set null' }),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
+  resultingAdmissionId: uuid('resulting_admission_id').references((): AnyPgColumn => admissions.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  studentIdx: index('idx_enrollment_requests_student').on(t.studentId),
+  statusIdx: index('idx_enrollment_requests_status').on(t.status),
 }));
 
 export const counsellorTargets = pgTable('counsellor_targets', {

@@ -17,7 +17,7 @@ export default async function leadsRoutes(app: FastifyInstance) {
     const page = Math.max(1, Number(q.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
     const viewAll = await hasPermission(req, 'leads.view_all');
-    const { items, total } = await listLeads({ page, limit, status: q.status, priority: q.priority, source: q.source, search: q.search?.trim() || undefined, ownerId: req.user.sub, viewAll });
+    const { items, total } = await listLeads({ page, limit, status: q.status, priority: q.priority, source: q.source, search: q.search?.trim() || undefined, ownerId: req.user.sub, viewAll, unassigned: q.unassigned === 'true' && viewAll });
     return reply.send({ success: true, data: items, meta: { page, limit, total } });
   });
 

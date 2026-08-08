@@ -78,6 +78,13 @@
       "when": 1786204515151,
       "tag": "0010_cute_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786205691685,
+      "tag": "0011_purple_doorman",
+      "breakpoints": true
     }
   ]
 }

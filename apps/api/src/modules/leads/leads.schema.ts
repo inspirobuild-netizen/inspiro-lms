@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const source = z.enum(['facebook', 'instagram', 'google', 'website', 'walk_in', 'referral', 'seminar', 'campaign', 'other']);
+const source = z.enum(['facebook', 'instagram', 'google', 'website', 'walk_in', 'referral', 'seminar', 'campaign', 'mobile_app', 'other']);
 const priority = z.enum(['hot', 'warm', 'cold']);
 const status = z.enum(['new', 'contacted', 'interested', 'demo', 'counselling', 'fee_discussion', 'admission_confirmed', 'converted', 'not_interested', 'lost']);
 

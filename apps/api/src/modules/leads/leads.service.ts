@@ -26,7 +26,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 // Active pipeline stages shown on the Kanban board (excludes terminal states).
 export const PIPELINE_STAGES = ['new', 'contacted', 'interested', 'demo', 'counselling', 'fee_discussion', 'admission_confirmed'] as const;
 
-async function nextCode(exec: { execute: (q: ReturnType<typeof sql>) => Promise<unknown> }, seq: 'lead_seq' | 'adm_seq', prefix: string): Promise<string> {
+export async function nextCode(exec: { execute: (q: ReturnType<typeof sql>) => Promise<unknown> }, seq: 'lead_seq' | 'adm_seq', prefix: string): Promise<string> {
   const q = seq === 'lead_seq' ? sql`SELECT nextval('lead_seq')::int AS v` : sql`SELECT nextval('adm_seq')::int AS v`;
   const res = (await exec.execute(q)) as unknown as { rows: { v: number }[] };
   return `${prefix}-${String(res.rows[0]!.v).padStart(5, '0')}`;
@@ -43,9 +43,19 @@ export async function listLeads(opts: {
   search?: string;
   ownerId: string;
   viewAll: boolean;
+  unassigned?: boolean;
 }) {
   const conds = [];
-  if (!opts.viewAll) conds.push(eq(leads.ownerId, opts.ownerId));
+  if (opts.unassigned) {
+    // Only meaningful for viewAll callers — an unassigned queue is inherently
+    // cross-counsellor, so this ignores the self-scoping filter below. Leads
+    // already converted (e.g. via the app enrollment-verify flow, which
+    // never sets an owner) have nothing left to assign — exclude them.
+    conds.push(sql`${leads.ownerId} is null`);
+    conds.push(sql`${leads.status} <> 'converted'`);
+  } else if (!opts.viewAll) {
+    conds.push(eq(leads.ownerId, opts.ownerId));
+  }
   if (opts.status) conds.push(eq(leads.status, opts.status as never));
   if (opts.priority) conds.push(eq(leads.priority, opts.priority as never));
   if (opts.source) conds.push(eq(leads.source, opts.source as never));

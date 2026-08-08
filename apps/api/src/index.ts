@@ -68,6 +68,7 @@ await app.register(import('./modules/leads/leads.routes.js'), { prefix: '/api/v1
 await app.register(import('./modules/admissions/admissions.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/crm/crm.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/fees/fees.routes.js'), { prefix: '/api/v1' });
+await app.register(import('./modules/enrollment/enrollment.routes.js'), { prefix: '/api/v1' });
 // Student Verification + audit/search (Phase 3 of the admissions module)
 await app.register(import('./modules/verification/verification.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/search/search.routes.js'), { prefix: '/api/v1' });
