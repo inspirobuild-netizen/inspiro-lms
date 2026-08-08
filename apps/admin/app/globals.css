@@ -54,12 +54,15 @@
 }
 
 /* iOS zooms the whole page when a focused control's font is under 16px.
-   Deliberately left OUTSIDE @layer: unlayered rules beat layered ones, so this
-   wins over the `text-sm` utility on our Input/Select without !important. */
+   Tailwind v3 flattens @layer at build time (no real CSS cascade layers), so
+   a bare element selector here still loses to the `.text-sm` utility class on
+   our Input/Select (class specificity beats element specificity outright,
+   regardless of source order or @layer). !important is the correct tool for
+   overriding a utility class's specificity from outside the framework. */
 @media (max-width: 640px) {
   input,
   select,
   textarea {
-    font-size: 16px;
+    font-size: 16px !important;
   }
 }
