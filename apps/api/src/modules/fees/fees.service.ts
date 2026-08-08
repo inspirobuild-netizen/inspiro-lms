@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, lt, lte, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db } from '../../lib/db.js';
 import {
   admissionInstallments,
@@ -9,7 +10,9 @@ import {
   payments,
   users,
 } from '../../../drizzle/schema.js';
-import type { CreateFeePlanInput, RecordPaymentInput, UpdateFeePlanInput } from './fees.schema.js';
+import type { CreateFeePlanInput, FeesOverviewQuery, RecordPaymentInput, UpdateFeePlanInput } from './fees.schema.js';
+
+const counsellorAlias = alias(users, 'counsellor');
 
 function err(msg: string, statusCode: number, code: string) {
   return Object.assign(new Error(msg), { statusCode, code });
@@ -217,6 +220,97 @@ export async function listPayments(admissionId: string) {
     .leftJoin(users, eq(users.id, payments.collectedBy))
     .where(eq(payments.admissionId, admissionId))
     .orderBy(desc(payments.createdAt));
+}
+
+// ── Overview / outstanding ──────────────────────────────────────────────────────
+
+function overviewFilters(q: FeesOverviewQuery) {
+  const conds = [];
+  if (q.branchId) conds.push(eq(admissions.branchId, q.branchId));
+  if (q.counsellorId) conds.push(eq(admissions.counsellorId, q.counsellorId));
+  if (q.courseId) conds.push(eq(admissions.courseId, q.courseId));
+  if (q.from) conds.push(gte(admissions.admissionDate, q.from));
+  if (q.to) conds.push(lte(admissions.admissionDate, q.to));
+  return conds.length ? and(...conds) : undefined;
+}
+
+export async function getFeesOverview(q: FeesOverviewQuery) {
+  const where = overviewFilters(q);
+  const billedExpr = sql<number>`coalesce(sum(${admissions.feeAmount}), 0)`;
+  const collectedExpr = sql<number>`coalesce(sum(${admissions.amountPaid}), 0)`;
+
+  const [totalsRow] = await db
+    .select({ admissions: count(), billed: billedExpr, collected: collectedExpr })
+    .from(admissions).where(where);
+
+  const [{ value: overdueAmount }] = await db
+    .select({ value: sql<number>`coalesce(sum(${admissionInstallments.amount} - ${admissionInstallments.paidAmount}), 0)` })
+    .from(admissionInstallments)
+    .innerJoin(admissions, eq(admissions.id, admissionInstallments.admissionId))
+    .where(and(where, eq(admissionInstallments.status, 'pending'), lt(admissionInstallments.dueDate, new Date().toISOString().slice(0, 10))));
+
+  const [byBranch, byCounsellor, byCourse] = await Promise.all([
+    db.select({ id: branches.id, name: branches.name, admissions: count(), billed: billedExpr, collected: collectedExpr })
+      .from(admissions).innerJoin(branches, eq(branches.id, admissions.branchId)).where(where)
+      .groupBy(branches.id, branches.name).orderBy(desc(count())),
+    db.select({ id: users.id, name: users.name, admissions: count(), billed: billedExpr, collected: collectedExpr })
+      .from(admissions).innerJoin(users, eq(users.id, admissions.counsellorId)).where(where)
+      .groupBy(users.id, users.name).orderBy(desc(count())),
+    db.select({ id: courses.id, name: courses.title, admissions: count(), billed: billedExpr, collected: collectedExpr })
+      .from(admissions).innerJoin(courses, eq(courses.id, admissions.courseId)).where(where)
+      .groupBy(courses.id, courses.title).orderBy(desc(count())),
+  ]);
+
+  const billed = Number(totalsRow?.billed ?? 0);
+  const collected = Number(totalsRow?.collected ?? 0);
+  const withOutstanding = (rows: { billed: number; collected: number }[]) =>
+    rows.map((r) => ({ ...r, outstanding: round2(Number(r.billed) - Number(r.collected)) }));
+
+  return {
+    totals: { admissions: totalsRow?.admissions ?? 0, billed, collected, outstanding: round2(billed - collected), overdue: round2(Number(overdueAmount)) },
+    byBranch: withOutstanding(byBranch),
+    byCounsellor: withOutstanding(byCounsellor),
+    byCourse: withOutstanding(byCourse),
+  };
+}
+
+export async function getOutstandingInstallments(q: FeesOverviewQuery & { page: number; limit: number }) {
+  const admissionWhere = overviewFilters(q);
+  const conds = [eq(admissionInstallments.status, 'pending')];
+  if (admissionWhere) conds.push(admissionWhere);
+  const where = and(...conds);
+
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(admissionInstallments)
+    .innerJoin(admissions, eq(admissions.id, admissionInstallments.admissionId))
+    .where(where);
+
+  const items = await db
+    .select({
+      installmentId: admissionInstallments.id,
+      label: admissionInstallments.label,
+      amount: admissionInstallments.amount,
+      paidAmount: admissionInstallments.paidAmount,
+      dueDate: admissionInstallments.dueDate,
+      admissionId: admissions.id,
+      admissionNo: admissions.admissionNo,
+      studentName: users.name,
+      studentPhone: users.phone,
+      counsellorName: counsellorAlias.name,
+      branchName: branches.name,
+    })
+    .from(admissionInstallments)
+    .innerJoin(admissions, eq(admissions.id, admissionInstallments.admissionId))
+    .leftJoin(users, eq(users.id, admissions.studentId))
+    .leftJoin(counsellorAlias, eq(counsellorAlias.id, admissions.counsellorId))
+    .leftJoin(branches, eq(branches.id, admissions.branchId))
+    .where(where)
+    .orderBy(asc(admissionInstallments.dueDate))
+    .limit(q.limit)
+    .offset((q.page - 1) * q.limit);
+
+  return { items, total };
 }
 
 // ── UPI ───────────────────────────────────────────────────────────────────────

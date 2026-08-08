@@ -5,6 +5,7 @@ import { requirePermission } from '../../middleware/require-permission.js';
 import { logAudit } from '../../lib/audit.js';
 import {
   createFeePlanSchema,
+  feesOverviewQuerySchema,
   recordPaymentSchema,
   setCourseFeeSchema,
   updateFeePlanSchema,
@@ -13,6 +14,8 @@ import {
   buildUpiRequest,
   createFeePlan,
   deleteFeePlan,
+  getFeesOverview,
+  getOutstandingInstallments,
   listFeePlans,
   listInstallments,
   listPayments,
@@ -35,6 +38,10 @@ function validate<T>(schema: ZodSchema<T>, value: unknown, reply: FastifyReply):
 
 const idParam = z.object({ id: z.string().uuid() });
 const courseIdParam = z.object({ courseId: z.string().uuid() });
+const outstandingQuerySchema = feesOverviewQuerySchema.extend({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
 
 export default async function feesRoutes(app: FastifyInstance) {
   // ── Fee plan configuration (admin / finance) ────────────────────────────────
@@ -115,6 +122,20 @@ export default async function feesRoutes(app: FastifyInstance) {
       meta: { amount: input.amount, method: input.method, paymentId: result.payment.id },
     });
     return reply.status(201).send({ success: true, data: result });
+  });
+
+  // ── Fees & revenue overview (finance/admin) ──────────────────────────────────
+  app.get('/admin/fees/overview', { preHandler: [authenticate, requirePermission('revenue.view')] }, async (req, reply) => {
+    const q = validate(feesOverviewQuerySchema, req.query, reply);
+    if (!q) return;
+    return reply.send({ success: true, data: await getFeesOverview(q) });
+  });
+
+  app.get('/admin/fees/outstanding', { preHandler: [authenticate, requirePermission('revenue.view')] }, async (req, reply) => {
+    const q = validate(outstandingQuerySchema, req.query, reply);
+    if (!q) return;
+    const result = await getOutstandingInstallments(q);
+    return reply.send({ success: true, data: result.items, meta: { page: q.page, limit: q.limit, total: result.total } });
   });
 
   // UPI collect-request QR payload. Does NOT confirm payment — see service note.

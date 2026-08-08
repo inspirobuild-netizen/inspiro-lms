@@ -26,11 +26,17 @@ export default async function crmRoutes(app: FastifyInstance) {
   app.get('/crm/reports/admissions', guard, async (_req, reply) => csvReply(reply, await exportAdmissionsCsv(), 'admissions.csv'));
   app.get('/crm/reports/lead-source', guard, async (_req, reply) => csvReply(reply, await exportLeadSourceCsv(), 'lead-source.csv'));
   app.get('/crm/reports/revenue', guard, async (req, reply) => {
-    const period = ((req.query as { period?: string }).period ?? 'monthly') as 'daily' | 'monthly' | 'yearly';
+    const q = req.query as { period?: string; groupBy?: string };
+    const period = (q.period ?? 'monthly') as 'daily' | 'monthly' | 'yearly';
     if (!['daily', 'monthly', 'yearly'].includes(period)) {
       return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'period must be daily, monthly or yearly' } });
     }
-    return csvReply(reply, await exportRevenueCsv(period), `revenue-${period}.csv`);
+    const groupBy = q.groupBy as 'branch' | 'counsellor' | 'course' | undefined;
+    if (groupBy && !['branch', 'counsellor', 'course'].includes(groupBy)) {
+      return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'groupBy must be branch, counsellor or course' } });
+    }
+    const filename = groupBy ? `revenue-by-${groupBy}.csv` : `revenue-${period}.csv`;
+    return csvReply(reply, await exportRevenueCsv(period, groupBy), filename);
   });
   app.get('/crm/reports/pending-leads', guard, async (_req, reply) => csvReply(reply, await exportPendingLeadsCsv(), 'pending-leads.csv'));
   app.get('/crm/reports/followups', guard, async (_req, reply) => csvReply(reply, await exportFollowupReportCsv(), 'followup-report.csv'));

@@ -45,7 +45,35 @@ export async function exportLeadSourceCsv(): Promise<string> {
   return toCsv(['Source', 'Leads'], rows.map((r) => [r.source, Number(r.n)]));
 }
 
-export async function exportRevenueCsv(period: 'daily' | 'monthly' | 'yearly'): Promise<string> {
+export async function exportRevenueCsv(
+  period: 'daily' | 'monthly' | 'yearly',
+  groupBy?: 'branch' | 'counsellor' | 'course',
+): Promise<string> {
+  const revenue = sql<number>`coalesce(sum(${admissions.feeAmount}), 0)`;
+  const collected = sql<number>`coalesce(sum(${admissions.amountPaid}), 0)`;
+
+  if (groupBy === 'branch') {
+    const rows = await db
+      .select({ name: branches.name, admissions: count(), revenue, collected })
+      .from(admissions).innerJoin(branches, eq(branches.id, admissions.branchId))
+      .groupBy(branches.name).orderBy(desc(count()));
+    return toCsv(['Branch', 'Admissions', 'Revenue', 'Collected'], rows.map((r) => [r.name, r.admissions, r.revenue, r.collected]));
+  }
+  if (groupBy === 'counsellor') {
+    const rows = await db
+      .select({ name: users.name, admissions: count(), revenue, collected })
+      .from(admissions).innerJoin(users, eq(users.id, admissions.counsellorId))
+      .groupBy(users.name).orderBy(desc(count()));
+    return toCsv(['Counsellor', 'Admissions', 'Revenue', 'Collected'], rows.map((r) => [r.name, r.admissions, r.revenue, r.collected]));
+  }
+  if (groupBy === 'course') {
+    const rows = await db
+      .select({ name: courses.title, admissions: count(), revenue, collected })
+      .from(admissions).innerJoin(courses, eq(courses.id, admissions.courseId))
+      .groupBy(courses.title).orderBy(desc(count()));
+    return toCsv(['Course', 'Admissions', 'Revenue', 'Collected'], rows.map((r) => [r.name, r.admissions, r.revenue, r.collected]));
+  }
+
   const trunc = period === 'daily' ? 'day' : period === 'monthly' ? 'month' : 'year';
   const fmt = period === 'daily' ? 'YYYY-MM-DD' : period === 'monthly' ? 'YYYY-MM' : 'YYYY';
   const rows = (await db.execute(sql`
