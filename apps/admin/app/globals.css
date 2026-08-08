@@ -25,14 +25,6 @@
     overscroll-behavior-y: none;
   }
 
-  /* iOS zooms the whole page when focusing an input under 16px. Keeping the
-     control font at 16px on small screens is the only reliable fix. */
-  @media (max-width: 640px) {
-    input, select, textarea {
-      font-size: 16px;
-    }
-  }
-
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -58,5 +50,16 @@
   .glass {
     backdrop-filter: blur(16px);
     @apply bg-surface-1/80;
+  }
+}
+
+/* iOS zooms the whole page when a focused control's font is under 16px.
+   Deliberately left OUTSIDE @layer: unlayered rules beat layered ones, so this
+   wins over the `text-sm` utility on our Input/Select without !important. */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
   }
 }
