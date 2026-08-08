@@ -145,12 +145,12 @@ export default function ExamsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="font-display font-bold text-2xl text-slate-100">Exams</h2>
           <p className="text-slate-400 text-sm mt-1">{data?.meta?.total ?? 0} exams</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <NewExamButton
             defaultLessonId={createForLessonId}
             defaultTitle={createForTitle}
@@ -167,7 +167,7 @@ export default function ExamsPage() {
         </div>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         {typeTabs.map((tab) => (
           <button
             key={tab.key}

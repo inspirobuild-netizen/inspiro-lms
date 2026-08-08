@@ -97,12 +97,12 @@ export default function ContentPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="font-display font-bold text-2xl text-slate-100">Content</h2>
           <p className="text-slate-400 text-sm mt-1">Current-affairs curation and AI content coverage</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button size="sm" variant="outline" loading={reindex.isPending} onClick={() => reindex.mutate()}>Reindex</Button>
           <Button size="sm" loading={refresh.isPending} onClick={() => refresh.mutate()}>Fetch new articles</Button>
         </div>

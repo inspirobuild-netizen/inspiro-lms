@@ -36,12 +36,12 @@ export default function AcademicsDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="font-display font-bold text-2xl text-slate-100">Academic Dashboard</h2>
           <p className="text-slate-400 text-sm mt-1">Doubts, mentors, batches and exams at a glance</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Link href="/doubts" className="px-4 py-2 rounded-xl border border-white/10 bg-surface-2 hover:bg-surface-high text-sm font-medium text-slate-200 transition-colors">Doubts</Link>
           <Link href="/mentors" className="px-4 py-2 rounded-xl bg-brand-violet hover:bg-brand-violet/90 text-sm font-medium text-white transition-colors">Mentors</Link>
         </div>

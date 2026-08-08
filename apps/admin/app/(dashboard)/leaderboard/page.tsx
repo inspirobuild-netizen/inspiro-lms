@@ -67,7 +67,7 @@ export default function LeaderboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="font-display font-bold text-2xl text-slate-100">Leaderboard</h2>
           <p className="text-slate-400 text-sm mt-1">Rankings by batch or global, across weekly/monthly/all-time windows</p>

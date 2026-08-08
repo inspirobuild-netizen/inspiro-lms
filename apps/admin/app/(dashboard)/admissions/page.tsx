@@ -41,12 +41,12 @@ export default function AdmissionsDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="font-display font-bold text-2xl text-slate-100">Admission CRM</h2>
           <p className="text-slate-400 text-sm mt-1">Your leads, admissions and performance</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Link href="/admissions/pipeline" className="px-4 py-2 rounded-xl border border-white/10 bg-surface-2 hover:bg-surface-high text-sm font-medium text-slate-200 transition-colors">Pipeline</Link>
           <Link href="/admissions/leads" className="px-4 py-2 rounded-xl bg-brand-violet hover:bg-brand-violet/90 text-sm font-medium text-white transition-colors">Leads</Link>
           {has('analytics.view_all') && (

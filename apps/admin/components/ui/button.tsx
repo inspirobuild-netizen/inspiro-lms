@@ -37,6 +37,12 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const Comp = asChild ? Slot : 'button';
     return (
       <Comp
+        // Default to type="button" — without it, a native <button> defaults
+        // to type="submit" whenever it ends up inside a <form> (directly or
+        // via a later refactor), silently submitting/reloading instead of
+        // running its onClick. Callers that actually want a submit button
+        // still can via `type="submit"` in props, which overrides this.
+        type={asChild ? undefined : 'button'}
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         disabled={loading || props.disabled}
