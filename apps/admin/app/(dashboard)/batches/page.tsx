@@ -143,7 +143,7 @@ function NewBatchButton({ onCreated }: { onCreated: () => void }) {
 
   const coursesQ = useQuery({
     queryKey: ['admin', 'courses', 'all'],
-    queryFn: () => api.get<{ id: string; title: string }[]>('/api/v1/courses?limit=200'),
+    queryFn: () => api.get<{ id: string; title: string }[]>('/api/v1/courses?limit=100'),
     enabled: open && !!accessToken,
   });
 
