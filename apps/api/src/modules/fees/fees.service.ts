@@ -7,10 +7,18 @@ import {
   branches,
   courses,
   feePlans,
+  paymentAccounts,
   payments,
   users,
 } from '../../../drizzle/schema.js';
-import type { CreateFeePlanInput, FeesOverviewQuery, RecordPaymentInput, UpdateFeePlanInput } from './fees.schema.js';
+import type {
+  CreateFeePlanInput,
+  CreatePaymentAccountInput,
+  FeesOverviewQuery,
+  RecordPaymentInput,
+  UpdateFeePlanInput,
+  UpdatePaymentAccountInput,
+} from './fees.schema.js';
 
 const counsellorAlias = alias(users, 'counsellor');
 
@@ -313,6 +321,84 @@ export async function getOutstandingInstallments(q: FeesOverviewQuery & { page: 
   return { items, total };
 }
 
+// ── Payment accounts (preset Inspiro UPI/bank accounts) ─────────────────────────
+
+export async function listPaymentAccounts(branchId?: string) {
+  const rows = await db
+    .select()
+    .from(paymentAccounts)
+    .orderBy(asc(paymentAccounts.sortOrder), asc(paymentAccounts.createdAt));
+  // Not filtered in SQL — callers that want "usable from this branch" need
+  // both branch-specific and shared (branchId null) accounts, which a plain
+  // eq() can't express cleanly; the caller/UI filters as needed.
+  if (!branchId) return rows;
+  return rows.filter((r) => r.branchId === branchId || r.branchId === null);
+}
+
+export async function createPaymentAccount(input: CreatePaymentAccountInput) {
+  return db.transaction(async (tx) => {
+    if (input.isDefault) {
+      await tx.update(paymentAccounts).set({ isDefault: false, updatedAt: new Date() }).where(eq(paymentAccounts.isDefault, true));
+    }
+    const [account] = await tx.insert(paymentAccounts).values(input).returning();
+    return account!;
+  });
+}
+
+export async function updatePaymentAccount(accountId: string, input: UpdatePaymentAccountInput) {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(paymentAccounts).where(eq(paymentAccounts.id, accountId)).limit(1);
+    if (!existing) throw err('Payment account not found', 404, 'PAYMENT_ACCOUNT_NOT_FOUND');
+
+    if (input.isDefault) {
+      await tx.update(paymentAccounts).set({ isDefault: false, updatedAt: new Date() }).where(eq(paymentAccounts.isDefault, true));
+    }
+
+    const [account] = await tx
+      .update(paymentAccounts)
+      .set({ ...input, updatedAt: new Date() })
+      .where(eq(paymentAccounts.id, accountId))
+      .returning();
+    return account!;
+  });
+}
+
+export async function deletePaymentAccount(accountId: string) {
+  const result = await db.delete(paymentAccounts).where(eq(paymentAccounts.id, accountId)).returning();
+  if (result.length === 0) throw err('Payment account not found', 404, 'PAYMENT_ACCOUNT_NOT_FOUND');
+  return { deleted: true };
+}
+
+/**
+ * Resolve which preset account to collect into: explicit choice wins, else
+ * the branch's own default, else the global default, else any active
+ * account (branch-matched first), else the legacy branch.upiVpa columns,
+ * else the env-var fallback. Only throws once every option is exhausted.
+ */
+async function resolvePaymentAccount(branchId: string | null, accountId?: string) {
+  if (accountId) {
+    const [acc] = await db.select().from(paymentAccounts).where(eq(paymentAccounts.id, accountId)).limit(1);
+    if (!acc) throw err('Payment account not found', 404, 'PAYMENT_ACCOUNT_NOT_FOUND');
+    if (!acc.isActive) throw err('Selected payment account is not active', 400, 'PAYMENT_ACCOUNT_INACTIVE');
+    return { vpa: acc.vpa, payeeName: acc.payeeName };
+  }
+
+  const active = await db
+    .select()
+    .from(paymentAccounts)
+    .where(eq(paymentAccounts.isActive, true))
+    .orderBy(asc(paymentAccounts.sortOrder), asc(paymentAccounts.createdAt));
+
+  const branchDefault = active.find((a) => a.branchId === branchId && a.isDefault);
+  const globalDefault = active.find((a) => a.branchId === null && a.isDefault);
+  const branchAny = active.find((a) => a.branchId === branchId);
+  const globalAny = active.find((a) => a.branchId === null);
+  const picked = branchDefault ?? globalDefault ?? branchAny ?? globalAny;
+  if (picked) return { vpa: picked.vpa, payeeName: picked.payeeName };
+
+  return null;
+}
+
 // ── UPI ───────────────────────────────────────────────────────────────────────
 
 /**
@@ -321,11 +407,12 @@ export async function getOutstandingInstallments(q: FeesOverviewQuery & { page: 
  * system gets NO callback — receipt must be confirmed by a human via
  * recordPayment. Kept server-side so amount/reference are authoritative.
  */
-export async function buildUpiRequest(admissionId: string, amount: number) {
+export async function buildUpiRequest(admissionId: string, amount: number, accountId?: string) {
   const [row] = await db
     .select({
       admissionNo: admissions.admissionNo,
       studentName: users.name,
+      branchId: admissions.branchId,
       branchVpa: branches.upiVpa,
       branchPayee: branches.upiPayeeName,
     })
@@ -336,11 +423,12 @@ export async function buildUpiRequest(admissionId: string, amount: number) {
     .limit(1);
   if (!row) throw err('Admission not found', 404, 'ADMISSION_NOT_FOUND');
 
-  const vpa = row.branchVpa ?? process.env['UPI_VPA'];
-  const payeeName = row.branchPayee ?? process.env['UPI_PAYEE_NAME'] ?? 'Inspiro IAS Academy';
+  const resolved = await resolvePaymentAccount(row.branchId, accountId);
+  const vpa = resolved?.vpa ?? row.branchVpa ?? process.env['UPI_VPA'];
+  const payeeName = resolved?.payeeName ?? row.branchPayee ?? process.env['UPI_PAYEE_NAME'] ?? 'Inspiro IAS Academy';
   if (!vpa) {
     throw err(
-      'No UPI ID configured. Set one on the branch, or the UPI_VPA environment variable.',
+      'No UPI account configured. Add one under Fees → Payment accounts.',
       400,
       'UPI_NOT_CONFIGURED',
     );

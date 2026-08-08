@@ -85,13 +85,32 @@ export const branches = pgTable('branches', {
   code: varchar('code', { length: 30 }).notNull().unique(),
   address: text('address'),
   phone: varchar('phone', { length: 20 }),
-  // Optional per-branch UPI collection account; falls back to env UPI_VPA.
+  // Superseded by payment_accounts (supports multiple presets, picked at
+  // collection time) — columns kept for backward compat, no longer read.
   upiVpa: varchar('upi_vpa', { length: 120 }),
   upiPayeeName: varchar('upi_payee_name', { length: 120 }),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Presets of Inspiro's own collection accounts (UPI VPAs) — the counsellor
+// picks one at payment time instead of the app being tied to a single VPA.
+// branchId null = usable from any branch (a shared/head-office account).
+export const paymentAccounts = pgTable('payment_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: varchar('name', { length: 120 }).notNull(),
+  vpa: varchar('vpa', { length: 120 }).notNull(),
+  payeeName: varchar('payee_name', { length: 120 }).notNull(),
+  branchId: uuid('branch_id').references((): AnyPgColumn => branches.id, { onDelete: 'set null' }),
+  isActive: boolean('is_active').notNull().default(true),
+  isDefault: boolean('is_default').notNull().default(false),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  branchIdx: index('idx_payment_accounts_branch').on(t.branchId),
+}));
 
 // ── Staff RBAC (data-driven roles + permissions) ──────────────────────────────
 // New staff roles are ROWS here — adding a role needs no migration.

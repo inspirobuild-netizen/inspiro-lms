@@ -57,6 +57,13 @@
       "when": 1786092413994,
       "tag": "0007_green_gideon",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786160823834,
+      "tag": "0008_graceful_wither",
+      "breakpoints": true
     }
   ]
 }

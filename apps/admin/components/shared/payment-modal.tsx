@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/toast';
 import { money } from '@/lib/utils';
 
 type UpiRequest = { upiUri: string; amount: number; reference: string; payeeName: string; vpa: string };
+type PaymentAccount = { id: string; name: string; vpa: string; payeeName: string; branchId: string | null; isActive: boolean; isDefault: boolean };
 
 /**
  * Collect a payment against an admission. UPI shows a scannable QR with the
@@ -37,15 +38,24 @@ export function PaymentModal({
   const [amount, setAmount] = useState(String(defaultAmount));
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
+  const [accountId, setAccountId] = useState('');
 
   useEffect(() => {
-    if (open) { setMethod('upi'); setAmount(String(defaultAmount)); setReference(''); setNote(''); }
+    if (open) { setMethod('upi'); setAmount(String(defaultAmount)); setReference(''); setNote(''); setAccountId(''); }
   }, [open, defaultAmount]);
+
+  const accountsQuery = useQuery({
+    queryKey: ['admin', 'payment-accounts'],
+    queryFn: () => api.get<PaymentAccount[]>('/api/v1/payment-accounts'),
+    enabled: open && method === 'upi',
+    staleTime: 60_000,
+  });
+  const activeAccounts = (accountsQuery.data?.data ?? []).filter((a) => a.isActive);
 
   const amountNum = Number(amount) || 0;
   const upiQuery = useQuery({
-    queryKey: ['admin', 'admission', admissionId, 'upi-qr', amountNum],
-    queryFn: () => api.get<UpiRequest>(`/api/v1/admin/admissions/${admissionId}/upi-qr?amount=${amountNum}`),
+    queryKey: ['admin', 'admission', admissionId, 'upi-qr', amountNum, accountId],
+    queryFn: () => api.get<UpiRequest>(`/api/v1/admin/admissions/${admissionId}/upi-qr?amount=${amountNum}${accountId ? `&accountId=${accountId}` : ''}`),
     enabled: open && method === 'upi' && !!admissionId && amountNum > 0,
     staleTime: 60_000,
   });
@@ -86,6 +96,15 @@ export function PaymentModal({
             </Select>
           </Field>
         </div>
+
+        {method === 'upi' && activeAccounts.length > 1 && (
+          <Field label="Collect into">
+            <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              <option value="">Default account</option>
+              {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.vpa})</option>)}
+            </Select>
+          </Field>
+        )}
 
         {method === 'upi' && (
           <div className="rounded-2xl border border-white/8 bg-surface-2 p-5 flex flex-col items-center gap-3">

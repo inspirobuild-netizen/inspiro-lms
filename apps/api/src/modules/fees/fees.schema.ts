@@ -49,6 +49,26 @@ export const recordPaymentSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
+export const createPaymentAccountSchema = z.object({
+  name: z.string().min(2).max(120),
+  vpa: z.string().min(3).max(120),
+  payeeName: z.string().min(2).max(120),
+  branchId: z.string().uuid().nullable().optional(),
+  isActive: z.boolean().default(true),
+  isDefault: z.boolean().default(false),
+  sortOrder: z.number().int().min(0).default(0),
+});
+
+export const updatePaymentAccountSchema = z.object({
+  name: z.string().min(2).max(120).optional(),
+  vpa: z.string().min(3).max(120).optional(),
+  payeeName: z.string().min(2).max(120).optional(),
+  branchId: z.string().uuid().nullable().optional(),
+  isActive: z.boolean().optional(),
+  isDefault: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+});
+
 export const feesOverviewQuerySchema = z.object({
   branchId: z.string().uuid().optional(),
   counsellorId: z.string().uuid().optional(),
@@ -61,3 +81,5 @@ export type CreateFeePlanInput = z.infer<typeof createFeePlanSchema>;
 export type UpdateFeePlanInput = z.infer<typeof updateFeePlanSchema>;
 export type RecordPaymentInput = z.infer<typeof recordPaymentSchema>;
 export type FeesOverviewQuery = z.infer<typeof feesOverviewQuerySchema>;
+export type CreatePaymentAccountInput = z.infer<typeof createPaymentAccountSchema>;
+export type UpdatePaymentAccountInput = z.infer<typeof updatePaymentAccountSchema>;

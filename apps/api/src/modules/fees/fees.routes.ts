@@ -5,23 +5,29 @@ import { requirePermission } from '../../middleware/require-permission.js';
 import { logAudit } from '../../lib/audit.js';
 import {
   createFeePlanSchema,
+  createPaymentAccountSchema,
   feesOverviewQuerySchema,
   recordPaymentSchema,
   setCourseFeeSchema,
   updateFeePlanSchema,
+  updatePaymentAccountSchema,
 } from './fees.schema.js';
 import {
   buildUpiRequest,
   createFeePlan,
+  createPaymentAccount,
   deleteFeePlan,
+  deletePaymentAccount,
   getFeesOverview,
   getOutstandingInstallments,
   listFeePlans,
   listInstallments,
+  listPaymentAccounts,
   listPayments,
   recordPayment,
   setCourseFee,
   updateFeePlan,
+  updatePaymentAccount,
 } from './fees.service.js';
 
 type ZodSchema<T> = {
@@ -142,10 +148,50 @@ export default async function feesRoutes(app: FastifyInstance) {
   app.get('/admin/admissions/:id/upi-qr', { preHandler: [authenticate, requirePermission('payments.record')] }, async (req, reply) => {
     const p = validate(idParam, req.params, reply);
     if (!p) return;
-    const amountRaw = Number((req.query as { amount?: string }).amount);
+    const query = req.query as { amount?: string; accountId?: string };
+    const amountRaw = Number(query.amount);
     if (!Number.isFinite(amountRaw) || amountRaw <= 0) {
       return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'A positive amount is required' } });
     }
-    return reply.send({ success: true, data: await buildUpiRequest(p.id, amountRaw) });
+    const accountId = query.accountId && z.string().uuid().safeParse(query.accountId).success ? query.accountId : undefined;
+    return reply.send({ success: true, data: await buildUpiRequest(p.id, amountRaw, accountId) });
+  });
+
+  // ── Payment account presets (Inspiro's own UPI/bank accounts) ───────────────
+  // Configure-gated CRUD for admin; a lighter picker list for anyone who can
+  // record payments (counsellors need to choose an account at collection time).
+  app.get('/admin/payment-accounts', { preHandler: [authenticate, requirePermission('fees.configure')] }, async (req, reply) => {
+    return reply.send({ success: true, data: await listPaymentAccounts() });
+  });
+
+  app.get('/payment-accounts', { preHandler: [authenticate, requirePermission('payments.record')] }, async (req, reply) => {
+    const branchId = (req.query as { branchId?: string }).branchId;
+    return reply.send({ success: true, data: await listPaymentAccounts(branchId) });
+  });
+
+  app.post('/admin/payment-accounts', { preHandler: [authenticate, requirePermission('fees.configure')] }, async (req, reply) => {
+    const input = validate(createPaymentAccountSchema, req.body, reply);
+    if (!input) return;
+    const account = await createPaymentAccount(input);
+    await logAudit(req, { action: 'payment_account.created', entityType: 'payment_account', entityId: account.id, meta: { name: account.name } });
+    return reply.status(201).send({ success: true, data: account });
+  });
+
+  app.patch('/admin/payment-accounts/:id', { preHandler: [authenticate, requirePermission('fees.configure')] }, async (req, reply) => {
+    const p = validate(idParam, req.params, reply);
+    if (!p) return;
+    const input = validate(updatePaymentAccountSchema, req.body, reply);
+    if (!input) return;
+    const account = await updatePaymentAccount(p.id, input);
+    await logAudit(req, { action: 'payment_account.updated', entityType: 'payment_account', entityId: p.id });
+    return reply.send({ success: true, data: account });
+  });
+
+  app.delete('/admin/payment-accounts/:id', { preHandler: [authenticate, requirePermission('fees.configure')] }, async (req, reply) => {
+    const p = validate(idParam, req.params, reply);
+    if (!p) return;
+    const result = await deletePaymentAccount(p.id);
+    await logAudit(req, { action: 'payment_account.deleted', entityType: 'payment_account', entityId: p.id });
+    return reply.send({ success: true, data: result });
   });
 }
