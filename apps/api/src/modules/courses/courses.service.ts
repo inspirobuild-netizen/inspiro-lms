@@ -3,10 +3,10 @@ import { db } from '../../lib/db.js';
 import { signBunnyUrl, signBunnyFileUrl } from '../../lib/bunny.js';
 import {
   courses,
+  batches,
   modules,
   lessons,
   lessonProgress,
-  batchCourses,
   batchEnrollments,
   users,
 } from '../../../drizzle/schema.js';
@@ -54,34 +54,34 @@ async function assertEnrolled(userId: string, courseId: string): Promise<void> {
 
   const now = new Date();
   const [row] = await db
-    .select({ id: batchCourses.courseId })
-    .from(batchCourses)
+    .select({ id: batches.courseId })
+    .from(batches)
     .innerJoin(
       batchEnrollments,
       and(
-        eq(batchEnrollments.batchId, batchCourses.batchId),
+        eq(batchEnrollments.batchId, batches.id),
         eq(batchEnrollments.userId, userId),
         eq(batchEnrollments.status, 'active'),
         or(isNull(batchEnrollments.expiresAt), gt(batchEnrollments.expiresAt, now)),
       ),
     )
-    .where(eq(batchCourses.courseId, courseId))
+    .where(eq(batches.courseId, courseId))
     .limit(1);
   if (row) return;
 
   // Distinguish "never enrolled" from "enrolled but subscription expired" for a clearer message.
   const [expired] = await db
-    .select({ id: batchCourses.courseId })
-    .from(batchCourses)
+    .select({ id: batches.courseId })
+    .from(batches)
     .innerJoin(
       batchEnrollments,
       and(
-        eq(batchEnrollments.batchId, batchCourses.batchId),
+        eq(batchEnrollments.batchId, batches.id),
         eq(batchEnrollments.userId, userId),
         eq(batchEnrollments.status, 'active'),
       ),
     )
-    .where(eq(batchCourses.courseId, courseId))
+    .where(eq(batches.courseId, courseId))
     .limit(1);
   if (expired) throw denied('SUBSCRIPTION_EXPIRED', 'Your access to this batch has expired — contact admissions to renew');
 
@@ -99,21 +99,31 @@ export async function listCourses(input: ListCoursesInput, userId: string, role:
   const { page, limit, subject, batchId } = input;
   const offset = (page - 1) * limit;
 
-  // Students only see courses in their enrolled batches
+  // Students in the marketing "catalog" (browsing to enroll) see every
+  // published course, title/subject/description/fee only — no syllabus, no
+  // enrollment check. This is a distinct, explicit code path (not just a UI
+  // choice) so a direct API call can't be used to read locked content.
+  if (role === 'student' && input.scope === 'catalog') {
+    const conditions = [eq(courses.isPublished, true)];
+    if (subject) conditions.push(eq(courses.subject, subject));
+    const where = and(...conditions);
+    const [{ total }] = await db.select({ total: count() }).from(courses).where(where);
+    const items = await db
+      .select({ id: courses.id, title: courses.title, subject: courses.subject, description: courses.description, thumbnailUrl: courses.thumbnailUrl, feeAmount: courses.feeAmount })
+      .from(courses)
+      .where(where)
+      .limit(limit)
+      .offset(offset);
+    return { items, total };
+  }
+
+  // Students (default): only courses reachable via an active batch enrollment.
   if (role === 'student') {
-    const enrolledBatches = await db
-      .select({ batchId: batchEnrollments.batchId })
-      .from(batchEnrollments)
-      .where(and(eq(batchEnrollments.userId, userId), eq(batchEnrollments.status, 'active')));
-
-    if (enrolledBatches.length === 0) return { items: [], total: 0 };
-
-    const batchIds = enrolledBatches.map((e) => e.batchId);
-
     const courseIds = await db
-      .selectDistinct({ courseId: batchCourses.courseId })
-      .from(batchCourses)
-      .where(inArray(batchCourses.batchId, batchIds));
+      .selectDistinct({ courseId: batches.courseId })
+      .from(batches)
+      .innerJoin(batchEnrollments, and(eq(batchEnrollments.batchId, batches.id), eq(batchEnrollments.status, 'active')))
+      .where(eq(batchEnrollments.userId, userId));
 
     if (courseIds.length === 0) return { items: [], total: 0 };
 
@@ -132,18 +142,20 @@ export async function listCourses(input: ListCoursesInput, userId: string, role:
   if (subject) conditions.push(eq(courses.subject, subject));
   if (input.isPublished !== undefined) conditions.push(eq(courses.isPublished, input.isPublished));
   if (batchId) {
-    const courseIds = await db
-      .select({ courseId: batchCourses.courseId })
-      .from(batchCourses)
-      .where(eq(batchCourses.batchId, batchId));
-    if (courseIds.length === 0) return { items: [], total: 0 };
-    conditions.push(inArray(courses.id, courseIds.map((r) => r.courseId)));
+    const [row] = await db.select({ courseId: batches.courseId }).from(batches).where(eq(batches.id, batchId)).limit(1);
+    if (!row) return { items: [], total: 0 };
+    conditions.push(eq(courses.id, row.courseId));
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const [{ total }] = await db.select({ total: count() }).from(courses).where(where);
   const items = await db.select().from(courses).where(where).limit(limit).offset(offset);
   return { items, total };
+}
+
+// ── Batches under a course (admin picker + mobile catalog) ─────────────────────
+export async function listCourseBatches(courseId: string) {
+  return db.select().from(batches).where(eq(batches.courseId, courseId)).orderBy(asc(batches.startDate));
 }
 
 // ── Get course with modules (and lesson count per module) ─────────────────────

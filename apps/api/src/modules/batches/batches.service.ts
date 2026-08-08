@@ -1,10 +1,9 @@
-import { eq, and, count, sql } from 'drizzle-orm';
+import { eq, and, count } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import {
   batches,
   batchEnrollments,
   batchInstructors,
-  batchCourses,
   users,
   courses,
 } from '../../../drizzle/schema.js';
@@ -23,25 +22,40 @@ function conflict(msg: string, code: string) {
 
 // ── List batches ──────────────────────────────────────────────────────────────
 export async function listBatches(input: ListBatchesInput) {
-  const { page, limit, status, type, targetExam } = input;
+  const { page, limit, status, type, targetExam, courseId } = input;
   const offset = (page - 1) * limit;
 
   const conditions = [];
   if (status) conditions.push(eq(batches.status, status));
   if (type) conditions.push(eq(batches.type, type));
   if (targetExam) conditions.push(eq(batches.targetExam, targetExam));
+  if (courseId) conditions.push(eq(batches.courseId, courseId));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [{ total }] = await db.select({ total: count() }).from(batches).where(where);
-  const items = await db.select().from(batches).where(where).limit(limit).offset(offset);
+  const items = await db
+    .select({
+      batch: batches,
+      course: { id: courses.id, title: courses.title },
+    })
+    .from(batches)
+    .innerJoin(courses, eq(courses.id, batches.courseId))
+    .where(where)
+    .limit(limit)
+    .offset(offset);
 
-  return { items, total };
+  return { items: items.map((r) => ({ ...r.batch, course: r.course })), total };
 }
 
 // ── Get single batch with stats ───────────────────────────────────────────────
 export async function getBatchById(batchId: string) {
-  const [batch] = await db.select().from(batches).where(eq(batches.id, batchId)).limit(1);
-  if (!batch) throw notFound();
+  const [row] = await db
+    .select({ batch: batches, course: courses })
+    .from(batches)
+    .innerJoin(courses, eq(courses.id, batches.courseId))
+    .where(eq(batches.id, batchId))
+    .limit(1);
+  if (!row) throw notFound();
 
   const [{ enrolled }] = await db
     .select({ enrolled: count() })
@@ -54,25 +68,15 @@ export async function getBatchById(batchId: string) {
     .innerJoin(users, eq(batchInstructors.instructorId, users.id))
     .where(eq(batchInstructors.batchId, batchId));
 
-  const courseList = await db
-    .select({ course: courses })
-    .from(batchCourses)
-    .innerJoin(courses, eq(batchCourses.courseId, courses.id))
-    .where(eq(batchCourses.batchId, batchId));
-
   return {
-    ...batch,
+    ...row.batch,
     enrolledCount: enrolled,
     instructors: instructorList.map((r) => ({
       id: r.instructor.id,
       name: r.instructor.name,
       avatarUrl: r.instructor.avatarUrl,
     })),
-    courses: courseList.map((r) => ({
-      id: r.course.id,
-      title: r.course.title,
-      subject: r.course.subject,
-    })),
+    course: { id: row.course.id, title: row.course.title, subject: row.course.subject },
   };
 }
 
@@ -249,25 +253,6 @@ export async function removeInstructor(batchId: string, instructorId: string) {
     .where(and(eq(batchInstructors.batchId, batchId), eq(batchInstructors.instructorId, instructorId)))
     .returning();
   if (result.length === 0) throw notFound('Instructor assignment');
-  return { removed: true };
-}
-
-// ── Assign course to batch ────────────────────────────────────────────────────
-export async function assignCourse(batchId: string, courseId: string) {
-  await db
-    .insert(batchCourses)
-    .values({ batchId, courseId })
-    .onConflictDoNothing();
-  return { batchId, courseId };
-}
-
-// ── Remove course from batch ──────────────────────────────────────────────────
-export async function removeCourse(batchId: string, courseId: string) {
-  const result = await db
-    .delete(batchCourses)
-    .where(and(eq(batchCourses.batchId, batchId), eq(batchCourses.courseId, courseId)))
-    .returning();
-  if (result.length === 0) throw notFound('Course assignment');
   return { removed: true };
 }
 

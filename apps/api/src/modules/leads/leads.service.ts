@@ -195,6 +195,11 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
 
     const [batch] = await tx.select().from(batches).where(eq(batches.id, input.batchId)).limit(1);
     if (!batch) throw err('Batch not found', 400, 'BATCH_NOT_FOUND');
+    // Course is the master — a batch belongs to exactly one course, so the
+    // course is derived from the chosen batch, never a second independent
+    // pick. This also means fee-plan resolution below can't disagree with
+    // the batch's own course.
+    const courseId = batch.courseId;
 
     const phone = lead.phone.trim();
     const [existing] = await tx.select({ id: users.id }).from(users).where(eq(users.phone, phone)).limit(1);
@@ -216,13 +221,13 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
     if (input.feePlanId) {
       const [p] = await tx.select().from(feePlans).where(eq(feePlans.id, input.feePlanId)).limit(1);
       if (!p) throw err('Fee plan not found', 404, 'FEE_PLAN_NOT_FOUND');
+      if (p.courseId !== courseId) throw err('Fee plan does not belong to this batch\'s course', 400, 'FEE_PLAN_COURSE_MISMATCH');
       plan = p;
       feePlan = p.name;
       feeAmount = p.totalAmount;
-    } else if (input.courseId) {
-      const [c] = await tx.select({ feeAmount: courses.feeAmount }).from(courses).where(eq(courses.id, input.courseId)).limit(1);
-      if (!c) throw err('Course not found', 400, 'COURSE_NOT_FOUND');
-      feeAmount = c.feeAmount;
+    } else {
+      const [c] = await tx.select({ feeAmount: courses.feeAmount }).from(courses).where(eq(courses.id, courseId)).limit(1);
+      feeAmount = c?.feeAmount ?? 0;
     }
     if (input.collectAmount !== undefined && input.collectAmount > feeAmount + 0.01) {
       throw err('Amount to collect cannot exceed the fee', 400, 'COLLECT_EXCEEDS_FEE');
@@ -284,7 +289,7 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
         studentId: student!.id,
         leadId,
         counsellorId,
-        courseId: input.courseId ?? null,
+        courseId,
         batchId: input.batchId,
         branchId: lead.branchId ?? null,
         admissionDate,

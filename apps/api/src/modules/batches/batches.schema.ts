@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 export const createBatchSchema = z.object({
   name: z.string().min(2).max(255),
+  // Course is the master — every batch belongs to exactly one course.
+  courseId: z.string().uuid(),
   type: z.enum(['online', 'offline', 'hybrid']),
   targetExam: z.enum(['upsc', 'kerala_psc', 'other_psc']),
   startDate: z.string().date(),
@@ -34,6 +36,7 @@ export const listBatchesSchema = z.object({
   status: z.enum(['upcoming', 'active', 'completed', 'archived']).optional(),
   type: z.enum(['online', 'offline', 'hybrid']).optional(),
   targetExam: z.enum(['upsc', 'kerala_psc', 'other_psc']).optional(),
+  courseId: z.string().uuid().optional(),
 });
 
 export type CreateBatchInput = z.infer<typeof createBatchSchema>;

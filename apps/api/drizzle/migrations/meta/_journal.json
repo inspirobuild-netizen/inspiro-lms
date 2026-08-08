@@ -64,6 +64,20 @@
       "when": 1786160823834,
       "tag": "0008_graceful_wither",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786204436169,
+      "tag": "0009_high_hairball",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786204515151,
+      "tag": "0010_cute_epoch",
+      "breakpoints": true
     }
   ]
 }

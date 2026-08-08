@@ -15,6 +15,7 @@ import {
 } from './courses.schema.js';
 import {
   listCourses,
+  listCourseBatches,
   getCourseDetail,
   getModuleLessons,
   getLessonWatchUrl,
@@ -56,6 +57,12 @@ export default async function coursesRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const course = await getCourseDetail(id, req.user.sub, req.user.role);
     return reply.send({ success: true, data: course });
+  });
+
+  // ── Batches under a course — admin batch-picker + mobile catalog ───────────
+  app.get('/courses/:id/batches', { preHandler: [authenticate] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    return reply.send({ success: true, data: await listCourseBatches(id) });
   });
 
   // ── Module lessons (with drip check) ──────────────────────────────────────

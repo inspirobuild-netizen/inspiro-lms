@@ -51,8 +51,9 @@ export const changeStatusSchema = z.object({
 });
 
 export const convertLeadSchema = z.object({
+  // Course is the master — a batch belongs to exactly one course, so course
+  // is derived server-side from the batch, never a second independent input.
   batchId: z.string().uuid(),
-  courseId: z.string().uuid().optional(),
   admissionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   // The fee is always resolved server-side from a preset — this plan (its
   // installments materialise onto the admission), else the chosen course's

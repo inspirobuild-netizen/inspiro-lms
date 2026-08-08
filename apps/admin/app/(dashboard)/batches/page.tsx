@@ -15,6 +15,7 @@ import { formatDate } from '@/lib/utils';
 type Batch = {
   id: string;
   name: string;
+  course: { id: string; title: string };
   type: 'online' | 'offline' | 'hybrid';
   targetExam: 'upsc' | 'kerala_psc' | 'other_psc';
   status: 'upcoming' | 'active' | 'completed' | 'archived';
@@ -58,6 +59,7 @@ export default function BatchesPage() {
       render: (b) => (
         <div>
           <p className="font-medium text-slate-200">{b.name}</p>
+          <p className="text-xs text-slate-500 mt-0.5">{b.course.title}</p>
           <p className="text-xs text-slate-500 mt-0.5 uppercase">{b.targetExam.replace('_', ' ')} · {b.type}</p>
         </div>
       ),
@@ -130,6 +132,7 @@ function NewBatchButton({ onCreated }: { onCreated: () => void }) {
   const currentYear = new Date().getFullYear();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [courseId, setCourseId] = useState('');
   const [type, setType] = useState('hybrid');
   const [targetExam, setTargetExam] = useState('kerala_psc');
   const [startDate, setStartDate] = useState('');
@@ -138,10 +141,17 @@ function NewBatchButton({ onCreated }: { onCreated: () => void }) {
   const [description, setDescription] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  const coursesQ = useQuery({
+    queryKey: ['admin', 'courses', 'all'],
+    queryFn: () => api.get<{ id: string; title: string }[]>('/api/v1/courses?limit=200'),
+    enabled: open && !!accessToken,
+  });
+
   const create = useMutation({
     mutationFn: () =>
       api.post('/api/v1/admin/batches', {
         name: name.trim(),
+        courseId,
         type,
         targetExam,
         startDate,
@@ -151,21 +161,27 @@ function NewBatchButton({ onCreated }: { onCreated: () => void }) {
       }),
     onSuccess: () => {
       setOpen(false);
-      setName(''); setDescription(''); setError(null);
+      setName(''); setCourseId(''); setDescription(''); setError(null);
       onCreated();
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to create batch'),
   });
 
-  const valid = name.trim().length >= 2 && !!startDate && !!endDate;
+  const valid = name.trim().length >= 2 && !!courseId && !!startDate && !!endDate;
 
   return (
     <>
       <Button onClick={() => setOpen(true)}>+ New batch</Button>
-      <Modal open={open} onClose={() => setOpen(false)} title="Create batch" description="A batch groups students, courses, exams and live classes">
+      <Modal open={open} onClose={() => setOpen(false)} title="Create batch" description="A batch belongs to one course — students enrol in a batch, and get access to its course">
         <div className="space-y-4">
           <Field label="Name">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`Kerala PSC ${currentYear + 1} — Batch A`} autoFocus />
+          </Field>
+          <Field label="Course">
+            <Select value={courseId} onChange={(e) => setCourseId(e.target.value)}>
+              <option value="">Select course…</option>
+              {(coursesQ.data?.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+            </Select>
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Mode">

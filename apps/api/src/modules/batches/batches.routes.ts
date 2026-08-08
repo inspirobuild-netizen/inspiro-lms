@@ -21,8 +21,6 @@ import {
   getBatchStudents,
   assignInstructor,
   removeInstructor,
-  assignCourse,
-  removeCourse,
   getMyBatches,
 } from './batches.service.js';
 import { z } from 'zod';
@@ -196,35 +194,6 @@ export default async function batchesRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id, instructorId } = req.params as { id: string; instructorId: string };
       const result = await removeInstructor(id, instructorId);
-      return reply.send({ success: true, data: result });
-    },
-  );
-
-  // ── Admin: assign course to batch ──────────────────────────────────────────
-  app.post(
-    '/admin/batches/:id/courses',
-    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
-    async (req, reply) => {
-      const { id } = req.params as { id: string };
-      const parsed = z.object({ courseId: z.string().uuid() }).safeParse(req.body);
-      if (!parsed.success) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: 'Invalid course id' },
-        });
-      }
-      const result = await assignCourse(id, parsed.data.courseId);
-      return reply.send({ success: true, data: result });
-    },
-  );
-
-  // ── Admin: remove course from batch ───────────────────────────────────────
-  app.delete(
-    '/admin/batches/:id/courses/:courseId',
-    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
-    async (req, reply) => {
-      const { id, courseId } = req.params as { id: string; courseId: string };
-      const result = await removeCourse(id, courseId);
       return reply.send({ success: true, data: result });
     },
   );

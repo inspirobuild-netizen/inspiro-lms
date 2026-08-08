@@ -36,24 +36,25 @@ async function seed() {
     process.exit(0);
   }
 
-  // Batch
-  const [batch] = await db.insert(batches).values({
-    name: 'Kerala PSC 2025 — Batch A',
-    type: 'hybrid',
-    targetExam: 'kerala_psc',
-    startDate: '2025-01-01',
-    endDate: '2025-12-31',
-    capacity: 100,
-    status: 'active',
-  }).returning();
-
-  // Course
+  // Course (created first — batches require a courseId, course is the master)
   const [course] = await db.insert(courses).values({
     title: 'Kerala History & Culture',
     subject: 'History',
     description: 'Comprehensive coverage of Kerala history for PSC exams',
     isPublished: true,
     createdBy: instructor.id,
+  }).returning();
+
+  // Batch
+  const [batch] = await db.insert(batches).values({
+    name: 'Kerala PSC 2025 — Batch A',
+    courseId: course!.id,
+    type: 'hybrid',
+    targetExam: 'kerala_psc',
+    startDate: '2025-01-01',
+    endDate: '2025-12-31',
+    capacity: 100,
+    status: 'active',
   }).returning();
 
   // Module

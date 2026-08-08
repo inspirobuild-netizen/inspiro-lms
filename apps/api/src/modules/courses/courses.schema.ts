@@ -48,6 +48,9 @@ export const listCoursesSchema = z.object({
   subject: z.string().optional(),
   isPublished: z.coerce.boolean().optional(),
   batchId: z.string().uuid().optional(),
+  // 'catalog' = the public marketing browse (all published courses, no
+  // enrollment check) used by students who haven't enrolled in anything yet.
+  scope: z.enum(['catalog']).optional(),
 });
 
 export type CreateCourseInput = z.infer<typeof createCourseSchema>;

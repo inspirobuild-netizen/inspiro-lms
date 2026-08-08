@@ -345,6 +345,9 @@ export const studentVerification = pgTable('student_verification', {
 export const batches = pgTable('batches', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: varchar('name', { length: 255 }).notNull(),
+  // Course is the master: every batch belongs to exactly one course.
+  // Forward reference to `courses` (defined below).
+  courseId: uuid('course_id').notNull().references((): AnyPgColumn => courses.id, { onDelete: 'restrict' }),
   type: batchTypeEnum('type').notNull(),
   targetExam: targetExamEnum('target_exam').notNull(),
   startDate: date('start_date').notNull(),
@@ -354,7 +357,9 @@ export const batches = pgTable('batches', {
   description: text('description'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  courseIdx: index('idx_batches_course').on(t.courseId),
+}));
 
 export const batchInstructors = pgTable('batch_instructors', {
   batchId: uuid('batch_id').notNull().references(() => batches.id, { onDelete: 'cascade' }),
@@ -392,12 +397,6 @@ export const courses = pgTable('courses', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const batchCourses = pgTable('batch_courses', {
-  batchId: uuid('batch_id').notNull().references(() => batches.id, { onDelete: 'cascade' }),
-  courseId: uuid('course_id').notNull().references(() => courses.id, { onDelete: 'cascade' }),
-}, (t) => ({
-  uqBatchCourse: uniqueIndex('uq_batch_course').on(t.batchId, t.courseId),
-}));
 
 export const modules = pgTable('modules', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -650,10 +649,10 @@ export const usersRelations = relations(users, ({ many }) => ({
   lessonProgress: many(lessonProgress),
 }));
 
-export const batchesRelations = relations(batches, ({ many }) => ({
+export const batchesRelations = relations(batches, ({ one, many }) => ({
+  course: one(courses, { fields: [batches.courseId], references: [courses.id] }),
   enrollments: many(batchEnrollments),
   instructors: many(batchInstructors),
-  courses: many(batchCourses),
   liveClasses: many(liveClasses),
   attendance: many(attendance),
   leaderboard: many(leaderboard),
@@ -661,7 +660,7 @@ export const batchesRelations = relations(batches, ({ many }) => ({
 
 export const coursesRelations = relations(courses, ({ many }) => ({
   modules: many(modules),
-  batches: many(batchCourses),
+  batches: many(batches),
 }));
 
 export const modulesRelations = relations(modules, ({ one, many }) => ({

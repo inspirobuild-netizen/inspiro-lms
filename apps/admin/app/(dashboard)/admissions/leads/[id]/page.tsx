@@ -172,7 +172,6 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
 
-  const batchesQ = useQuery({ queryKey: ['admin', 'batches', 'all'], queryFn: () => api.get<{ id: string; name: string }[]>('/api/v1/batches?limit=100'), enabled: open && !!accessToken });
   const coursesQ = useQuery({ queryKey: ['admin', 'courses', 'all'], queryFn: () => api.get<{ id: string; title: string; feeAmount: number }[]>('/api/v1/courses?limit=100'), enabled: open && !!accessToken });
 
   const [f, setF] = useState({ batchId: '', courseId: '', feePlanId: '', collectMethod: 'upi' as 'upi' | 'cash' | 'card' | 'bank_transfer', accountId: '', installmentIdx: '0' });
@@ -189,6 +188,15 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
       setError(null); setResult(null); setPaymentConfirmed(false);
     }
   }, [open]);
+
+  // Course is the master — batches are fetched per-course, never picked
+  // independently. Picking a course resets the batch (its old choice may not
+  // belong to the new course).
+  const batchesForCourseQ = useQuery({
+    queryKey: ['courses', f.courseId, 'batches'],
+    queryFn: () => api.get<{ id: string; name: string }[]>(`/api/v1/courses/${f.courseId}/batches`),
+    enabled: open && !!f.courseId && !!accessToken,
+  });
 
   const plansQ = useQuery({
     queryKey: ['courses', f.courseId, 'fee-plans'],
@@ -218,6 +226,12 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
     setPaymentConfirmed(false);
   }, [f.feePlanId, f.courseId]);
 
+  // Changing course invalidates whatever batch/plan was picked for the old one.
+  useEffect(() => {
+    setF((s) => ({ ...s, batchId: '', feePlanId: '' }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.courseId]);
+
   // Changing the amount or the account invalidates an earlier confirmation.
   useEffect(() => { setPaymentConfirmed(false); }, [f.installmentIdx, f.accountId, f.collectMethod]);
 
@@ -239,7 +253,6 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
   const convert = useMutation({
     mutationFn: () => api.post<ConvertResult>(`/api/v1/leads/${leadId}/convert`, {
       batchId: f.batchId,
-      courseId: f.courseId || undefined,
       feePlanId: f.feePlanId || undefined,
       ...(collectAmount > 0
         ? {
@@ -285,16 +298,18 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
     <Modal open={open} onClose={onClose} title="Convert to student" description="Creates a verified student account, enrols them in the batch, and records the admission." wide>
       <div className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Batch">
-            <Select value={f.batchId} onChange={(e) => set('batchId')(e.target.value)}>
-              <option value="">Select batch…</option>
-              {(batchesQ.data?.data ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          <Field label="Course">
+            <Select value={f.courseId} onChange={(e) => set('courseId')(e.target.value)}>
+              <option value="">Select course…</option>
+              {(coursesQ.data?.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
             </Select>
           </Field>
-          <Field label="Course (optional)">
-            <Select value={f.courseId} onChange={(e) => { set('courseId')(e.target.value); set('feePlanId')(''); }}>
-              <option value="">— None —</option>
-              {(coursesQ.data?.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+          <Field label="Batch">
+            <Select value={f.batchId} onChange={(e) => set('batchId')(e.target.value)} disabled={!f.courseId}>
+              <option value="">
+                {!f.courseId ? 'Pick a course first…' : batchesForCourseQ.isLoading ? 'Loading batches…' : (batchesForCourseQ.data?.data ?? []).length === 0 ? 'No batches for this course' : 'Select batch…'}
+              </option>
+              {(batchesForCourseQ.data?.data ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </Select>
           </Field>
         </div>
