@@ -8,6 +8,7 @@ import {
   users,
   batches,
   batchEnrollments,
+  courses,
   feePlans,
 } from '../../../drizzle/schema.js';
 import { hashPassword } from '../../lib/password.js';
@@ -199,15 +200,18 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
     const [existing] = await tx.select({ id: users.id }).from(users).where(eq(users.phone, phone)).limit(1);
     if (existing) throw err('A user with this phone already exists — enrol them manually', 409, 'PHONE_EXISTS');
 
-    // Resolve fee: a preset plan (preferred, materialised into real
-    // installment rows) or a manual amount when no plan applies. amountPaid/
-    // paymentStatus are never trusted from input — they start at zero and are
-    // only ever updated by the payments ledger (see recordPayment).
+    // Resolve fee entirely server-side from presets — a preset plan (preferred,
+    // materialised into real installment rows), else the course's own preset
+    // feeAmount, else free (no course picked / course has no fee configured).
+    // input.feeAmount is NEVER trusted: a counsellor typing a number here was
+    // exactly the loophole that let the whole "no free-typed amounts" rule be
+    // bypassed, since that figure flowed straight through as the "preset"
+    // collection amount.
     //
     // Resolved and validated BEFORE any rows are written, so a rejected
     // payment can never leave a half-created student behind.
-    let feePlan: string | undefined = input.feePlan;
-    let feeAmount = input.feeAmount;
+    let feePlan: string | undefined;
+    let feeAmount = 0;
     let plan: { id: string; installments: { label: string; amount: number; dueAfterDays: number }[] } | null = null;
     if (input.feePlanId) {
       const [p] = await tx.select().from(feePlans).where(eq(feePlans.id, input.feePlanId)).limit(1);
@@ -215,6 +219,10 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
       plan = p;
       feePlan = p.name;
       feeAmount = p.totalAmount;
+    } else if (input.courseId) {
+      const [c] = await tx.select({ feeAmount: courses.feeAmount }).from(courses).where(eq(courses.id, input.courseId)).limit(1);
+      if (!c) throw err('Course not found', 400, 'COURSE_NOT_FOUND');
+      feeAmount = c.feeAmount;
     }
     if (input.collectAmount !== undefined && input.collectAmount > feeAmount + 0.01) {
       throw err('Amount to collect cannot exceed the fee', 400, 'COLLECT_EXCEEDS_FEE');

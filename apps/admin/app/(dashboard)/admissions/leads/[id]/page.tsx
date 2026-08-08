@@ -175,7 +175,7 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
   const batchesQ = useQuery({ queryKey: ['admin', 'batches', 'all'], queryFn: () => api.get<{ id: string; name: string }[]>('/api/v1/batches?limit=100'), enabled: open && !!accessToken });
   const coursesQ = useQuery({ queryKey: ['admin', 'courses', 'all'], queryFn: () => api.get<{ id: string; title: string; feeAmount: number }[]>('/api/v1/courses?limit=100'), enabled: open && !!accessToken });
 
-  const [f, setF] = useState({ batchId: '', courseId: '', feePlanId: '', manualFeeAmount: '', collectMethod: 'upi' as 'upi' | 'cash' | 'card' | 'bank_transfer', accountId: '', installmentIdx: '0' });
+  const [f, setF] = useState({ batchId: '', courseId: '', feePlanId: '', collectMethod: 'upi' as 'upi' | 'cash' | 'card' | 'bank_transfer', accountId: '', installmentIdx: '0' });
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ConvertResult | null>(null);
   // Payment now gates conversion, so the counsellor must confirm receipt here
@@ -185,7 +185,7 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
 
   useEffect(() => {
     if (!open) {
-      setF({ batchId: '', courseId: '', feePlanId: '', manualFeeAmount: '', collectMethod: 'upi', accountId: '', installmentIdx: '0' });
+      setF({ batchId: '', courseId: '', feePlanId: '', collectMethod: 'upi', accountId: '', installmentIdx: '0' });
       setError(null); setResult(null); setPaymentConfirmed(false);
     }
   }, [open]);
@@ -198,7 +198,11 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
   const plans = plansQ.data?.data ?? [];
   const selectedPlan = plans.find((p) => p.id === f.feePlanId);
   const selectedCourse = (coursesQ.data?.data ?? []).find((c) => c.id === f.courseId);
-  const feeAmount = selectedPlan?.totalAmount ?? (Number(f.manualFeeAmount) || 0);
+  // Mirrors the server's own resolution exactly (leads.service.ts convertLead):
+  // a plan's total, else the course's own preset fee, else free. Never a
+  // number the counsellor types — that field was the loophole letting anyone
+  // bypass the "no free-typed amount" rule.
+  const feeAmount = selectedPlan?.totalAmount ?? selectedCourse?.feeAmount ?? 0;
 
   // The collectable amount is always a preset: an installment of the chosen
   // plan, or the full fee when no plan applies. Never typed by the counsellor.
@@ -237,7 +241,6 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
       batchId: f.batchId,
       courseId: f.courseId || undefined,
       feePlanId: f.feePlanId || undefined,
-      feeAmount: f.feePlanId ? undefined : Number(f.manualFeeAmount) || 0,
       ...(collectAmount > 0
         ? {
             collectAmount,
@@ -315,11 +318,16 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
               </span>
             ))}
           </div>
-        ) : (
-          <Field label={`Fee amount${selectedCourse ? ` (course default: ${money(selectedCourse.feeAmount)})` : ''}`}>
-            <Input type="number" min={0} value={f.manualFeeAmount} onChange={(e) => set('manualFeeAmount')(e.target.value)} placeholder={selectedCourse ? String(selectedCourse.feeAmount) : '25000'} />
-          </Field>
-        )}
+        ) : selectedCourse ? (
+          // The course's own preset fee — never typed. Configure it, or a
+          // fee plan, from Courses → Fees & plans.
+          <div className="flex items-center justify-between rounded-xl bg-surface-2 border border-white/5 px-4 py-2.5">
+            <span className="text-sm text-slate-400">Course fee</span>
+            <span className="text-sm font-medium text-slate-200">
+              {selectedCourse.feeAmount > 0 ? money(selectedCourse.feeAmount) : 'Not configured — free admission'}
+            </span>
+          </div>
+        ) : null}
 
         {feeAmount > 0 && (
           <div className="space-y-3 rounded-xl border border-white/8 bg-surface-2 p-4">

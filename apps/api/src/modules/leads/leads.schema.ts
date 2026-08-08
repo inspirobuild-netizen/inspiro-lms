@@ -54,12 +54,12 @@ export const convertLeadSchema = z.object({
   batchId: z.string().uuid(),
   courseId: z.string().uuid().optional(),
   admissionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  // Preferred: pick a preset plan — its installments are materialised onto
-  // the admission automatically. Falls back to a manual amount when no plan
-  // applies (e.g. a course with no configured plans yet).
+  // The fee is always resolved server-side from a preset — this plan (its
+  // installments materialise onto the admission), else the chosen course's
+  // own preset feeAmount, else free. There is deliberately no feeAmount/
+  // feePlan input here: a counsellor-typed figure was the exact loophole
+  // that let the "no free-typed collection amount" rule be bypassed.
   feePlanId: z.string().uuid().optional(),
-  feePlan: z.string().max(120).optional(),
-  feeAmount: z.number().nonnegative().default(0),
   targetExam: z.enum(['upsc', 'kerala_psc', 'other_psc']).optional(),
   // Optional: gives the student immediate email+password app access (bypasses
   // OTP, useful while MSG91 DLT template approval is pending).
