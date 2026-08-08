@@ -46,7 +46,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface flex items-center justify-center p-4">
+    <div className="min-h-[100dvh] bg-surface flex items-center justify-center p-4 pt-safe pb-safe">
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-10">
@@ -58,7 +58,7 @@ export default function LoginPage() {
         </div>
 
         {/* Card */}
-        <div className="rounded-2xl border border-white/8 bg-surface-1 p-8">
+        <div className="rounded-2xl border border-white/8 bg-surface-1 p-6 sm:p-8">
           <form onSubmit={(e) => void handleLogin(e)} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">Email</label>

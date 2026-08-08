@@ -24,7 +24,7 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const title = titles[segment] ?? 'Admin';
 
   return (
-    <header className="h-16 flex items-center gap-3 justify-between px-4 sm:px-6 lg:px-8 border-b border-white/8 bg-surface/80 backdrop-blur sticky top-0 z-10">
+    <header className="h-16 box-content pt-safe flex items-center gap-3 justify-between px-4 sm:px-6 lg:px-8 border-b border-white/8 bg-surface/80 backdrop-blur sticky top-0 z-10">
       <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={onMenuClick}

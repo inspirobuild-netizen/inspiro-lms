@@ -131,7 +131,7 @@ const navItems: NavItem[] = [
 
   // ── Admissions CRM ──────────────────────────────────────────────────────────
   {
-    label: 'Admissions',
+    label: 'CRM Dashboard',
     href: '/admissions',
     group: 'admissions',
     permission: 'leads.view',
@@ -176,7 +176,7 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: 'Admitted Students',
+    label: 'Admissions',
     href: '/admissions/students',
     group: 'admissions',
     permission: 'admissions.view',
@@ -335,7 +335,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       )}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 w-60 flex flex-col bg-surface-1 border-r border-white/8 transition-transform duration-200 lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 w-60 max-w-[85vw] pt-safe pb-safe pl-safe flex flex-col bg-surface-1 border-r border-white/8 transition-transform duration-200 lg:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
       >

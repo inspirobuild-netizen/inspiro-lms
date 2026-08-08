@@ -14,6 +14,7 @@ import {
 } from './fees.schema.js';
 import {
   buildUpiRequest,
+  buildUpiRequestForLead,
   createFeePlan,
   createPaymentAccount,
   deleteFeePlan,
@@ -155,6 +156,20 @@ export default async function feesRoutes(app: FastifyInstance) {
     }
     const accountId = query.accountId && z.string().uuid().safeParse(query.accountId).success ? query.accountId : undefined;
     return reply.send({ success: true, data: await buildUpiRequest(p.id, amountRaw, accountId) });
+  });
+
+  // Pre-conversion QR: payment is collected before the admission exists, so
+  // this is keyed on the lead rather than an admission.
+  app.get('/admin/leads/:id/upi-qr', { preHandler: [authenticate, requirePermission('payments.record')] }, async (req, reply) => {
+    const p = validate(idParam, req.params, reply);
+    if (!p) return;
+    const query = req.query as { amount?: string; accountId?: string };
+    const amountRaw = Number(query.amount);
+    if (!Number.isFinite(amountRaw) || amountRaw <= 0) {
+      return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'A positive amount is required' } });
+    }
+    const accountId = query.accountId && z.string().uuid().safeParse(query.accountId).success ? query.accountId : undefined;
+    return reply.send({ success: true, data: await buildUpiRequestForLead(p.id, amountRaw, accountId) });
   });
 
   // ── Payment account presets (Inspiro's own UPI/bank accounts) ───────────────

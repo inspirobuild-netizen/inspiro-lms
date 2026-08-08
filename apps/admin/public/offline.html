@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Offline — Inspiro Admin</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0; min-height: 100dvh; display: grid; place-items: center;
+        background: #11131e; color: #e2e8f0; text-align: center; padding: 1.5rem;
+        font-family: Inter, system-ui, -apple-system, sans-serif;
+      }
+      .icon { width: 56px; height: 56px; border-radius: 16px; background: linear-gradient(135deg, #7C3AED, #5B21B6); margin: 0 auto 1.25rem; }
+      h1 { font-size: 1.125rem; margin: 0 0 .5rem; }
+      p { color: #94a3b8; font-size: .875rem; margin: 0 0 1.5rem; max-width: 22rem; }
+      button {
+        background: #5B21B6; color: #fff; border: 0; border-radius: 12px;
+        padding: .625rem 1.25rem; font-size: .875rem; font-weight: 500; cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <div class="icon"></div>
+      <h1>You're offline</h1>
+      <p>Inspiro Admin needs a connection to load leads, admissions and fees. Reconnect and try again.</p>
+      <button onclick="location.reload()">Retry</button>
+    </div>
+  </body>
+</html>

@@ -20,6 +20,8 @@ function err(msg: string, statusCode: number, code: string) {
   return Object.assign(new Error(msg), { statusCode, code });
 }
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 // Active pipeline stages shown on the Kanban board (excludes terminal states).
 export const PIPELINE_STAGES = ['new', 'contacted', 'interested', 'demo', 'counselling', 'fee_discussion', 'admission_confirmed'] as const;
 
@@ -197,6 +199,52 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
     const [existing] = await tx.select({ id: users.id }).from(users).where(eq(users.phone, phone)).limit(1);
     if (existing) throw err('A user with this phone already exists — enrol them manually', 409, 'PHONE_EXISTS');
 
+    // Resolve fee: a preset plan (preferred, materialised into real
+    // installment rows) or a manual amount when no plan applies. amountPaid/
+    // paymentStatus are never trusted from input — they start at zero and are
+    // only ever updated by the payments ledger (see recordPayment).
+    //
+    // Resolved and validated BEFORE any rows are written, so a rejected
+    // payment can never leave a half-created student behind.
+    let feePlan: string | undefined = input.feePlan;
+    let feeAmount = input.feeAmount;
+    let plan: { id: string; installments: { label: string; amount: number; dueAfterDays: number }[] } | null = null;
+    if (input.feePlanId) {
+      const [p] = await tx.select().from(feePlans).where(eq(feePlans.id, input.feePlanId)).limit(1);
+      if (!p) throw err('Fee plan not found', 404, 'FEE_PLAN_NOT_FOUND');
+      plan = p;
+      feePlan = p.name;
+      feeAmount = p.totalAmount;
+    }
+    if (input.collectAmount !== undefined && input.collectAmount > feeAmount + 0.01) {
+      throw err('Amount to collect cannot exceed the fee', 400, 'COLLECT_EXCEEDS_FEE');
+    }
+    // A payable admission must be paid for at conversion — enforced here (not
+    // just in the UI) so the rule holds for any caller. Zero-fee admissions
+    // (scholarships/free batches) convert without a payment.
+    if (feeAmount > 0 && !(input.collectAmount && input.collectAmount > 0)) {
+      throw err(
+        'Collect the first payment before converting this lead.',
+        400,
+        'PAYMENT_REQUIRED',
+      );
+    }
+    // The amount must match a real installment of the chosen plan (or the full
+    // fee when there is no plan) — counsellors never set the figure freely.
+    if (input.collectAmount) {
+      const allowed = plan
+        ? [...new Set(plan.installments.map((i) => round2(i.amount)))].concat(round2(feeAmount))
+        : [round2(feeAmount)];
+      if (!allowed.some((a) => Math.abs(a - round2(input.collectAmount!)) < 0.01)) {
+        throw err(
+          'Collected amount must match a preset installment or the full fee.',
+          400,
+          'COLLECT_AMOUNT_NOT_PRESET',
+        );
+      }
+    }
+
+    // All rules have passed — safe to start writing.
     const passwordHash = input.password ? await hashPassword(input.password) : null;
     const [student] = await tx
       .insert(users)
@@ -218,24 +266,6 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
       .where(and(eq(batchEnrollments.batchId, input.batchId), eq(batchEnrollments.status, 'active')));
     if (Number(enrolled) >= batch.capacity) throw err('Batch is at full capacity', 409, 'BATCH_FULL');
     await tx.insert(batchEnrollments).values({ userId: student!.id, batchId: input.batchId, status: 'active' });
-
-    // Resolve fee: a preset plan (preferred, materialised into real
-    // installment rows) or a manual amount when no plan applies. amountPaid/
-    // paymentStatus are never trusted from input — they start at zero and are
-    // only ever updated by the payments ledger (see recordPayment).
-    let feePlan: string | undefined = input.feePlan;
-    let feeAmount = input.feeAmount;
-    let plan: { id: string; installments: { label: string; amount: number; dueAfterDays: number }[] } | null = null;
-    if (input.feePlanId) {
-      const [p] = await tx.select().from(feePlans).where(eq(feePlans.id, input.feePlanId)).limit(1);
-      if (!p) throw err('Fee plan not found', 404, 'FEE_PLAN_NOT_FOUND');
-      plan = p;
-      feePlan = p.name;
-      feeAmount = p.totalAmount;
-    }
-    if (input.collectAmount !== undefined && input.collectAmount > feeAmount + 0.01) {
-      throw err('Amount to collect cannot exceed the fee', 400, 'COLLECT_EXCEEDS_FEE');
-    }
 
     const admissionNo = await nextCode(tx, 'adm_seq', 'ADM');
     const admissionDate = input.admissionDate ?? new Date().toISOString().slice(0, 10);

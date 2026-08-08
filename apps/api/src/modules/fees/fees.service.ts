@@ -7,6 +7,7 @@ import {
   branches,
   courses,
   feePlans,
+  leads,
   paymentAccounts,
   payments,
   users,
@@ -438,23 +439,51 @@ export async function buildUpiRequest(admissionId: string, amount: number, accou
     );
   }
 
-  const reference = `${row.admissionNo}-${Date.now().toString(36).toUpperCase()}`;
+  return {
+    ...buildUpiUri(vpa, payeeName, amount, row.admissionNo),
+    studentName: row.studentName,
+    admissionNo: row.admissionNo,
+  };
+}
+
+/** Shared UPI deep-link construction — keeps amount/reference server-authoritative. */
+function buildUpiUri(vpa: string, payeeName: string, amount: number, code: string) {
+  const reference = `${code}-${Date.now().toString(36).toUpperCase()}`;
   const params = new URLSearchParams({
     pa: vpa,
     pn: payeeName,
     am: amount.toFixed(2),
     cu: 'INR',
-    tn: `Fee ${row.admissionNo}`,
+    tn: `Fee ${code}`,
     tr: reference,
   });
+  return { upiUri: `upi://pay?${params.toString()}`, amount: round2(amount), reference, payeeName, vpa };
+}
+
+/**
+ * UPI QR for a lead that has NOT been converted yet. Payment is now required
+ * before conversion, so the QR has to exist before any admission row does —
+ * the reference is keyed on the lead code and carried into the payment
+ * record once convertLead runs.
+ */
+export async function buildUpiRequestForLead(leadId: string, amount: number, accountId?: string) {
+  const [row] = await db
+    .select({ leadCode: leads.leadCode, studentName: leads.studentName, branchId: leads.branchId })
+    .from(leads)
+    .where(eq(leads.id, leadId))
+    .limit(1);
+  if (!row) throw err('Lead not found', 404, 'LEAD_NOT_FOUND');
+
+  const resolved = await resolvePaymentAccount(row.branchId, accountId);
+  const vpa = resolved?.vpa ?? process.env['UPI_VPA'];
+  const payeeName = resolved?.payeeName ?? process.env['UPI_PAYEE_NAME'] ?? 'Inspiro IAS Academy';
+  if (!vpa) {
+    throw err('No UPI account configured. Add one under Fees → Payment accounts.', 400, 'UPI_NOT_CONFIGURED');
+  }
 
   return {
-    upiUri: `upi://pay?${params.toString()}`,
-    amount: round2(amount),
-    reference,
-    payeeName,
-    vpa,
+    ...buildUpiUri(vpa, payeeName, amount, row.leadCode),
     studentName: row.studentName,
-    admissionNo: row.admissionNo,
+    leadCode: row.leadCode,
   };
 }

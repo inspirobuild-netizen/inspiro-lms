@@ -118,7 +118,7 @@ export default function FeesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="font-display font-bold text-2xl text-slate-100">Fees &amp; Revenue</h2>
           <p className="text-slate-400 text-sm mt-1">Billing, collection and outstanding balances across branches, counsellors and courses</p>
@@ -138,15 +138,15 @@ export default function FeesPage() {
       </div>
 
       <div className="flex flex-wrap gap-3">
-        <Select value={branchId} onChange={(e) => { setBranchId(e.target.value); setPage(1); }} className="max-w-[200px]">
+        <Select value={branchId} onChange={(e) => { setBranchId(e.target.value); setPage(1); }} className="w-full sm:w-auto sm:max-w-[200px]">
           <option value="">All branches</option>
           {(branchesQ.data?.data ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </Select>
-        <Select value={counsellorId} onChange={(e) => { setCounsellorId(e.target.value); setPage(1); }} className="max-w-[200px]">
+        <Select value={counsellorId} onChange={(e) => { setCounsellorId(e.target.value); setPage(1); }} className="w-full sm:w-auto sm:max-w-[200px]">
           <option value="">All counsellors</option>
           {(staffQ.data?.data ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </Select>
-        <Select value={courseId} onChange={(e) => { setCourseId(e.target.value); setPage(1); }} className="max-w-[200px]">
+        <Select value={courseId} onChange={(e) => { setCourseId(e.target.value); setPage(1); }} className="w-full sm:w-auto sm:max-w-[200px]">
           <option value="">All courses</option>
           {(coursesQ.data?.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
         </Select>
@@ -252,12 +252,12 @@ function PaymentAccountsSection({ branches }: { branches: Option[] }) {
 
   return (
     <div className="rounded-2xl border border-white/8 bg-surface-1 p-5">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
         <div>
           <h3 className="font-semibold text-slate-200 text-sm">Payment accounts</h3>
           <p className="text-xs text-slate-500 mt-0.5">Inspiro&apos;s own UPI/bank accounts — pick one at collection time to generate the QR against</p>
         </div>
-        <Button size="sm" onClick={() => { setEditing(null); setOpen(true); }}>+ Add account</Button>
+        <Button size="sm" className="self-start shrink-0" onClick={() => { setEditing(null); setOpen(true); }}>+ Add account</Button>
       </div>
 
       {accountsQ.isLoading ? (

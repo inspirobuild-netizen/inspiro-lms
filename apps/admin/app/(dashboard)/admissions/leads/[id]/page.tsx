@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { QRCodeSVG } from 'qrcode.react';
 import { createApiClient, ApiError } from '@/lib/api';
 import { useAuthStore, useHasPermission } from '@/lib/auth';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +13,6 @@ import { Input } from '@/components/ui/input';
 import { Modal, Select, Field, Textarea } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
-import { PaymentModal } from '@/components/shared/payment-modal';
 import { formatDate, formatPhone, money } from '@/lib/utils';
 
 type Lead = {
@@ -165,6 +165,8 @@ function FollowupTimeline({ leadId, followups, loading, onAdded }: { leadId: str
 
 type FeePlan = { id: string; name: string; totalAmount: number; installments: { label: string; amount: number; dueAfterDays: number }[] };
 type ConvertResult = { admissionId: string; admissionNo: string };
+type LeadUpiRequest = { upiUri: string; amount: number; reference: string; payeeName: string; vpa: string; leadCode: string };
+type PaymentAccountRef = { id: string; name: string; vpa: string; isActive: boolean };
 
 function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; leadId: string; onClose: () => void; onConverted: (admissionNo: string) => void }) {
   const { accessToken } = useAuthStore();
@@ -173,14 +175,19 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
   const batchesQ = useQuery({ queryKey: ['admin', 'batches', 'all'], queryFn: () => api.get<{ id: string; name: string }[]>('/api/v1/batches?limit=100'), enabled: open && !!accessToken });
   const coursesQ = useQuery({ queryKey: ['admin', 'courses', 'all'], queryFn: () => api.get<{ id: string; title: string; feeAmount: number }[]>('/api/v1/courses?limit=100'), enabled: open && !!accessToken });
 
-  const [f, setF] = useState({ batchId: '', courseId: '', feePlanId: '', manualFeeAmount: '', collectMode: 'skip' as 'skip' | 'cash' | 'upi', collectAmount: '' });
+  const [f, setF] = useState({ batchId: '', courseId: '', feePlanId: '', manualFeeAmount: '', collectMethod: 'upi' as 'upi' | 'cash' | 'card' | 'bank_transfer', accountId: '', installmentIdx: '0' });
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ConvertResult | null>(null);
-  const [paymentOpen, setPaymentOpen] = useState(false);
+  // Payment now gates conversion, so the counsellor must confirm receipt here
+  // (for UPI, after the QR is scanned) before the Convert button unlocks.
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const set = (k: keyof typeof f) => (v: string) => setF((s) => ({ ...s, [k]: v }));
 
   useEffect(() => {
-    if (!open) { setF({ batchId: '', courseId: '', feePlanId: '', manualFeeAmount: '', collectMode: 'skip', collectAmount: '' }); setError(null); setResult(null); setPaymentOpen(false); }
+    if (!open) {
+      setF({ batchId: '', courseId: '', feePlanId: '', manualFeeAmount: '', collectMethod: 'upi', accountId: '', installmentIdx: '0' });
+      setError(null); setResult(null); setPaymentConfirmed(false);
+    }
   }, [open]);
 
   const plansQ = useQuery({
@@ -192,13 +199,38 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
   const selectedPlan = plans.find((p) => p.id === f.feePlanId);
   const selectedCourse = (coursesQ.data?.data ?? []).find((c) => c.id === f.courseId);
   const feeAmount = selectedPlan?.totalAmount ?? (Number(f.manualFeeAmount) || 0);
-  const firstInstallment = selectedPlan?.installments[0]?.amount ?? feeAmount;
+
+  // The collectable amount is always a preset: an installment of the chosen
+  // plan, or the full fee when no plan applies. Never typed by the counsellor.
+  const collectOptions = selectedPlan
+    ? selectedPlan.installments.map((inst, i) => ({ value: String(i), label: `${inst.label} — ${money(inst.amount)}`, amount: inst.amount }))
+    : feeAmount > 0
+      ? [{ value: '0', label: `Full fee — ${money(feeAmount)}`, amount: feeAmount }]
+      : [];
+  const collectAmount = collectOptions.find((o) => o.value === f.installmentIdx)?.amount ?? collectOptions[0]?.amount ?? 0;
 
   useEffect(() => {
-    // Default the collect amount to the first installment whenever the plan changes.
-    setF((s) => ({ ...s, collectAmount: String(firstInstallment || '') }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setF((s) => ({ ...s, installmentIdx: '0' }));
+    setPaymentConfirmed(false);
   }, [f.feePlanId, f.courseId]);
+
+  // Changing the amount or the account invalidates an earlier confirmation.
+  useEffect(() => { setPaymentConfirmed(false); }, [f.installmentIdx, f.accountId, f.collectMethod]);
+
+  const accountsQ = useQuery({
+    queryKey: ['admin', 'payment-accounts'],
+    queryFn: () => api.get<PaymentAccountRef[]>('/api/v1/payment-accounts'),
+    enabled: open && f.collectMethod === 'upi' && !!accessToken,
+    staleTime: 60_000,
+  });
+  const activeAccounts = (accountsQ.data?.data ?? []).filter((a) => a.isActive);
+
+  const qrQ = useQuery({
+    queryKey: ['admin', 'lead', leadId, 'upi-qr', collectAmount, f.accountId],
+    queryFn: () => api.get<LeadUpiRequest>(`/api/v1/admin/leads/${leadId}/upi-qr?amount=${collectAmount}${f.accountId ? `&accountId=${f.accountId}` : ''}`),
+    enabled: open && f.collectMethod === 'upi' && collectAmount > 0 && !!accessToken,
+    staleTime: 60_000,
+  });
 
   const convert = useMutation({
     mutationFn: () => api.post<ConvertResult>(`/api/v1/leads/${leadId}/convert`, {
@@ -206,44 +238,43 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
       courseId: f.courseId || undefined,
       feePlanId: f.feePlanId || undefined,
       feeAmount: f.feePlanId ? undefined : Number(f.manualFeeAmount) || 0,
-      ...(f.collectMode === 'cash' && Number(f.collectAmount) > 0
-        ? { collectAmount: Number(f.collectAmount), collectMethod: 'cash' }
+      ...(collectAmount > 0
+        ? {
+            collectAmount,
+            collectMethod: f.collectMethod,
+            collectReference: f.collectMethod === 'upi' ? qrQ.data?.data.reference : undefined,
+          }
         : {}),
     }),
-    onSuccess: (r) => {
-      setResult(r.data);
-      if (f.collectMode === 'upi' && Number(f.collectAmount) > 0) setPaymentOpen(true);
-    },
+    onSuccess: (r) => setResult(r.data),
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to convert lead'),
   });
 
+  const canConvert = !!f.batchId && (feeAmount <= 0 || paymentConfirmed);
+
   if (result) {
+    // The first payment is already recorded as part of conversion — offering
+    // "Collect payment" again here would double-charge. Remaining installments
+    // are collected from Fees & Revenue → Outstanding.
     return (
-      <>
-        <Modal open={open && !paymentOpen} onClose={() => onConverted(result.admissionNo)} title="Admission created">
-          <div className="space-y-4 text-center py-2">
-            <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto">
-              <svg className="w-6 h-6 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <p className="text-slate-200 font-medium">Admission {result.admissionNo} created</p>
-            <div className="flex justify-center gap-2 pt-2">
-              {feeAmount > 0 && (
-                <Button size="sm" onClick={() => setPaymentOpen(true)}>Collect payment</Button>
-              )}
-              <Button size="sm" variant="outline" onClick={() => onConverted(result.admissionNo)}>Done</Button>
-            </div>
+      <Modal open={open} onClose={() => onConverted(result.admissionNo)} title="Admission created">
+        <div className="space-y-4 text-center py-2">
+          <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto">
+            <svg className="w-6 h-6 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
           </div>
-        </Modal>
-        <PaymentModal
-          open={paymentOpen}
-          admissionId={result.admissionId}
-          defaultAmount={Number(f.collectAmount) || firstInstallment || feeAmount}
-          onClose={() => { setPaymentOpen(false); onConverted(result.admissionNo); }}
-          onRecorded={() => { setPaymentOpen(false); onConverted(result.admissionNo); }}
-        />
-      </>
+          <div>
+            <p className="text-slate-200 font-medium">Admission {result.admissionNo} created</p>
+            {collectAmount > 0 && (
+              <p className="text-xs text-slate-500 mt-1">{money(collectAmount)} recorded against it.</p>
+            )}
+          </div>
+          <div className="flex justify-center gap-2 pt-2">
+            <Button size="sm" onClick={() => onConverted(result.admissionNo)}>Done</Button>
+          </div>
+        </div>
+      </Modal>
     );
   }
 
@@ -291,40 +322,88 @@ function ConvertModal({ open, leadId, onClose, onConverted }: { open: boolean; l
         )}
 
         {feeAmount > 0 && (
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-slate-300">Collect {money(firstInstallment)} now?</p>
-            <div className="flex gap-2">
-              {([
-                { key: 'skip', label: 'Not now' },
-                { key: 'cash', label: 'Cash / card in hand' },
-                { key: 'upi', label: 'UPI QR' },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.key}
-                  onClick={() => set('collectMode')(opt.key)}
-                  className={
-                    f.collectMode === opt.key
-                      ? 'px-3 py-1.5 rounded-full text-xs font-medium bg-brand-violet text-white'
-                      : 'px-3 py-1.5 rounded-full text-xs font-medium bg-surface-2 text-slate-400 hover:text-slate-200'
-                  }
-                >
-                  {opt.label}
-                </button>
-              ))}
+          <div className="space-y-3 rounded-xl border border-white/8 bg-surface-2 p-4">
+            <p className="text-sm font-medium text-slate-200">Collect payment</p>
+            <p className="text-xs text-slate-500 -mt-2">Required before this lead can be converted.</p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label={selectedPlan ? 'Installment' : 'Amount'}>
+                {collectOptions.length > 1 ? (
+                  <Select value={f.installmentIdx} onChange={(e) => set('installmentIdx')(e.target.value)}>
+                    {collectOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </Select>
+                ) : (
+                  <div className="flex h-10 items-center rounded-xl border border-white/10 bg-surface-1 px-3 text-sm text-slate-200">
+                    {money(collectAmount)}
+                  </div>
+                )}
+              </Field>
+              <Field label="Method">
+                <Select value={f.collectMethod} onChange={(e) => set('collectMethod')(e.target.value)}>
+                  <option value="upi">UPI (QR)</option>
+                  <option value="cash">Cash</option>
+                  <option value="card">Card</option>
+                  <option value="bank_transfer">Bank transfer</option>
+                </Select>
+              </Field>
             </div>
-            {f.collectMode !== 'skip' && (
-              <Input type="number" min={0} value={f.collectAmount} onChange={(e) => set('collectAmount')(e.target.value)} className="max-w-[160px]" />
+
+            {f.collectMethod === 'upi' && activeAccounts.length > 1 && (
+              <Field label="Collect into">
+                <Select value={f.accountId} onChange={(e) => set('accountId')(e.target.value)}>
+                  <option value="">Default account</option>
+                  {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.vpa})</option>)}
+                </Select>
+              </Field>
             )}
-            {f.collectMode === 'upi' && (
-              <p className="text-xs text-slate-500">A QR with this amount opens right after the admission is created.</p>
+
+            {f.collectMethod === 'upi' && (
+              <div className="flex flex-col items-center gap-2 pt-1">
+                {qrQ.isLoading ? (
+                  <p className="text-sm text-slate-500">Generating QR…</p>
+                ) : qrQ.isError ? (
+                  <p className="text-sm text-rose-400 text-center">
+                    {qrQ.error instanceof ApiError ? qrQ.error.message : 'Could not generate a UPI QR.'}
+                  </p>
+                ) : qrQ.data ? (
+                  <>
+                    <div className="bg-white p-3 rounded-xl">
+                      <QRCodeSVG value={qrQ.data.data.upiUri} size={172} level="M" />
+                    </div>
+                    <p className="text-xs text-slate-400 text-center">
+                      {money(qrQ.data.data.amount)} to {qrQ.data.data.payeeName}
+                      <br />
+                      <span className="text-slate-500">{qrQ.data.data.vpa} · Ref {qrQ.data.data.reference}</span>
+                    </p>
+                  </>
+                ) : null}
+              </div>
             )}
+
+            <label className="flex items-start gap-2 text-sm text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={paymentConfirmed}
+                onChange={(e) => setPaymentConfirmed(e.target.checked)}
+                className="accent-brand-violet mt-0.5"
+              />
+              <span>
+                I have received {money(collectAmount)}
+                {f.collectMethod === 'upi' ? ' in the account above' : ` in ${f.collectMethod === 'cash' ? 'cash' : f.collectMethod.replace('_', ' ')}`}.
+                <span className="block text-xs text-amber-400/80">
+                  UPI QRs do not auto-confirm — tick this only after the money actually lands.
+                </span>
+              </span>
+            </label>
           </div>
         )}
 
         {error && <p className="text-sm text-rose-400">{error}</p>}
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button loading={convert.isPending} disabled={!f.batchId} onClick={() => convert.mutate()}>Convert</Button>
+          <Button loading={convert.isPending} disabled={!canConvert} onClick={() => convert.mutate()}>
+            {feeAmount > 0 ? 'Confirm payment & convert' : 'Convert'}
+          </Button>
         </div>
       </div>
     </Modal>
