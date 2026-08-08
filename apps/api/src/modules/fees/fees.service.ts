@@ -393,7 +393,11 @@ async function resolvePaymentAccount(branchId: string | null, accountId?: string
   const globalDefault = active.find((a) => a.branchId === null && a.isDefault);
   const branchAny = active.find((a) => a.branchId === branchId);
   const globalAny = active.find((a) => a.branchId === null);
-  const picked = branchDefault ?? globalDefault ?? branchAny ?? globalAny;
+  // Last resort: any active account at all, even one scoped to a different
+  // branch — a single configured account should always be usable rather
+  // than silently going unmatched because nobody flagged it "default".
+  const anyActive = active[0];
+  const picked = branchDefault ?? globalDefault ?? branchAny ?? globalAny ?? anyActive;
   if (picked) return { vpa: picked.vpa, payeeName: picked.payeeName };
 
   return null;

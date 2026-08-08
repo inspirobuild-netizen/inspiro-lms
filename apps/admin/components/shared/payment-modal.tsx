@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { QRCodeSVG } from 'qrcode.react';
 import { createApiClient, ApiError } from '@/lib/api';
@@ -13,6 +13,8 @@ import { money } from '@/lib/utils';
 
 type UpiRequest = { upiUri: string; amount: number; reference: string; payeeName: string; vpa: string };
 type PaymentAccount = { id: string; name: string; vpa: string; payeeName: string; branchId: string | null; isActive: boolean; isDefault: boolean };
+type InstallmentRow = { id: string; label: string; amount: number; paidAmount: number; status: 'pending' | 'paid' | 'waived' };
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
  * Collect a payment against an admission. UPI shows a scannable QR with the
@@ -36,13 +38,17 @@ export function PaymentModal({
 
   const [method, setMethod] = useState<'upi' | 'cash' | 'card' | 'bank_transfer' | 'other'>('upi');
   const [amount, setAmount] = useState(String(defaultAmount));
+  const [selectedInstallmentId, setSelectedInstallmentId] = useState(installmentId ?? '');
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
   const [accountId, setAccountId] = useState('');
 
   useEffect(() => {
-    if (open) { setMethod('upi'); setAmount(String(defaultAmount)); setReference(''); setNote(''); setAccountId(''); }
-  }, [open, defaultAmount]);
+    if (open) {
+      setMethod('upi'); setAmount(String(defaultAmount)); setReference(''); setNote(''); setAccountId('');
+      setSelectedInstallmentId(installmentId ?? '');
+    }
+  }, [open, defaultAmount, installmentId]);
 
   const accountsQuery = useQuery({
     queryKey: ['admin', 'payment-accounts'],
@@ -52,7 +58,37 @@ export function PaymentModal({
   });
   const activeAccounts = (accountsQuery.data?.data ?? []).filter((a) => a.isActive);
 
-  const amountNum = Number(amount) || 0;
+  // The installment target is preset from a specific outstanding row, or —
+  // for UPI at conversion time — a preset list the counsellor picks from,
+  // never a number they type freely (so the QR amount can't be tampered with).
+  const installmentsQuery = useQuery({
+    queryKey: ['admin', 'admission', admissionId, 'installments'],
+    queryFn: () => api.get<InstallmentRow[]>(`/api/v1/admin/admissions/${admissionId}/installments`),
+    enabled: open && method === 'upi' && !!admissionId && !installmentId,
+    staleTime: 30_000,
+  });
+  const pendingInstallments = useMemo(
+    () => (installmentsQuery.data?.data ?? []).filter((i) => i.status === 'pending'),
+    [installmentsQuery.data],
+  );
+
+  useEffect(() => {
+    if (open && method === 'upi' && !installmentId && !selectedInstallmentId && pendingInstallments.length > 0) {
+      setSelectedInstallmentId(pendingInstallments[0]!.id);
+    }
+  }, [open, method, installmentId, selectedInstallmentId, pendingInstallments]);
+
+  const selectedInstallment = pendingInstallments.find((i) => i.id === selectedInstallmentId);
+  const upiLockedAmount = installmentId
+    ? defaultAmount
+    : selectedInstallment
+      ? round2(selectedInstallment.amount - selectedInstallment.paidAmount)
+      : defaultAmount; // no plan/installments on this admission — fall back to the preset amount, still locked
+  const showInstallmentPicker = method === 'upi' && !installmentId && pendingInstallments.length > 0;
+
+  const amountNum = method === 'upi' ? upiLockedAmount : (Number(amount) || 0);
+  const effectiveInstallmentId = installmentId ?? (showInstallmentPicker ? selectedInstallmentId : undefined);
+
   const upiQuery = useQuery({
     queryKey: ['admin', 'admission', admissionId, 'upi-qr', amountNum, accountId],
     queryFn: () => api.get<UpiRequest>(`/api/v1/admin/admissions/${admissionId}/upi-qr?amount=${amountNum}${accountId ? `&accountId=${accountId}` : ''}`),
@@ -65,7 +101,7 @@ export function PaymentModal({
       api.post(`/api/v1/admin/admissions/${admissionId}/payments`, {
         amount: amountNum,
         method,
-        installmentId,
+        installmentId: effectiveInstallmentId,
         reference: reference.trim() || (method === 'upi' ? upiQuery.data?.data.reference : undefined) || undefined,
         note: note.trim() || undefined,
       }),
@@ -83,8 +119,22 @@ export function PaymentModal({
     <Modal open={open} onClose={onClose} title="Collect payment" description="The QR does not auto-confirm — confirm once you see it land in your UPI app" wide>
       <div className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Amount">
-            <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <Field label={showInstallmentPicker ? 'Installment' : 'Amount'}>
+            {method === 'upi' ? (
+              showInstallmentPicker ? (
+                <Select value={selectedInstallmentId} onChange={(e) => setSelectedInstallmentId(e.target.value)}>
+                  {pendingInstallments.map((i) => (
+                    <option key={i.id} value={i.id}>{i.label} — {money(round2(i.amount - i.paidAmount))} due</option>
+                  ))}
+                </Select>
+              ) : (
+                <div className="flex h-10 items-center rounded-xl border border-white/10 bg-surface-2 px-3 text-sm text-slate-200">
+                  {money(upiLockedAmount)}
+                </div>
+              )
+            ) : (
+              <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            )}
           </Field>
           <Field label="Method">
             <Select value={method} onChange={(e) => setMethod(e.target.value as typeof method)}>
