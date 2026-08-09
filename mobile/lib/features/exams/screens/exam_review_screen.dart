@@ -87,7 +87,13 @@ class _ScoreHeader extends StatelessWidget {
   }
 }
 
-String _trim(double n) => n == n.roundToDouble() ? n.round().toString() : n.toStringAsFixed(1);
+// Whole numbers render bare ("3"), fractions keep their real precision up to
+// two decimals ("0.75", not a misleading "0.8").
+String _trim(double n) {
+  if (n == n.roundToDouble()) return n.round().toString();
+  final s = n.toStringAsFixed(2);
+  return s.endsWith('0') ? s.substring(0, s.length - 1) : s;
+}
 
 class _SubjectRow extends StatelessWidget {
   final SubjectBreakdown s;
