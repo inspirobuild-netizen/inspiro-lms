@@ -31,15 +31,32 @@ class LearnScreen extends ConsumerWidget {
 
     return TabPage(
       title: 'Learn',
+      actions: [
+        IconButton(
+          tooltip: 'Explore courses',
+          onPressed: () => context.push('/catalog'),
+          icon: const Icon(Icons.storefront_outlined, color: Colors.white70),
+        ),
+      ],
       body: coursesAsync.when(
         loading: () => const LoadingState(),
         error: (e, _) => ErrorRetry(message: 'Could not load courses', onRetry: () => ref.invalidate(coursesProvider)),
         data: (courses) {
           if (courses.isEmpty) {
-            return const EmptyState(
+            // Not enrolled in anything yet — send them to the marketing
+            // catalog rather than a dead end.
+            return EmptyState(
               icon: Icons.menu_book_outlined,
               title: 'No courses yet',
-              subtitle: 'Courses from your enrolled batch will appear here.',
+              subtitle: 'Browse our courses and enrol to start learning.',
+              action: SizedBox(
+                width: 220,
+                child: BrandButton(
+                  label: 'Explore courses',
+                  icon: Icons.storefront_outlined,
+                  onTap: () => context.push('/catalog'),
+                ),
+              ),
             );
           }
           final featured = courses.take(3).toList();

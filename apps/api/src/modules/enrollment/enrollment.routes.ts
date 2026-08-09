@@ -13,6 +13,7 @@ import {
   createEnrollRequest,
   confirmEnrollRequest,
   listMyEnrollRequests,
+  listCatalogFeePlans,
   listEnrollRequests,
   verifyEnrollRequest,
   rejectEnrollRequest,
@@ -31,6 +32,17 @@ function validate<T>(schema: ZodSchema<T>, value: unknown, reply: FastifyReply):
 const idParam = z.object({ id: z.string().uuid() });
 
 export default async function enrollmentRoutes(app: FastifyInstance) {
+  // ── Catalog pricing (student-facing) ────────────────────────────────────────
+  // The staff route /courses/:id/fee-plans is gated on admissions.manage, which
+  // students don't have. Pricing is exactly what the marketing catalog is meant
+  // to show, so expose the ACTIVE plans of a PUBLISHED course to any signed-in
+  // user. Still no syllabus/content — just names and amounts.
+  app.get('/catalog/courses/:id/fee-plans', { preHandler: [authenticate] }, async (req, reply) => {
+    const p = validate(idParam, req.params, reply);
+    if (!p) return;
+    return reply.send({ success: true, data: await listCatalogFeePlans(p.id) });
+  });
+
   // ── Student self-serve: browse-to-pay flow ──────────────────────────────────
   app.post('/me/enroll', { preHandler: [authenticate] }, async (req, reply) => {
     if (req.user.role !== 'student') {

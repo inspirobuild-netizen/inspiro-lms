@@ -28,6 +28,35 @@ final coursesProvider = FutureProvider.autoDispose<List<Course>>((ref) async {
   }, _demoCourses);
 });
 
+// ── Marketing catalog (browse-before-you-enrol) ───────────────────────────────
+// Every published course with its price, regardless of enrolment. The server
+// returns title/subject/description/fee only for this scope — no syllabus —
+// so this can't be used to peek at locked content.
+final catalogProvider = FutureProvider.autoDispose<List<Course>>((ref) async {
+  return apiOrDemo(() async {
+    final res = await ApiClient.dio.get<Map<String, dynamic>>(
+      '/api/v1/courses',
+      queryParameters: {'limit': 50, 'scope': 'catalog'},
+    );
+    return (res.data!['data'] as List)
+        .cast<Map<String, dynamic>>()
+        .map(Course.fromJson)
+        .toList();
+  }, _demoCourses);
+});
+
+/// Preset fee plans for a course — the student picks one, never types a figure.
+final courseFeePlansProvider =
+    FutureProvider.autoDispose.family<List<FeePlanOption>, String>((ref, courseId) async {
+  return apiOrDemo(() async {
+    final res = await ApiClient.dio.get<Map<String, dynamic>>('/api/v1/catalog/courses/$courseId/fee-plans');
+    return (res.data!['data'] as List)
+        .cast<Map<String, dynamic>>()
+        .map(FeePlanOption.fromJson)
+        .toList();
+  }, const <FeePlanOption>[]);
+});
+
 // ── Course detail (modules + lessons) ─────────────────────────────────────────
 final courseDetailProvider =
     FutureProvider.autoDispose.family<CourseDetail, String>((ref, courseId) async {

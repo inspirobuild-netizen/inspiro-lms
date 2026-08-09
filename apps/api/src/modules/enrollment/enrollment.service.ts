@@ -1,4 +1,4 @@
-import { and, count, desc, eq } from 'drizzle-orm';
+import { and, asc, count, desc, eq } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import {
   enrollmentRequests,
@@ -115,6 +115,27 @@ export async function confirmEnrollRequest(studentId: string, requestId: string,
     .where(eq(enrollmentRequests.id, requestId))
     .returning();
   return updated!;
+}
+
+// ── Catalog: active plans for a published course (student-facing pricing) ───
+export async function listCatalogFeePlans(courseId: string) {
+  const [course] = await db
+    .select({ id: courses.id })
+    .from(courses)
+    .where(and(eq(courses.id, courseId), eq(courses.isPublished, true)))
+    .limit(1);
+  if (!course) throw err('Course not found', 404, 'COURSE_NOT_FOUND');
+
+  return db
+    .select({
+      id: feePlans.id,
+      name: feePlans.name,
+      totalAmount: feePlans.totalAmount,
+      installments: feePlans.installments,
+    })
+    .from(feePlans)
+    .where(and(eq(feePlans.courseId, courseId), eq(feePlans.isActive, true)))
+    .orderBy(asc(feePlans.sortOrder), asc(feePlans.createdAt));
 }
 
 // ── Student: my requests ────────────────────────────────────────────────────
