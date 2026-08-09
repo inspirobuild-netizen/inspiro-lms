@@ -27,6 +27,11 @@ FROM node:22-alpine AS prod
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=builder /out .
+# Uploads (course thumbnails) live on a mounted volume. Create it owned by
+# `node` in the image so a fresh named volume inherits that ownership —
+# otherwise Docker creates the mountpoint as root and the non-root runtime
+# user gets EACCES on first write.
+RUN mkdir -p /app/uploads && chown -R node:node /app/uploads
 EXPOSE 3000
 USER node
 CMD ["node", "dist/src/index.js"]

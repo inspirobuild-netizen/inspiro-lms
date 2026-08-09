@@ -1,9 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import crypto from 'crypto';
 import { authenticate } from '../../middleware/authenticate.js';
 import { requireRole } from '../../middleware/require-role.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
-import { uploadToBunnyStorage } from '../../lib/bunny.js';
+import { EXT_BY_MIME, saveImage, resolveImage } from '../../lib/local-storage.js';
 import { createVideoSchema, bunnyWebhookSchema, createPresignedUploadSchema } from './media.schema.js';
 import {
   createBunnyVideo,
@@ -107,36 +106,20 @@ export default async function mediaRoutes(app: FastifyInstance) {
   );
 
   // ── POST /admin/media/image ────────────────────────────────────────────────
-  // Small public images (course thumbnails). Server relays the file to Bunny
-  // Storage and returns the CDN URL. Mime + size are enforced HERE, not just
-  // in the client's file picker.
+  // Course marketing thumbnails. Stored on the server's own disk (see
+  // lib/local-storage.ts) — NOT Bunny: Stream hosts lesson video, and Bunny
+  // Storage is a separate product needing its own zone. Mime + size are
+  // enforced HERE, not just in the client's file picker.
   app.post(
     '/admin/media/image',
     { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
-      // Fail up-front with a clear message when storage isn't configured,
-      // instead of a generic 500 after the upload is consumed.
-      if (!process.env['BUNNY_STORAGE_API_KEY'] || !process.env['BUNNY_PULL_ZONE_URL']) {
-        return reply.status(503).send({
-          success: false,
-          error: {
-            code: 'STORAGE_NOT_CONFIGURED',
-            message: 'Image storage is not configured yet — set BUNNY_STORAGE_API_KEY and BUNNY_PULL_ZONE_URL.',
-          },
-        });
-      }
-
       const file = await req.file({ limits: { fileSize: 5 * 1024 * 1024 } });
       if (!file) {
         return reply.status(400).send({ success: false, error: { code: 'NO_FILE', message: 'Attach an image file' } });
       }
 
-      const allowed: Record<string, string> = {
-        'image/jpeg': 'jpg',
-        'image/png': 'png',
-        'image/webp': 'webp',
-      };
-      const ext = allowed[file.mimetype];
+      const ext = EXT_BY_MIME[file.mimetype];
       if (!ext) {
         return reply.status(400).send({
           success: false,
@@ -155,11 +138,31 @@ export default async function mediaRoutes(app: FastifyInstance) {
         });
       }
 
-      const path = `course-thumbnails/${crypto.randomUUID()}.${ext}`;
-      const url = await uploadToBunnyStorage(buffer, path, file.mimetype);
-      return reply.status(201).send({ success: true, data: { url } });
+      const filename = await saveImage(buffer, ext);
+      // Absolute URL so both the admin panel and the mobile app can load it.
+      // nginx sets X-Forwarded-Proto and Fastify runs with trustProxy, so
+      // req.protocol is the real public scheme.
+      const origin = `${req.protocol}://${req.headers.host}`;
+      return reply.status(201).send({ success: true, data: { url: `${origin}/api/v1/uploads/images/${filename}` } });
     },
   );
+
+  // ── GET /uploads/images/:filename ──────────────────────────────────────────
+  // Public (no auth): these are marketing images shown on the app's course
+  // catalog before a student has enrolled — or even signed in.
+  app.get('/uploads/images/:filename', async (req, reply) => {
+    const { filename } = req.params as { filename: string };
+    const found = await resolveImage(filename);
+    if (!found) {
+      return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Image not found' } });
+    }
+    return reply
+      .header('Content-Type', found.contentType)
+      .header('Content-Length', found.size)
+      // Content-addressed by uuid, so it can never change under a given name.
+      .header('Cache-Control', 'public, max-age=31536000, immutable')
+      .send(found.stream);
+  });
 
   // ══ Webhook — no auth, signature-verified ════════════════════════════════
   // ── POST /webhooks/bunny ───────────────────────────────────────────────────
