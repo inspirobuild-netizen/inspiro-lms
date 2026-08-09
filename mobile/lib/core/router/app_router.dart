@@ -9,6 +9,7 @@ import '../../features/learn/screens/course_detail_screen.dart';
 import '../../features/learn/screens/video_player_screen.dart';
 import '../../features/exams/screens/exams_screen.dart';
 import '../../features/exams/screens/exam_player_screen.dart';
+import '../../features/exams/screens/exam_review_screen.dart';
 import '../../features/exams/models/exam.dart';
 import '../../features/live/screens/live_classes_screen.dart';
 import '../../features/live/screens/live_viewer_screen.dart';
@@ -104,6 +105,13 @@ final routerProvider = Provider<GoRouter>((ref) {
             );
           }
           return const ExamPlayerScreen();
+        },
+      ),
+      GoRoute(
+        path: '/exam-review',
+        builder: (context, state) {
+          final extra = state.extra as Map<String, String>;
+          return ExamReviewScreen(examId: extra['examId']!, title: extra['title'] ?? 'Test review');
         },
       ),
       GoRoute(

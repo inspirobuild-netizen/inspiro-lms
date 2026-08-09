@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
+import crypto from 'crypto';
 import { authenticate } from '../../middleware/authenticate.js';
 import { requireRole } from '../../middleware/require-role.js';
+import { requireRoleOrPermission } from '../../middleware/require-permission.js';
+import { uploadToBunnyStorage } from '../../lib/bunny.js';
 import { createVideoSchema, bunnyWebhookSchema, createPresignedUploadSchema } from './media.schema.js';
 import {
   createBunnyVideo,
@@ -100,6 +103,61 @@ export default async function mediaRoutes(app: FastifyInstance) {
         .where(eq(lessons.bunnyVideoId, guid));
 
       return reply.send({ success: true, data: { deleted: true } });
+    },
+  );
+
+  // ── POST /admin/media/image ────────────────────────────────────────────────
+  // Small public images (course thumbnails). Server relays the file to Bunny
+  // Storage and returns the CDN URL. Mime + size are enforced HERE, not just
+  // in the client's file picker.
+  app.post(
+    '/admin/media/image',
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
+    async (req, reply) => {
+      // Fail up-front with a clear message when storage isn't configured,
+      // instead of a generic 500 after the upload is consumed.
+      if (!process.env['BUNNY_STORAGE_API_KEY'] || !process.env['BUNNY_PULL_ZONE_URL']) {
+        return reply.status(503).send({
+          success: false,
+          error: {
+            code: 'STORAGE_NOT_CONFIGURED',
+            message: 'Image storage is not configured yet — set BUNNY_STORAGE_API_KEY and BUNNY_PULL_ZONE_URL.',
+          },
+        });
+      }
+
+      const file = await req.file({ limits: { fileSize: 5 * 1024 * 1024 } });
+      if (!file) {
+        return reply.status(400).send({ success: false, error: { code: 'NO_FILE', message: 'Attach an image file' } });
+      }
+
+      const allowed: Record<string, string> = {
+        'image/jpeg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp',
+      };
+      const ext = allowed[file.mimetype];
+      if (!ext) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_IMAGE_TYPE', message: 'Only JPEG, PNG or WebP images are allowed' },
+        });
+      }
+
+      let buffer: Buffer;
+      try {
+        buffer = await file.toBuffer();
+      } catch {
+        // @fastify/multipart throws when the stream exceeds the per-request limit
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'IMAGE_TOO_LARGE', message: 'Image must be 5 MB or smaller' },
+        });
+      }
+
+      const path = `course-thumbnails/${crypto.randomUUID()}.${ext}`;
+      const url = await uploadToBunnyStorage(buffer, path, file.mimetype);
+      return reply.status(201).send({ success: true, data: { url } });
     },
   );
 

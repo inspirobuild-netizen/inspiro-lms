@@ -6,6 +6,7 @@ import '../../../core/widgets/app_ui.dart';
 import '../../courses/models/course.dart';
 import '../../courses/providers/courses_provider.dart';
 import '../../home/providers/home_stats_provider.dart';
+import '../../home/providers/my_batch_provider.dart';
 
 /// Course detail — video header, progress/streak cards and the lesson list.
 /// Pulls real modules/lessons from the API (falls back to sample in Demo Mode).
@@ -16,6 +17,7 @@ class CourseDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final detailAsync = ref.watch(courseDetailProvider(courseId));
+    final batchName = ref.watch(myCourseBatchesProvider).asData?.value[courseId];
 
     return Scaffold(
       backgroundColor: Brand.bg,
@@ -34,12 +36,12 @@ class CourseDetailScreen extends ConsumerWidget {
             child: ErrorRetry(message: 'Could not load this course', onRetry: () => ref.invalidate(courseDetailProvider(courseId))),
           ),
         ]),
-        data: (detail) => _content(context, detail),
+        data: (detail) => _content(context, detail, batchName),
       ),
     );
   }
 
-  Widget _content(BuildContext context, CourseDetail detail) {
+  Widget _content(BuildContext context, CourseDetail detail, String? batchName) {
     // Flatten modules → ordered lessons and compute per-lesson display state.
     final lessons = detail.modules.expand((m) => m.lessons).toList();
     final total = lessons.length;
@@ -72,10 +74,12 @@ class CourseDetailScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
+                Wrap(spacing: 8, runSpacing: 6, children: [
                   _chip('COURSE', Brand.blue),
-                  const SizedBox(width: 8),
                   _chip(detail.course.subject.toUpperCase(), Brand.teal),
+                  // Which of this course's batches the student belongs to —
+                  // course is the master, batch sits under it.
+                  if (batchName != null) _chip(batchName.toUpperCase(), Brand.amber),
                 ]),
                 const SizedBox(height: 12),
                 Text(detail.course.title,

@@ -18,10 +18,13 @@ export class ApiError extends Error {
 }
 
 async function doFetch(path: string, init: RequestInit, token?: string): Promise<Response> {
+  // FormData bodies must NOT get a manual Content-Type — the browser sets
+  // multipart/form-data with its boundary itself.
+  const isForm = typeof FormData !== 'undefined' && init.body instanceof FormData;
   return fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
-      ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(init.body !== undefined && !isForm ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
@@ -88,6 +91,7 @@ export function createApiClient(token: string | null) {
     get: <T>(path: string) => request<T>(path, opts({ method: 'GET' })),
     post: <T>(path: string, body?: unknown) =>
       request<T>(path, opts({ method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined })),
+    postForm: <T>(path: string, form: FormData) => request<T>(path, opts({ method: 'POST', body: form })),
     patch: <T>(path: string, body: unknown) =>
       request<T>(path, opts({ method: 'PATCH', body: JSON.stringify(body) })),
     put: <T>(path: string, body: unknown) =>

@@ -5,6 +5,7 @@ import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../../courses/models/course.dart';
 import '../../courses/providers/courses_provider.dart';
+import '../../courses/widgets/course_thumb.dart';
 import '../providers/enroll_provider.dart';
 
 String rupees(num n) {
@@ -106,6 +107,17 @@ class _CatalogCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (course.thumbnailUrl != null && course.thumbnailUrl!.isNotEmpty) ...[
+            CourseThumb(
+              url: course.thumbnailUrl,
+              fallbackIcon: Icons.menu_book_rounded,
+              fallbackColor: Brand.blue,
+              width: double.infinity,
+              height: 150,
+              borderRadius: const BorderRadius.all(Radius.circular(14)),
+            ),
+            const SizedBox(height: 14),
+          ],
           Row(
             children: [
               Container(

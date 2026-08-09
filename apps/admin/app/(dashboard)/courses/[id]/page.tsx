@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, Select, Field } from '@/components/ui/modal';
+import { ImageUpload } from '@/components/shared/image-upload';
 import { money } from '@/lib/utils';
 
 type CourseDetail = {
@@ -17,6 +18,7 @@ type CourseDetail = {
   title: string;
   subject: string;
   description: string | null;
+  thumbnailUrl: string | null;
   isPublished: boolean;
   feeAmount: number;
   modules: { id: string; title: string; order: number; lessonCount: number }[];
@@ -96,6 +98,8 @@ export default function CourseBuilderPage() {
           </div>
         </div>
       </div>
+
+      <ThumbnailSection courseId={id} thumbnailUrl={course.thumbnailUrl} onChanged={invalidate} />
 
       {has('fees.configure') && <FeesSection courseId={id} feeAmount={course.feeAmount} onCourseFeeChanged={invalidate} />}
 
@@ -302,6 +306,28 @@ function AddLessonForm({ moduleId, nextOrder, onAdded }: { moduleId: string; nex
 }
 
 // ── Fees & plans ─────────────────────────────────────────────────────────────────
+// ── Course thumbnail ────────────────────────────────────────────────────────────
+function ThumbnailSection({ courseId, thumbnailUrl, onChanged }: { courseId: string; thumbnailUrl: string | null; onChanged: () => void }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+
+  const save = useMutation({
+    mutationFn: (url: string | null) => api.patch(`/api/v1/admin/courses/${courseId}`, { thumbnailUrl: url }),
+    onSuccess: onChanged,
+  });
+
+  return (
+    <section className="rounded-2xl border border-white/8 bg-surface-1 p-5">
+      <h3 className="font-display font-semibold text-lg text-slate-200 mb-3">Course image</h3>
+      <ImageUpload
+        value={thumbnailUrl}
+        onChange={(url) => save.mutate(url)}
+        label="Upload thumbnail"
+      />
+    </section>
+  );
+}
+
 function FeesSection({ courseId, feeAmount, onCourseFeeChanged }: { courseId: string; feeAmount: number; onCourseFeeChanged: () => void }) {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);

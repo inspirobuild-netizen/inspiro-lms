@@ -23,6 +23,28 @@ final examsProvider = FutureProvider.autoDispose<List<Exam>>((ref) async {
   }, _demoExams);
 });
 
+/// My submitted attempt history — drives the "Attended" tab and the real
+/// stats banner. Unsubmitted (in-progress) attempts are filtered out.
+final myAttemptsProvider = FutureProvider.autoDispose<List<AttemptRow>>((ref) async {
+  return apiOrDemo(() async {
+    final res = await ApiClient.dio.get<Map<String, dynamic>>(
+      '/api/v1/exams/attempts',
+      queryParameters: {'limit': 50},
+    );
+    return (res.data!['data'] as List)
+        .cast<Map<String, dynamic>>()
+        .map(AttemptRow.fromJson)
+        .where((a) => a.isSubmitted)
+        .toList();
+  }, const <AttemptRow>[]);
+});
+
+/// Full review of my (latest submitted) attempt at an exam.
+final examReviewProvider = FutureProvider.autoDispose.family<ExamReview, String>((ref, examId) async {
+  final res = await ApiClient.dio.get<Map<String, dynamic>>('/api/v1/exams/$examId/result');
+  return ExamReview.fromJson(res.data!['data'] as Map<String, dynamic>);
+});
+
 /// Repository for the exam attempt lifecycle (start → submit).
 class ExamRepository {
   /// Starts (or resumes) an attempt and returns the attempt id + questions.

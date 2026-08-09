@@ -9,6 +9,8 @@ export const createCourseSchema = z.object({
 
 export const updateCourseSchema = createCourseSchema.partial().extend({
   isPublished: z.boolean().optional(),
+  // null = remove the thumbnail
+  thumbnailUrl: z.string().url().nullable().optional(),
 });
 
 export const createModuleSchema = z.object({

@@ -24,6 +24,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _useEmailLogin = false;
   bool _obscurePassword = true;
   bool _loading = false;
+  // Sign up vs Log in is pure framing — the backend's verify-otp creates the
+  // account on first use either way. Defaults to Sign up for fresh installs.
+  bool _isSignup = true;
   String? _error;
   int _resendCountdown = 0;
 
@@ -210,7 +213,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       _FeatureChip(icon: Icons.auto_awesome, label: 'AI Powered'),
                     ],
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 28),
+
+                  // Sign up / Log in toggle (hidden mid-OTP and on the
+                  // email/testing path — switching then would be confusing)
+                  if (!_useEmailLogin && !_otpSent) ...[
+                    _SegmentedToggle(
+                      isSignup: _isSignup,
+                      onChanged: _loading
+                          ? null
+                          : (v) => setState(() {
+                                _isSignup = v;
+                                _error = null;
+                              }),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
 
                   // Form card
                   _GlassCard(
@@ -229,9 +247,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               }),
                       child: Text(
                         _useEmailLogin
-                            ? 'Sign in with mobile number instead'
-                            : 'Sign in with email & password instead',
-                        style: const TextStyle(color: Brand.blue, fontSize: 13, fontWeight: FontWeight.w600),
+                            ? 'Use mobile number instead'
+                            // TODO: remove before public release — testing-only
+                            // path while OTP/DLT approval is pending.
+                            : 'Email & password (testing)',
+                        style: TextStyle(
+                            color: _useEmailLogin ? Brand.blue : Colors.white38,
+                            fontSize: _useEmailLogin ? 13 : 12,
+                            fontWeight: FontWeight.w600),
                       ),
                     ),
                   ),
@@ -286,11 +309,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text('Welcome 👋',
-            style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+        Text(_isSignup ? 'Create your account 🚀' : 'Welcome back 👋',
+            style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(height: 4),
-        const Text('Sign in with your mobile number',
-            style: TextStyle(color: Colors.white38, fontSize: 13)),
+        Text(
+            _isSignup
+                ? 'Join with your mobile number — free to browse courses'
+                : 'Log in with your registered mobile number',
+            style: const TextStyle(color: Colors.white38, fontSize: 13)),
         const SizedBox(height: 22),
         const Text('Mobile number',
             style: TextStyle(color: Colors.white60, fontSize: 13, fontWeight: FontWeight.w500)),
@@ -327,7 +353,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ),
         if (_error != null) _errorBox(),
         const SizedBox(height: 22),
-        _primaryButton(label: 'Send OTP', onTap: _sendOtp),
+        _primaryButton(label: _isSignup ? 'Sign up with OTP' : 'Send OTP', onTap: _sendOtp),
         const SizedBox(height: 12),
         const Center(
           child: Text('We will send a one-time code to verify your number',
@@ -569,6 +595,49 @@ class _AmbientBackground extends StatelessWidget {
           ),
         ),
       );
+}
+
+/// Sign up | Log in segmented control.
+class _SegmentedToggle extends StatelessWidget {
+  final bool isSignup;
+  final ValueChanged<bool>? onChanged;
+  const _SegmentedToggle({required this.isSignup, this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget seg(String label, bool value) {
+      final selected = isSignup == value;
+      return Expanded(
+        child: GestureDetector(
+          onTap: onChanged == null ? null : () => onChanged!(value),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(vertical: 11),
+            decoration: BoxDecoration(
+              color: selected ? Brand.blue : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            alignment: Alignment.center,
+            child: Text(label,
+                style: TextStyle(
+                    color: selected ? Colors.white : Colors.white54,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Brand.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Row(children: [seg('Sign up', true), seg('Log in', false)]),
+    );
+  }
 }
 
 class _GlassCard extends StatelessWidget {

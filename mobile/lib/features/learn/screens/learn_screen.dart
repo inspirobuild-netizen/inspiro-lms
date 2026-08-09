@@ -5,6 +5,8 @@ import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../../courses/models/course.dart';
 import '../../courses/providers/courses_provider.dart';
+import '../../courses/widgets/course_thumb.dart';
+import '../../home/providers/my_batch_provider.dart';
 
 class LearnScreen extends ConsumerWidget {
   const LearnScreen({super.key});
@@ -28,6 +30,8 @@ class LearnScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final coursesAsync = ref.watch(coursesProvider);
+    // courseId → my batch name (course is the master; batch belongs to it)
+    final courseBatches = ref.watch(myCourseBatchesProvider).asData?.value ?? const <String, String>{};
 
     return TabPage(
       title: 'Learn',
@@ -86,7 +90,7 @@ class LearnScreen extends ConsumerWidget {
                 const SectionHeader(title: 'All courses'),
                 ...courses.map((c) {
                   final st = _styleFor(c.subject);
-                  return _CourseTile(course: c, icon: st.icon, color: st.color);
+                  return _CourseTile(course: c, icon: st.icon, color: st.color, batchName: courseBatches[c.id]);
                 }),
               ],
             ),
@@ -118,16 +122,40 @@ class _ContinueCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              height: 84,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [color.withValues(alpha: 0.7), color.withValues(alpha: 0.25)]),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-              ),
-              alignment: Alignment.bottomLeft,
-              padding: const EdgeInsets.all(10),
-              child: Text('${(percent * 100).round()}% done',
-                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+            Stack(
+              children: [
+                if (course.thumbnailUrl != null && course.thumbnailUrl!.isNotEmpty)
+                  CourseThumb(
+                    url: course.thumbnailUrl,
+                    fallbackIcon: Icons.menu_book,
+                    fallbackColor: color,
+                    width: 220,
+                    height: 84,
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                  )
+                else
+                  Container(
+                    width: 220,
+                    height: 84,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [color.withValues(alpha: 0.7), color.withValues(alpha: 0.25)]),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                    ),
+                  ),
+                Positioned(
+                  left: 10,
+                  bottom: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text('${(percent * 100).round()}% done',
+                        style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
             ),
             Padding(
               padding: const EdgeInsets.all(12),
@@ -163,7 +191,8 @@ class _CourseTile extends StatelessWidget {
   final Course course;
   final IconData icon;
   final Color color;
-  const _CourseTile({required this.course, required this.icon, required this.color});
+  final String? batchName;
+  const _CourseTile({required this.course, required this.icon, required this.color, this.batchName});
 
   @override
   Widget build(BuildContext context) {
@@ -173,11 +202,7 @@ class _CourseTile extends StatelessWidget {
         onTap: () => context.push('/course', extra: course.id),
         child: Row(
           children: [
-            Container(
-              width: 46, height: 46,
-              decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(12)),
-              child: Icon(icon, color: color, size: 24),
-            ),
+            CourseThumb(url: course.thumbnailUrl, fallbackIcon: icon, fallbackColor: color, width: 56, height: 46),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -187,6 +212,20 @@ class _CourseTile extends StatelessWidget {
                       style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 3),
                   Text(course.subject, style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                  if (batchName != null) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Brand.amber.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(batchName!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Brand.amber, fontSize: 11, fontWeight: FontWeight.w600)),
+                    ),
+                  ],
                 ],
               ),
             ),

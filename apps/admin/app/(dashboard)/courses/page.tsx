@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, Select, Field, Textarea } from '@/components/ui/modal';
+import { ImageUpload } from '@/components/shared/image-upload';
 import { formatDate } from '@/lib/utils';
 
 type Course = {
@@ -48,9 +49,19 @@ export default function CoursesPage() {
       key: 'title',
       header: 'Course',
       render: (c) => (
-        <div>
-          <p className="font-medium text-slate-200">{c.title}</p>
-          <p className="text-xs text-slate-500 mt-0.5 capitalize">{c.subject}</p>
+        <div className="flex items-center gap-3 min-w-0">
+          {c.thumbnailUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={c.thumbnailUrl} alt="" className="w-14 h-9 rounded-lg object-cover border border-white/10 shrink-0" />
+          ) : (
+            <div className="w-14 h-9 rounded-lg bg-surface-2 border border-white/5 flex items-center justify-center shrink-0">
+              <span className="text-xs text-slate-600">—</span>
+            </div>
+          )}
+          <div className="min-w-0">
+            <p className="font-medium text-slate-200 truncate">{c.title}</p>
+            <p className="text-xs text-slate-500 mt-0.5 capitalize">{c.subject}</p>
+          </div>
         </div>
       ),
     },
@@ -123,6 +134,7 @@ function CreateCourseButton({ onCreated }: { onCreated: () => void }) {
   const [title, setTitle] = useState('');
   const [subject, setSubject] = useState(SUBJECTS[0]);
   const [description, setDescription] = useState('');
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const create = useMutation({
@@ -131,10 +143,11 @@ function CreateCourseButton({ onCreated }: { onCreated: () => void }) {
         title: title.trim(),
         subject,
         ...(description.trim() ? { description: description.trim() } : {}),
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
       }),
     onSuccess: () => {
       setOpen(false);
-      setTitle(''); setDescription(''); setError(null);
+      setTitle(''); setDescription(''); setThumbnailUrl(null); setError(null);
       onCreated();
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to create course'),
@@ -155,6 +168,9 @@ function CreateCourseButton({ onCreated }: { onCreated: () => void }) {
           </Field>
           <Field label="Description (shown to students & used by the AI doubt solver)">
             <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this course covers…" />
+          </Field>
+          <Field label="Thumbnail (shown on course cards in the app)">
+            <ImageUpload value={thumbnailUrl} onChange={setThumbnailUrl} />
           </Field>
           {error && <p className="text-sm text-rose-400">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">
