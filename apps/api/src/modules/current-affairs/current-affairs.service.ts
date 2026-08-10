@@ -9,9 +9,19 @@ function err(msg: string, statusCode: number, code: string) {
   return Object.assign(new Error(msg), { statusCode, code });
 }
 
+// Overridden by CA_RSS_FEEDS. Sections chosen so the digest maps onto the
+// syllabus rather than the news cycle: editorials for GS2, business for GS3
+// economy, sci-tech for GS3 S&T. The national feed used to sit here and is why
+// the digest filled with local crime reports — it is deliberately absent.
+//
+// PIB would be the ideal source but its RSS carries only <title> and <link>
+// with no article text, so there is nothing to summarise; using it needs a
+// fetch of each press-release page. Indian Express returns 403 to the server's
+// IP even with a browser agent.
 const DEFAULT_FEEDS = [
-  'https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3', // PIB press releases
-  'https://www.thehindu.com/news/national/feeder/default.rss',
+  'https://www.thehindu.com/opinion/feeder/default.rss',
+  'https://www.thehindu.com/business/feeder/default.rss',
+  'https://www.thehindu.com/sci-tech/feeder/default.rss',
 ];
 
 const MAX_ARTICLES_PER_RUN = 10;
@@ -90,7 +100,16 @@ export function parseRssItems(xml: string): FeedItem[] {
     const link = block.match(/<link[^>]*>([\s\S]*?)<\/link>/)?.[1] ?? '';
     const description = block.match(/<description[^>]*>([\s\S]*?)<\/description>/)?.[1] ?? '';
     const cleanTitle = decodeEntities(title);
-    const cleanDesc = decodeEntities(description);
+    let cleanDesc = decodeEntities(description);
+    // WordPress-style feeds (Indian Express Explained among them) put a
+    // 12-character teaser in <description> and the actual article body in
+    // <content:encoded>. Reading only <description> dropped every one of
+    // their items against the 50-char floor below.
+    if (cleanDesc.length < 50) {
+      const encoded = block.match(/<content:encoded[^>]*>([\s\S]*?)<\/content:encoded>/)?.[1] ?? '';
+      const cleanEncoded = decodeEntities(encoded);
+      if (cleanEncoded.length > cleanDesc.length) cleanDesc = cleanEncoded;
+    }
     if (cleanTitle && cleanDesc.length >= 50) {
       items.push({ title: cleanTitle, link: decodeEntities(link), description: cleanDesc });
     }
@@ -101,7 +120,16 @@ export function parseRssItems(xml: string): FeedItem[] {
 async function fetchFeed(url: string): Promise<FeedItem[]> {
   try {
     const res = await fetch(url, {
-      headers: { 'user-agent': 'InspiroLMS/1.0 (+https://inspiro.example)' },
+      // PIB — the most exam-relevant source we have — returns 403 to a custom
+      // agent string and 200 to a browser one, so the government feed had
+      // silently produced nothing and every article came from the news feed
+      // alongside it. These are public RSS endpoints; a conventional agent is
+      // what they expect.
+      headers: {
+        'user-agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+      },
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) {

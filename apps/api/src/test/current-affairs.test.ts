@@ -101,3 +101,36 @@ describe('category resolution', () => {
     expect(resolveCategory(undefined, 'zzz')).toBe('General');
   });
 });
+
+describe('RSS content:encoded fallback', () => {
+  // WordPress feeds (Indian Express Explained) put a short teaser in
+  // <description> and the body in <content:encoded>. Reading only the former
+  // dropped every item against the 50-char floor.
+  it('falls back to content:encoded when description is a stub', () => {
+    const xml = `<rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>
+      <item>
+        <title>Explained: the new telecom rules</title>
+        <link>https://example.com/a</link>
+        <description><![CDATA[<p>Read more</p>]]></description>
+        <content:encoded><![CDATA[<p>The government notified new telecommunications rules covering spectrum allocation, lawful interception and consumer consent for commercial messages.</p>]]></content:encoded>
+      </item>
+    </channel></rss>`;
+    const items = parseRssItems(xml);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.description).toContain('spectrum allocation');
+  });
+
+  it('still prefers a description that is already substantial', () => {
+    const xml = `<rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>
+      <item>
+        <title>Cabinet clears mission</title>
+        <link>https://example.com/b</link>
+        <description><![CDATA[The Union Cabinet approved the mission with an outlay of Rs 6003 crore over eight years.]]></description>
+        <content:encoded><![CDATA[shorter]]></content:encoded>
+      </item>
+    </channel></rss>`;
+    const items = parseRssItems(xml);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.description).toContain('Union Cabinet');
+  });
+});
