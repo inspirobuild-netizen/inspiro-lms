@@ -16,6 +16,52 @@ const DEFAULT_FEEDS = [
 
 const MAX_ARTICLES_PER_RUN = 10;
 
+/// The AI service returns `exam_relevance` as free text, so this is a
+/// heuristic over prose rather than a real score — but the previous check,
+/// `/GS[1-4]|prelims|mains/i.test(...)`, matched the paper names an LLM
+/// mentions *either way*. "Not relevant for Prelims" scored 0.8, so 49 of 50
+/// ingested articles came out at 0.8 and every one earned the app's "EXAM
+/// RELEVANT" star — local burglary reports included. Dismissive phrasing is
+/// now checked first. It deliberately errs toward under-starring: telling a
+/// student that a crime report matters for their exam is worse than staying
+/// quiet about a borderline one.
+export function scoreExamRelevance(text: string | null | undefined): number {
+  const t = (text ?? '').toLowerCase();
+  if (!t.trim()) return 0.4;
+  const dismissive =
+    /\b(not|no|little|limited|minimal|low|unlikely|marginal|tangential|peripheral)\b[^.]{0,40}\b(relevan|direct|importan|significan|useful|bearing|ask|feature|appear|examinab)/;
+  if (dismissive.test(t)) return 0.3;
+  const positive = /\b(gs\s*-?\s*[1-4]|general studies paper|prelims|mains|syllabus)\b/;
+  return positive.test(t) ? 0.8 : 0.4;
+}
+
+/// Categories used to come from `ai.tags[0]` verbatim, which is why proper
+/// nouns lifted straight out of headlines — "Girivalam path", "Mayawati",
+/// "BJD", "Kunbi caste" — were rendering as category chips. Free text gives
+/// a one-of-a-kind category per article, so the chip can never be filtered
+/// on. Map onto a fixed syllabus vocabulary instead.
+const CATEGORY_RULES: Array<[RegExp, string]> = [
+  [/polit|constitut|parliament|judicial|judiciar|court|governance|article\s*\d|amendment|election/, 'Polity & Governance'],
+  [/econom|gdp|inflation|budget|tax|trade|bank|rbi|fiscal|invest|industr|export/, 'Economy'],
+  [/environment|climate|wildlife|forest|pollution|biodivers|ecolog|conservation|emission/, 'Environment & Ecology'],
+  [/scien|technolog|space|isro|research|digital|semiconductor|health|vaccine|disease|medic/, 'Science & Technology'],
+  [/internationa|foreign|diplomat|bilateral|treaty|summit|united nations|border|geopolit/, 'International Relations'],
+  [/histor|heritage|culture|temple|archaeolog|monument|festival|art\b|literature/, 'Art, Culture & History'],
+  [/geograph|monsoon|flood|cyclone|earthquake|river|dam|mineral|rainfall|drought/, 'Geography'],
+  [/scheme|welfare|social|education|women|tribal|caste|poverty|census|employment|rural|neet|counselling|university|college|school/, 'Social Issues & Schemes'],
+  [/defence|defense|militar|army|navy|air force|security|terror|police|crime|smuggl|traffick|law and order|arrest|burglar|theft|steal|robber|murder|assault|seiz/, 'Security & Defence'],
+];
+
+export function resolveCategory(tags: string[] | undefined, title: string): string {
+  // Title included because tags are often a single proper noun that matches
+  // nothing, while the headline carries the actual subject.
+  const haystack = [...(tags ?? []), title].join(' ').toLowerCase();
+  for (const [pattern, label] of CATEGORY_RULES) {
+    if (pattern.test(haystack)) return label;
+  }
+  return 'General';
+}
+
 interface FeedItem {
   title: string;
   link: string;
@@ -118,10 +164,9 @@ export async function ingestCurrentAffairs(): Promise<{ ingested: number; skippe
       const [inserted] = await db.insert(currentAffairs).values({
         title,
         summary: ai.summary,
-        category: ai.tags[0]?.slice(0, 50) ?? 'general',
+        category: resolveCategory(ai.tags, title),
         sourceUrl: item.link || null,
-        // Rough relevance signal from whether the AI mapped it to a GS paper
-        upscRelevance: /GS[1-4]|prelims|mains/i.test(ai.exam_relevance) ? 0.8 : 0.4,
+        upscRelevance: scoreExamRelevance(ai.exam_relevance),
         quizQuestion: mcq?.question ?? null,
         quizOptions: mcq?.options ?? null,
         quizCorrectIndex: mcq?.correct_index ?? null,

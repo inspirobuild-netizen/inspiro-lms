@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/coach_plan.dart';
 import '../providers/coach_provider.dart';
+import '../providers/plan_ticks_provider.dart';
 import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
 
@@ -43,7 +44,10 @@ class CoachScreen extends ConsumerWidget {
                         fontSize: 16,
                         fontWeight: FontWeight.bold)),
               ),
-              ...plan.weeklyPlan.map((day) => _DayCard(day: day)),
+              ...plan.weeklyPlan.map((day) => _DayCard(
+                    day: day,
+                    scopeKey: plan.generatedAt.toIso8601String(),
+                  )),
             ],
           ),
         ),
@@ -220,12 +224,14 @@ class _TagPanel extends StatelessWidget {
   }
 }
 
-class _DayCard extends StatelessWidget {
+class _DayCard extends ConsumerWidget {
   final PlanDay day;
-  const _DayCard({required this.day});
+  final String scopeKey;
+  const _DayCard({required this.day, required this.scopeKey});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ticks = ref.watch(planTicksProvider(scopeKey));
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -263,27 +269,45 @@ class _DayCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          ...day.tasks.map((task) => Padding(
-                padding: const EdgeInsets.only(bottom: 6),
+          // These were plain icons with no tap handler — they looked exactly
+          // like checkboxes a student could tick off, and did nothing. Now
+          // they toggle and persist.
+          ...day.tasks.indexed.map((entry) {
+            final (i, task) = entry;
+            final key = planTaskKey(day.day, i);
+            final done = ticks.contains(key);
+            return InkWell(
+              onTap: () => ref.read(planTicksProvider(scopeKey).notifier).toggle(key),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Padding(
-                      padding: EdgeInsets.only(top: 3),
-                      child: Icon(Icons.check_box_outline_blank,
-                          color: Color(0xFF4FDBC8), size: 14),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Icon(
+                        done ? Icons.check_box_rounded : Icons.check_box_outline_blank,
+                        color: const Color(0xFF4FDBC8),
+                        size: 16,
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(task,
-                          style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 13,
-                              height: 1.4)),
+                          style: TextStyle(
+                            color: done ? Colors.white38 : Colors.white70,
+                            fontSize: 13,
+                            height: 1.4,
+                            decoration: done ? TextDecoration.lineThrough : null,
+                            decorationColor: Colors.white38,
+                          )),
                     ),
                   ],
                 ),
-              )),
+              ),
+            );
+          }),
         ],
       ),
     );
