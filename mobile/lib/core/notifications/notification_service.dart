@@ -65,9 +65,17 @@ class NotificationService {
   }
 
   static Future<void> _registerToken() async {
-    final token = await _messaging.getToken();
-    if (token != null) {
-      await _sendTokenToApi(token);
+    // getToken() sits inside the guard, not outside it: on a device without
+    // working Play Services, or during an FCM outage, it throws
+    // SERVICE_NOT_AVAILABLE and surfaced as an unhandled exception on every
+    // launch. Push is a nice-to-have — it must never be loud on startup.
+    try {
+      final token = await _messaging.getToken();
+      if (token != null) {
+        await _sendTokenToApi(token);
+      }
+    } catch (_) {
+      // Non-fatal — onTokenRefresh or the next launch will retry.
     }
   }
 
@@ -112,7 +120,14 @@ class NotificationService {
   }
 
   static Future<void> unregisterToken() async {
-    final token = await _messaging.getToken();
+    // Same guard as _registerToken: this runs on sign-out, and a throwing
+    // getToken() must not turn logging out into an error.
+    String? token;
+    try {
+      token = await _messaging.getToken();
+    } catch (_) {
+      return;
+    }
     if (token == null) return;
     try {
       await ApiClient.dio.delete<void>(
