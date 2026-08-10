@@ -26,11 +26,21 @@ final unreadCountProvider = FutureProvider.autoDispose<int>((ref) async {
 class NotificationsApi {
   NotificationsApi._();
 
+  // Both send an empty JSON OBJECT, not an empty body: Dio sets
+  // Content-Type: application/json on every request, and Fastify rejects that
+  // header with no body (FST_ERR_CTP_EMPTY_JSON_BODY). Same trap as the token
+  // refresh call in core/api/api_client.dart.
   static Future<void> markRead(String id) async {
-    await ApiClient.dio.patch<Map<String, dynamic>>('/api/v1/notifications/$id/read');
+    await ApiClient.dio.patch<Map<String, dynamic>>(
+      '/api/v1/notifications/$id/read',
+      data: const <String, dynamic>{},
+    );
   }
 
   static Future<void> markAllRead() async {
-    await ApiClient.dio.patch<Map<String, dynamic>>('/api/v1/notifications/read-all');
+    await ApiClient.dio.patch<Map<String, dynamic>>(
+      '/api/v1/notifications/read-all',
+      data: const <String, dynamic>{},
+    );
   }
 }

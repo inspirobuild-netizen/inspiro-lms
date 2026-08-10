@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../../courses/providers/courses_provider.dart';
+import '../../courses/widgets/course_thumb.dart';
 import '../../enroll/providers/enroll_provider.dart';
 import '../../enroll/screens/catalog_screen.dart' show rupees;
 import '../../home/providers/my_batch_provider.dart';
@@ -115,13 +116,14 @@ class SubscriptionScreen extends ConsumerWidget {
                             children: [
                               Row(
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: Brand.teal.withValues(alpha: 0.14),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: const Icon(Icons.verified_rounded, color: Brand.teal, size: 22),
+                                  // Same thumbnail the home/learn cards use, so
+                                  // a course looks like itself everywhere.
+                                  CourseThumb(
+                                    url: c.thumbnailUrl,
+                                    fallbackIcon: Icons.verified_rounded,
+                                    fallbackColor: Brand.teal,
+                                    width: 52,
+                                    height: 52,
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(

@@ -49,7 +49,13 @@ final examReviewProvider = FutureProvider.autoDispose.family<ExamReview, String>
 class ExamRepository {
   /// Starts (or resumes) an attempt and returns the attempt id + questions.
   static Future<StartedAttempt> start(String examId) async {
-    final res = await ApiClient.dio.post<Map<String, dynamic>>('/api/v1/exams/$examId/start');
+    // Empty JSON object, not an empty body — Dio always sets
+    // Content-Type: application/json and Fastify rejects that with no body
+    // (FST_ERR_CTP_EMPTY_JSON_BODY), which made every attempt fail to start.
+    final res = await ApiClient.dio.post<Map<String, dynamic>>(
+      '/api/v1/exams/$examId/start',
+      data: const <String, dynamic>{},
+    );
     final data = res.data!['data'] as Map<String, dynamic>;
     final attempt = data['attempt'] as Map<String, dynamic>;
     final questions = (data['questions'] as List)
