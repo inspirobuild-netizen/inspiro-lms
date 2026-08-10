@@ -457,33 +457,59 @@ services:
 
 ---
 
-## Deployment — production (Hostinger KVM 2)
+## Deployment — production (Hostinger KVM, Ubuntu 24.04)
 
 ```
-Server: srv-inspiro.hstgr.cloud (new VPS)
-OS: Ubuntu 22.04 LTS
-Stack: Docker Compose + Nginx + Certbot (via Cloudflare)
-
-/opt/inspiro/
-  docker-compose.prod.yml
-  .env.production
-  nginx/
-    inspiro.conf
+Server:   root@200.97.162.147   (hostname srv1811142)
+Path:     /opt/inspiro
+Services: inspiro-api · inspiro-ai · inspiro-redis · inspiro-nginx
 
 Domains:
-  api.inspiro.in    → Node.js API (port 3000)
-  admin.inspiro.in  → Vercel (external)
-  inspiro.in        → marketing site (optional)
+  api.inspiroiasacademy.in    → API container (port 3000)
+  admin.inspiroiasacademy.in  → Vercel (deploys on push to main)
 ```
 
+**The API server IP is 200.97.162.147.** An older box, `72.60.111.107`, still
+accepts connections but no longer serves anything and rejects the deploy key —
+deploying there silently does nothing. Confirm with
+`nslookup api.inspiroiasacademy.in` before assuming a host.
+
 ### Deployment workflow
+
+Backend and AI deploys **copy changed files** — the server's git checkout is
+intentionally behind main and carries local edits, so `git pull` there would
+conflict. Images are built on the server; there is no registry to pull from.
+
 ```bash
-# On server
-git pull origin main
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d --no-deps api
-docker compose -f docker-compose.prod.yml exec api npx drizzle-kit migrate
+# 1. Copy only the files you changed
+scp apps/api/src/<path>.ts root@200.97.162.147:/opt/inspiro/apps/api/src/<path>.ts
+
+# 2. Rebuild + restart that service (api | ai)
+ssh root@200.97.162.147 'cd /opt/inspiro && \
+  docker compose -f docker-compose.prod.yml build api && \
+  docker compose -f docker-compose.prod.yml up -d api'
 ```
+
+The Docker build runs `tsc`, so a type error fails the build rather than
+shipping. Verify against the live API afterwards — the build succeeding only
+means it compiled.
+
+Admin deploys by pushing to `main` (Vercel). Mobile is built locally with
+`flutter build apk --target-platform android-arm64,android-x64` (both ABIs, so
+one APK installs on a real device and the x86_64 emulator).
+
+Migrations run from a dev machine against Neon: `pnpm db:migrate:http`.
+Direct TCP to Neon (port 5432) is blocked on some networks; the HTTP driver
+works regardless.
+
+### Deployment gotchas found the hard way
+
+- Secrets live in `/opt/inspiro/.env.production` on the server and are **not**
+  in git. Back it up before editing (`cp .env.production .env.production.bak.$(date +%F-%H%M%S)`).
+- `POST /admin/current-affairs/refresh` takes ~60s and 504s at nginx while
+  completing fine server-side — check the DB, not the HTTP response.
+- Bodyless `POST`/`PATCH` from Dio must send `data: {}`; Fastify rejects
+  `Content-Type: application/json` with an empty body (`FST_ERR_CTP_EMPTY_JSON_BODY`).
 
 ---
 
