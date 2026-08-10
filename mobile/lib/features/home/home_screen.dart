@@ -6,7 +6,10 @@ import '../../core/theme/brand.dart';
 import '../../core/widgets/app_ui.dart';
 import '../courses/models/course.dart';
 import '../courses/providers/courses_provider.dart';
+import '../courses/widgets/course_thumb.dart';
+import '../live/providers/live_provider.dart';
 import 'providers/home_stats_provider.dart';
+import 'providers/my_batch_provider.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -36,8 +39,10 @@ class HomeScreen extends ConsumerWidget {
               const SizedBox(height: 20),
               const _StreakCard(),
               const SizedBox(height: 16),
+              // Self-hiding: renders nothing unless a class is actually live,
+              // so it carries its own bottom spacing.
               const _LiveNowCard(),
-              const SizedBox(height: 24),
+              const SizedBox(height: 8),
               SectionHeader(title: 'Continue learning', actionLabel: 'View all', onAction: () => context.go('/learn')),
               const _ContinueLearning(),
               const SizedBox(height: 24),
@@ -167,73 +172,85 @@ class _StreakCard extends ConsumerWidget {
   }
 }
 
-class _LiveNowCard extends StatelessWidget {
+/// Shows ONLY when a class is genuinely live (the backend sets `agoraChannel`
+/// when a class goes on air). No live class → the card isn't rendered at all,
+/// rather than advertising a session that doesn't exist.
+class _LiveNowCard extends ConsumerWidget {
   const _LiveNowCard();
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Brand.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: const Border(left: BorderSide(color: Brand.teal, width: 3)),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 20, offset: const Offset(0, 8))],
-      ),
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(width: 7, height: 7, decoration: const BoxDecoration(color: Brand.teal, shape: BoxShape.circle)),
-              const SizedBox(width: 6),
-              const Text('LIVE NOW',
-                  style: TextStyle(color: Brand.teal, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 48, height: 48,
-                decoration: BoxDecoration(
-                  color: Brand.teal.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.account_balance, color: Brand.teal, size: 24),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Indian Polity: Fundamental Rights',
-                        style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
-                    Text('with Dr. Shreyas Verma · 420 watching',
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => context.go('/live'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Brand.teal,
-                foregroundColor: const Color(0xFF00201C),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-              ),
-              child: const Text('Join'),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final live = ref.watch(liveClassesProvider).asData?.value
+        .where((c) => c.isLive)
+        .firstOrNull;
+    if (live == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Brand.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: const Border(left: BorderSide(color: Brand.teal, width: 3)),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 20, offset: const Offset(0, 8))],
+        ),
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(width: 7, height: 7, decoration: const BoxDecoration(color: Brand.teal, shape: BoxShape.circle)),
+                const SizedBox(width: 6),
+                const Text('LIVE NOW',
+                    style: TextStyle(color: Brand.teal, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1)),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 48, height: 48,
+                  decoration: BoxDecoration(
+                    color: Brand.teal.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.podcasts_rounded, color: Brand.teal, size: 24),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(live.title,
+                          maxLines: 2, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Text(live.subject,
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => context.go('/live'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Brand.teal,
+                  foregroundColor: const Color(0xFF00201C),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+                child: const Text('Join'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -243,31 +260,74 @@ class _ContinueLearning extends ConsumerWidget {
   const _ContinueLearning();
 
   static const _colors = [Brand.blue, Brand.red, Brand.teal];
-  static const _percents = [0.65, 0.12, 0.45];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final coursesAsync = ref.watch(coursesProvider);
-    return SizedBox(
-      height: 172,
-      child: coursesAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator(color: Brand.blue)),
-        error: (_, __) => const SizedBox.shrink(),
-        data: (courses) {
-          final featured = courses.take(3).toList();
-          if (featured.isEmpty) return const SizedBox.shrink();
-          return ListView(
+    final batches = ref.watch(myCourseBatchesProvider).asData?.value ?? const {};
+
+    return coursesAsync.when(
+      loading: () => const SizedBox(
+        height: 168,
+        child: Center(child: CircularProgressIndicator(color: Brand.blue)),
+      ),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (courses) {
+        final featured = courses.take(5).toList();
+        if (featured.isEmpty) {
+          // Not enrolled yet — point at the catalog instead of an empty rail.
+          return _BrowseCoursesPrompt(onTap: () => context.push('/catalog'));
+        }
+        return SizedBox(
+          height: 168,
+          child: ListView.builder(
             scrollDirection: Axis.horizontal,
-            children: [
-              for (var i = 0; i < featured.length; i++)
-                _CourseCard(
-                  course: featured[i],
-                  percent: _percents[i % _percents.length],
-                  color: _colors[i % _colors.length],
-                ),
-            ],
-          );
-        },
+            itemCount: featured.length,
+            itemBuilder: (_, i) => _CourseCard(
+              course: featured[i],
+              batchName: batches[featured[i].id],
+              color: _colors[i % _colors.length],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _BrowseCoursesPrompt extends StatelessWidget {
+  final VoidCallback onTap;
+  const _BrowseCoursesPrompt({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Brand.blue.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.storefront_rounded, color: Brand.blue, size: 24),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Find your course',
+                    style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                SizedBox(height: 3),
+                Text('Browse our courses and enrol to start learning',
+                    style: TextStyle(color: Colors.white38, fontSize: 12.5, height: 1.4)),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded, color: Colors.white24),
+        ],
       ),
     );
   }
@@ -275,70 +335,70 @@ class _ContinueLearning extends ConsumerWidget {
 
 class _CourseCard extends StatelessWidget {
   final Course course;
-  final double percent;
+  final String? batchName;
   final Color color;
-  const _CourseCard({required this.course, required this.percent, required this.color});
+  const _CourseCard({required this.course, required this.batchName, required this.color});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () => context.push('/course', extra: course.id),
       child: Container(
-      width: 230,
-      margin: const EdgeInsets.only(right: 12),
-      decoration: BoxDecoration(
-        color: Brand.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Stack(
-            children: [
-              Container(
-                height: 82,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [color.withValues(alpha: 0.75), color.withValues(alpha: 0.2)]),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                ),
-              ),
-              Positioned(
-                left: 10, bottom: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.35), borderRadius: BorderRadius.circular(6)),
-                  child: Text('${(percent * 100).round()}% done',
-                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ],
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(course.title,
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 2),
-                Text(course.subject, style: const TextStyle(color: Colors.white38, fontSize: 11)),
-                const SizedBox(height: 10),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: percent,
-                    minHeight: 5,
-                    backgroundColor: Colors.white.withValues(alpha: 0.08),
-                    valueColor: const AlwaysStoppedAnimation(Brand.teal),
-                  ),
-                ),
-              ],
+        width: 230,
+        margin: const EdgeInsets.only(right: 12),
+        decoration: BoxDecoration(
+          color: Brand.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Real course image when the admin has set one; the subject-tinted
+            // block is the fallback. (Was a gradient placeholder that ignored
+            // thumbnailUrl entirely.)
+            CourseThumb(
+              url: course.thumbnailUrl,
+              fallbackIcon: Icons.menu_book_rounded,
+              fallbackColor: color,
+              width: double.infinity,
+              height: 84,
+              borderRadius: BorderRadius.zero,
             ),
-          ),
-        ],
-      ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(course.title,
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 2),
+                    Text(course.subject,
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                    const Spacer(),
+                    // The student's batch in this course — course is the master,
+                    // so this is the "which batch am I in" answer.
+                    if (batchName != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Brand.amber.withValues(alpha: 0.13),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(batchName!,
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Brand.amber, fontSize: 10.5, fontWeight: FontWeight.w600)),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
