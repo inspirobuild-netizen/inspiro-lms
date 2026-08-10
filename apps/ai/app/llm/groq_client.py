@@ -3,9 +3,10 @@ import logging
 from typing import Any
 
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from ..config import get_settings
+from .retry import is_retryable
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +30,23 @@ class GroqClient:
     async def close(self) -> None:
         await self._client.aclose()
 
+    # Backoff reaches ~30s because Groq's limits are per-minute: the old 1-8s
+    # ceiling retried three times inside a single rate-limit window and gave up
+    # while still throttled.
     @retry(
-        retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
+        retry=retry_if_exception(is_retryable),
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=2, min=2, max=30),
         reraise=True,
     )
+    async def _post(self, payload: dict[str, Any]) -> httpx.Response:
+        resp = await self._client.post("/chat/completions", json=payload)
+        # 429/5xx are retryable; raise so tenacity sees them. 4xx is returned
+        # as-is for the caller to report with its body.
+        if resp.status_code == 429 or resp.status_code >= 500:
+            resp.raise_for_status()
+        return resp
+
     async def chat(
         self,
         system: str,
@@ -56,12 +68,30 @@ class GroqClient:
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
 
-        resp = await self._client.post("/chat/completions", json=payload)
-        # 429/5xx are retryable; 4xx config errors are not
-        if resp.status_code == 429 or resp.status_code >= 500:
-            resp.raise_for_status()
+        # Every failure leaves as LlmError. Previously an exhausted retry
+        # reraised httpx.HTTPStatusError, which the routers' `except LlmError`
+        # did not catch — a rate-limited article escaped as an unhandled 500
+        # with a traceback instead of a clean 502.
+        try:
+            resp = await self._post(payload)
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            logger.error(
+                "Groq request failed after retries: status=%s body=%s",
+                status,
+                exc.response.text[:500],
+            )
+            raise LlmError(f"LLM request failed with status {status}") from exc
+        except httpx.TransportError as exc:
+            logger.error("Groq transport error after retries: %s", exc)
+            raise LlmError("LLM transport error") from exc
+
         if resp.is_error:
-            logger.error("Groq request failed: status=%s", resp.status_code)
+            # Body included: without it a 400 is undiagnosable, which is exactly
+            # how a broken model name or bad payload could hide for weeks.
+            logger.error(
+                "Groq request failed: status=%s body=%s", resp.status_code, resp.text[:500]
+            )
             raise LlmError(f"LLM request failed with status {resp.status_code}")
 
         data = resp.json()

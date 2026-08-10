@@ -1,9 +1,10 @@
 import logging
 
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from ..config import get_settings
+from .retry import is_retryable
 
 logger = logging.getLogger(__name__)
 
@@ -29,20 +30,45 @@ class EmbeddingsClient:
         await self._client.aclose()
 
     @retry(
-        retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
+        retry=retry_if_exception(is_retryable),
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=2, min=2, max=30),
         reraise=True,
     )
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def _post(self, texts: list[str]) -> httpx.Response:
         resp = await self._client.post(
             "/embeddings",
             json={"model": self._model, "input": texts, "dimensions": self._dim},
         )
         if resp.status_code == 429 or resp.status_code >= 500:
             resp.raise_for_status()
+        return resp
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        # Same leak as the Groq client: an exhausted retry used to reraise
+        # httpx.HTTPStatusError, which callers catching EmbeddingsError never
+        # saw. Everything now leaves as EmbeddingsError.
+        try:
+            resp = await self._post(texts)
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "Embeddings failed after retries: status=%s body=%s",
+                exc.response.status_code,
+                exc.response.text[:500],
+            )
+            raise EmbeddingsError(
+                f"Embeddings request failed with status {exc.response.status_code}"
+            ) from exc
+        except httpx.TransportError as exc:
+            logger.error("Embeddings transport error after retries: %s", exc)
+            raise EmbeddingsError("Embeddings transport error") from exc
+
         if resp.is_error:
-            logger.error("Embeddings request failed: status=%s", resp.status_code)
+            logger.error(
+                "Embeddings request failed: status=%s body=%s",
+                resp.status_code,
+                resp.text[:500],
+            )
             raise EmbeddingsError(f"Embeddings request failed with status {resp.status_code}")
 
         data = resp.json()

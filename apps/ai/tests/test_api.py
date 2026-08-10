@@ -1,3 +1,5 @@
+import pytest
+
 GOOD_QUESTION = {
     "question": "Which article of the Indian Constitution deals with the Right to Equality?",
     "options": ["Article 14", "Article 19", "Article 21", "Article 32"],
@@ -287,3 +289,65 @@ def test_current_affairs_summarize(client, auth_headers, mock_groq):
     assert "semiconductor" in body["summary"]
     assert len(body["mcqs"]) == 1
     assert body["tags"] == ["economy", "semiconductors", "kerala"]
+
+
+# ── Rate-limit handling ────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_exhausted_retries_surface_as_llm_error(monkeypatch):
+    """A 429 that outlives the retries must leave as LlmError, not HTTPStatusError.
+
+    tenacity reraises the original exception type. Because the routers only
+    catch LlmError, a rate-limited Groq call used to escape as an unhandled 500
+    with a traceback instead of a clean 502 — and it silently dropped the
+    article being ingested.
+    """
+    import httpx
+    from tenacity import wait_none
+
+    from app.llm.groq_client import GroqClient, LlmError
+
+    # Don't actually sleep through the production backoff.
+    monkeypatch.setattr(GroqClient._post.retry, "wait", wait_none())
+
+    client = GroqClient.__new__(GroqClient)
+    client._model = "test-model"
+
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    attempts = 0
+
+    class _Client:
+        async def post(self, *_a, **_kw):
+            nonlocal attempts
+            attempts += 1
+            return httpx.Response(429, json={"error": {"message": "rate limit"}}, request=request)
+
+    client._client = _Client()
+
+    with pytest.raises(LlmError):
+        await client.chat("system", "user")
+    assert attempts == 4, "429 should be retried before giving up"
+
+
+@pytest.mark.asyncio
+async def test_non_retryable_4xx_reports_body(monkeypatch, caplog):
+    """A 400 must be reported with Groq's message, not just the status code."""
+    import httpx
+
+    from app.llm.groq_client import GroqClient, LlmError
+
+    client = GroqClient.__new__(GroqClient)
+    client._model = "test-model"
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+
+    class _Client:
+        async def post(self, *_a, **_kw):
+            return httpx.Response(
+                400, json={"error": {"message": "model_decommissioned"}}, request=request
+            )
+
+    client._client = _Client()
+
+    with caplog.at_level("ERROR"), pytest.raises(LlmError):
+        await client.chat("system", "user")
+    assert "model_decommissioned" in caplog.text
