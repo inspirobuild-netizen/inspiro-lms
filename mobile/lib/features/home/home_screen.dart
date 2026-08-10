@@ -265,6 +265,7 @@ class _ContinueLearning extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final coursesAsync = ref.watch(coursesProvider);
     final batches = ref.watch(myCourseBatchesProvider).asData?.value ?? const {};
+    final progress = ref.watch(courseProgressProvider).asData?.value ?? const {};
 
     return coursesAsync.when(
       loading: () => const SizedBox(
@@ -286,6 +287,7 @@ class _ContinueLearning extends ConsumerWidget {
             itemBuilder: (_, i) => _CourseCard(
               course: featured[i],
               batchName: batches[featured[i].id],
+              progress: progress[featured[i].id],
               color: _colors[i % _colors.length],
             ),
           ),
@@ -336,8 +338,14 @@ class _BrowseCoursesPrompt extends StatelessWidget {
 class _CourseCard extends StatelessWidget {
   final Course course;
   final String? batchName;
+  final CourseProgress? progress;
   final Color color;
-  const _CourseCard({required this.course, required this.batchName, required this.color});
+  const _CourseCard({
+    required this.course,
+    required this.batchName,
+    required this.progress,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -358,13 +366,32 @@ class _CourseCard extends StatelessWidget {
             // Real course image when the admin has set one; the subject-tinted
             // block is the fallback. (Was a gradient placeholder that ignored
             // thumbnailUrl entirely.)
-            CourseThumb(
-              url: course.thumbnailUrl,
-              fallbackIcon: Icons.menu_book_rounded,
-              fallbackColor: color,
-              width: double.infinity,
-              height: 84,
-              borderRadius: BorderRadius.zero,
+            Stack(
+              children: [
+                CourseThumb(
+                  url: course.thumbnailUrl,
+                  fallbackIcon: Icons.menu_book_rounded,
+                  fallbackColor: color,
+                  width: double.infinity,
+                  height: 84,
+                  borderRadius: BorderRadius.zero,
+                ),
+                // Only when the course actually has lessons — a "0% done"
+                // badge on an empty course is noise, not information.
+                if (progress != null && progress!.hasLessons)
+                  Positioned(
+                    left: 8, bottom: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text('${progress!.percent}% done',
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+              ],
             ),
             Expanded(
               child: Padding(
@@ -380,6 +407,18 @@ class _CourseCard extends StatelessWidget {
                         maxLines: 1, overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: Colors.white38, fontSize: 11)),
                     const Spacer(),
+                    if (progress != null && progress!.hasLessons) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: progress!.percent / 100,
+                          minHeight: 4,
+                          backgroundColor: Colors.white.withValues(alpha: 0.08),
+                          valueColor: const AlwaysStoppedAnimation(Brand.teal),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                    ],
                     // The student's batch in this course — course is the master,
                     // so this is the "which batch am I in" answer.
                     if (batchName != null)

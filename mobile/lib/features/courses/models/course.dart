@@ -26,6 +26,24 @@ class Course {
       );
 }
 
+/// A student's real progress through a course, computed server-side from
+/// completed lessons. `total == 0` means the course has no lessons yet.
+class CourseProgress {
+  final int completed;
+  final int total;
+  final int percent;
+
+  const CourseProgress({required this.completed, required this.total, required this.percent});
+
+  factory CourseProgress.fromJson(Map<String, dynamic> json) => CourseProgress(
+        completed: json['completed'] as int? ?? 0,
+        total: json['total'] as int? ?? 0,
+        percent: json['percent'] as int? ?? 0,
+      );
+
+  bool get hasLessons => total > 0;
+}
+
 /// A fee plan preset (mirrors the admin's fee_plans) — students pick one of
 /// these, never type an amount.
 class FeePlanOption {

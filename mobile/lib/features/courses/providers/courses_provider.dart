@@ -28,6 +28,20 @@ final coursesProvider = FutureProvider.autoDispose<List<Course>>((ref) async {
   }, _demoCourses);
 });
 
+// ── Real per-course progress (completed / total lessons) ──────────────────────
+/// courseId → percent complete, from the student's actual lesson progress.
+/// Absent for a course means "no lessons yet" — callers show nothing rather
+/// than a fabricated figure.
+final courseProgressProvider = FutureProvider.autoDispose<Map<String, CourseProgress>>((ref) async {
+  return apiOrDemo<Map<String, CourseProgress>>(() async {
+    final res = await ApiClient.dio.get<Map<String, dynamic>>('/api/v1/me/course-progress');
+    final rows = (res.data!['data'] as List).cast<Map<String, dynamic>>();
+    return {
+      for (final r in rows) r['courseId'] as String: CourseProgress.fromJson(r),
+    };
+  }, const {});
+});
+
 // ── Marketing catalog (browse-before-you-enrol) ───────────────────────────────
 // Every published course with its price, regardless of enrolment. The server
 // returns title/subject/description/fee only for this scope — no syllabus —

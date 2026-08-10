@@ -32,6 +32,8 @@ class LearnScreen extends ConsumerWidget {
     final coursesAsync = ref.watch(coursesProvider);
     // courseId → my batch name (course is the master; batch belongs to it)
     final courseBatches = ref.watch(myCourseBatchesProvider).asData?.value ?? const <String, String>{};
+    // courseId → real completed/total lesson progress
+    final courseProgress = ref.watch(courseProgressProvider).asData?.value ?? const <String, CourseProgress>{};
 
     return TabPage(
       title: 'Learn',
@@ -80,7 +82,7 @@ class LearnScreen extends ConsumerWidget {
                       for (var i = 0; i < featured.length; i++)
                         _ContinueCard(
                           course: featured[i],
-                          percent: [0.65, 0.12, 0.4][i % 3],
+                          progress: courseProgress[featured[i].id],
                           color: _styleFor(featured[i].subject).color,
                         ),
                     ],
@@ -103,9 +105,9 @@ class LearnScreen extends ConsumerWidget {
 
 class _ContinueCard extends StatelessWidget {
   final Course course;
-  final double percent;
+  final CourseProgress? progress;
   final Color color;
-  const _ContinueCard({required this.course, required this.percent, required this.color});
+  const _ContinueCard({required this.course, required this.progress, required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -142,19 +144,21 @@ class _ContinueCard extends StatelessWidget {
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
                     ),
                   ),
-                Positioned(
-                  left: 10,
-                  bottom: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.45),
-                      borderRadius: BorderRadius.circular(8),
+                // Real progress only — hidden for courses with no lessons yet.
+                if (progress != null && progress!.hasLessons)
+                  Positioned(
+                    left: 10,
+                    bottom: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text('${progress!.percent}% done',
+                          style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.bold)),
                     ),
-                    child: Text('${(percent * 100).round()}% done',
-                        style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.bold)),
                   ),
-                ),
               ],
             ),
             Padding(
@@ -167,16 +171,21 @@ class _ContinueCard extends StatelessWidget {
                       style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 2),
                   Text(course.subject, style: const TextStyle(color: Colors.white38, fontSize: 11)),
-                  const SizedBox(height: 10),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: percent,
-                      minHeight: 5,
-                      backgroundColor: Colors.white.withValues(alpha: 0.08),
-                      valueColor: const AlwaysStoppedAnimation(Brand.teal),
+                  if (progress != null && progress!.hasLessons) ...[
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: progress!.percent / 100,
+                        minHeight: 5,
+                        backgroundColor: Colors.white.withValues(alpha: 0.08),
+                        valueColor: const AlwaysStoppedAnimation(Brand.teal),
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 6),
+                    Text('${progress!.completed} of ${progress!.total} lessons',
+                        style: const TextStyle(color: Colors.white38, fontSize: 10.5)),
+                  ],
                 ],
               ),
             ),

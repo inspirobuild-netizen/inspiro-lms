@@ -85,10 +85,12 @@ class CourseDetailScreen extends ConsumerWidget {
                 Text(detail.course.title,
                     style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, height: 1.2)),
                 const SizedBox(height: 12),
+                // Only facts we actually hold. The old "Intermediate" difficulty
+                // and "4.9" rating were hardcoded — the course has neither a
+                // difficulty nor a ratings feature.
                 Wrap(spacing: 16, runSpacing: 6, children: [
-                  _Meta(Icons.menu_book, '$total Lessons', Colors.white54),
-                  const _Meta(Icons.bar_chart, 'Intermediate', Colors.white54),
-                  const _Meta(Icons.star, '4.9', Brand.teal),
+                  _Meta(Icons.menu_book, '$total ${total == 1 ? 'Lesson' : 'Lessons'}', Colors.white54),
+                  _Meta(Icons.check_circle_outline, '$completed completed', Brand.teal),
                 ]),
                 const SizedBox(height: 18),
                 Row(children: [
@@ -99,7 +101,8 @@ class CourseDetailScreen extends ConsumerWidget {
                 const SizedBox(height: 24),
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                   const Text('Course Content', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                  Text('$total Lessons', style: const TextStyle(color: Colors.white38, fontSize: 13)),
+                  Text('$total ${total == 1 ? 'Lesson' : 'Lessons'}',
+                      style: const TextStyle(color: Colors.white38, fontSize: 13)),
                 ]),
                 const SizedBox(height: 12),
               ],

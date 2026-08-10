@@ -1,4 +1,4 @@
-import { eq, and, count, asc, inArray, gt, isNull, or } from 'drizzle-orm';
+import { eq, and, count, asc, inArray, gt, isNull, or, sql } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { signBunnyUrl, signBunnyFileUrl } from '../../lib/bunny.js';
 import {
@@ -151,6 +151,56 @@ export async function listCourses(input: ListCoursesInput, userId: string, role:
   const [{ total }] = await db.select({ total: count() }).from(courses).where(where);
   const items = await db.select().from(courses).where(where).limit(limit).offset(offset);
   return { items, total };
+}
+
+// ── Per-course progress for the signed-in student ─────────────────────────────
+/**
+ * completed / total lessons for every course the student can reach via an
+ * active batch enrolment. One grouped query rather than N per-course counts.
+ *
+ * Courses with no lessons yet report total 0 / percent 0 — the caller decides
+ * whether to show anything, rather than this inventing a number.
+ */
+export async function getMyCourseProgress(userId: string) {
+  const rows = await db
+    .select({
+      courseId: modules.courseId,
+      total: count(lessons.id),
+      completed: sql<number>`count(*) filter (where ${lessonProgress.isCompleted})`,
+    })
+    .from(lessons)
+    .innerJoin(modules, eq(modules.id, lessons.moduleId))
+    // Only this student's progress rows may join, so `completed` can't count
+    // another student's activity.
+    .leftJoin(
+      lessonProgress,
+      and(eq(lessonProgress.lessonId, lessons.id), eq(lessonProgress.userId, userId)),
+    )
+    .where(
+      inArray(
+        modules.courseId,
+        db
+          .selectDistinct({ courseId: batches.courseId })
+          .from(batches)
+          .innerJoin(
+            batchEnrollments,
+            and(eq(batchEnrollments.batchId, batches.id), eq(batchEnrollments.status, 'active')),
+          )
+          .where(eq(batchEnrollments.userId, userId)),
+      ),
+    )
+    .groupBy(modules.courseId);
+
+  return rows.map((r) => {
+    const total = Number(r.total);
+    const completed = Number(r.completed);
+    return {
+      courseId: r.courseId,
+      completed,
+      total,
+      percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+    };
+  });
 }
 
 // ── Batches under a course (admin picker + mobile catalog) ─────────────────────

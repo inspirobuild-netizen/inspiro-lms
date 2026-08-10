@@ -16,6 +16,7 @@ import {
 import {
   listCourses,
   listCourseBatches,
+  getMyCourseProgress,
   getCourseDetail,
   getModuleLessons,
   getLessonWatchUrl,
@@ -57,6 +58,11 @@ export default async function coursesRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const course = await getCourseDetail(id, req.user.sub, req.user.role);
     return reply.send({ success: true, data: course });
+  });
+
+  // ── My progress across enrolled courses ────────────────────────────────────
+  app.get('/me/course-progress', { preHandler: [authenticate] }, async (req, reply) => {
+    return reply.send({ success: true, data: await getMyCourseProgress(req.user.sub) });
   });
 
   // ── Batches under a course — admin batch-picker + mobile catalog ───────────
