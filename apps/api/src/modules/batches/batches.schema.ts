@@ -16,14 +16,19 @@ export const updateBatchSchema = createBatchSchema.partial().extend({
   status: z.enum(['upcoming', 'active', 'completed', 'archived']).optional(),
 });
 
+// feePlanId is optional; when omitted the admission's fee falls back to the
+// course fee. The amount itself is never accepted from the client — it is
+// resolved server-side from the plan or the course.
 export const enrollStudentSchema = z.object({
   userId: z.string().uuid(),
   expiresAt: z.string().datetime().optional(),
+  feePlanId: z.string().uuid().optional(),
 });
 
 export const bulkEnrollSchema = z.object({
   userIds: z.array(z.string().uuid()).min(1).max(500),
   expiresAt: z.string().datetime().optional(),
+  feePlanId: z.string().uuid().optional(),
 });
 
 export const assignInstructorSchema = z.object({

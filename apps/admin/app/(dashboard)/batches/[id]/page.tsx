@@ -9,8 +9,10 @@ import { useAuthStore } from '@/lib/auth';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Modal } from '@/components/ui/modal';
-import { formatPhone } from '@/lib/utils';
+import { Modal, Select, Field } from '@/components/ui/modal';
+import { formatPhone, money } from '@/lib/utils';
+
+type FeePlanRow = { id: string; name: string; totalAmount: number; isActive: boolean };
 
 type BatchDetail = {
   id: string;
@@ -102,7 +104,7 @@ export default function BatchDetailPage() {
           <h3 className="font-display font-semibold text-lg text-slate-200">
             Students <span className="text-slate-500 text-sm font-normal">({batch?.enrolledCount ?? 0} enrolled)</span>
           </h3>
-          <EnrollStudentButton batchId={id} onEnrolled={invalidate} />
+          <EnrollStudentButton batchId={id} courseId={batch?.course.id} onEnrolled={invalidate} />
         </div>
         {students.length === 0 ? (
           <p className="text-slate-500 text-sm rounded-2xl border border-white/8 bg-surface-1 p-6 text-center">
@@ -160,12 +162,17 @@ export default function BatchDetailPage() {
 }
 
 // ── Enroll student picker ──────────────────────────────────────────────────────
-function EnrollStudentButton({ batchId, onEnrolled }: { batchId: string; onEnrolled: () => void }) {
+function EnrollStudentButton({
+  batchId, courseId, onEnrolled,
+}: {
+  batchId: string; courseId?: string; onEnrolled: () => void;
+}) {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
 
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [feePlanId, setFeePlanId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const { data } = useQuery({
@@ -177,8 +184,30 @@ function EnrollStudentButton({ batchId, onEnrolled }: { batchId: string; onEnrol
     enabled: !!accessToken && open,
   });
 
+  // Plans for the batch's course — enrolling now raises a fee obligation, so
+  // the plan choice has to be made here rather than after the fact.
+  const { data: plansData } = useQuery({
+    queryKey: ['admin', 'course', courseId, 'fee-plans'],
+    queryFn: () => api.get<FeePlanRow[]>(`/api/v1/admin/courses/${courseId}/fee-plans`),
+    enabled: !!accessToken && open && !!courseId,
+  });
+  const { data: courseData } = useQuery({
+    queryKey: ['admin', 'course', courseId, 'fee'],
+    queryFn: () => api.get<{ feeAmount: number }>(`/api/v1/courses/${courseId}`),
+    enabled: !!accessToken && open && !!courseId,
+  });
+  const courseFee = courseData?.data?.feeAmount;
+
+  const plans = plansData?.data ?? [];
+  const selectedPlan = plans.find((p) => p.id === feePlanId);
+  const dueAmount = selectedPlan ? selectedPlan.totalAmount : courseFee;
+
   const enroll = useMutation({
-    mutationFn: (userId: string) => api.post(`/api/v1/admin/batches/${batchId}/enroll`, { userId }),
+    mutationFn: (userId: string) =>
+      api.post(`/api/v1/admin/batches/${batchId}/enroll`, {
+        userId,
+        ...(feePlanId ? { feePlanId } : {}),
+      }),
     onSuccess: () => { setError(null); onEnrolled(); },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to enroll'),
   });
@@ -188,6 +217,18 @@ function EnrollStudentButton({ batchId, onEnrolled }: { batchId: string; onEnrol
       <Button size="sm" onClick={() => setOpen(true)}>+ Enroll student</Button>
       <Modal open={open} onClose={() => setOpen(false)} title="Enroll student" description="Search registered students and click to enroll">
         <div className="space-y-3">
+          <Field label="Fee plan">
+            <Select value={feePlanId} onChange={(e) => setFeePlanId(e.target.value)}>
+              <option value="">Course fee{typeof courseFee === 'number' ? ` — ${money(courseFee)}` : ''}</option>
+              {plans.filter((p) => p.isActive).map((p) => (
+                <option key={p.id} value={p.id}>{p.name} — {money(p.totalAmount)}</option>
+              ))}
+            </Select>
+          </Field>
+          <p className="text-xs text-slate-500 -mt-1">
+            Enrolling creates an admission with {typeof dueAmount === 'number' ? money(dueAmount) : 'the course fee'} due.
+            No payment is recorded — collect it from the Fees page.
+          </p>
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or phone…" autoFocus />
           {error && <p className="text-sm text-rose-400">{error}</p>}
           <div className="space-y-2 max-h-72 overflow-y-auto">

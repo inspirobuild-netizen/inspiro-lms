@@ -1,12 +1,16 @@
 import { eq, and, count, sql } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import {
+  admissions,
   batches,
   batchEnrollments,
   batchInstructors,
+  feePlans,
   users,
   courses,
 } from '../../../drizzle/schema.js';
+import { nextCode } from '../leads/leads.service.js';
+import { materialiseInstallments } from '../fees/fees.service.js';
 import type { CreateBatchInput, UpdateBatchInput, ListBatchesInput } from './batches.schema.js';
 
 function notFound(entity = 'Batch') {
@@ -119,40 +123,119 @@ export async function archiveBatch(batchId: string) {
   return updated;
 }
 
+/**
+ * Create the admission + fee obligation that goes with a manual enrolment.
+ *
+ * Manual enrolment used to write only `batch_enrollments`, so a student added
+ * from the batch page got full course access but never appeared in Admissions
+ * and carried no fee due — a silent way to hand out paid access with no
+ * financial record. The counsellor and app-verification paths both create an
+ * admission, so this brings the third path in line.
+ *
+ * No payment is recorded here: the obligation is raised as `pending` with
+ * amountPaid 0, so the student shows up in Fees outstanding and the money is
+ * collected through the normal payments flow.
+ *
+ * Returns null when the student already has an admission for this course, so
+ * re-enrolling (which upserts the enrollment row) cannot mint a duplicate.
+ */
+async function createAdmissionForEnrolment(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  opts: { userId: string; batchId: string; courseId: string; feePlanId?: string; staffId?: string },
+) {
+  const [existing] = await tx
+    .select({ id: admissions.id })
+    .from(admissions)
+    .where(and(eq(admissions.studentId, opts.userId), eq(admissions.courseId, opts.courseId)))
+    .limit(1);
+  if (existing) return null;
+
+  // Amount is always resolved server-side from the plan or the course fee —
+  // never taken from the caller.
+  let plan: { id: string; name: string; totalAmount: number; installments: { label: string; amount: number; dueAfterDays: number }[] } | null = null;
+  if (opts.feePlanId) {
+    const [p] = await tx.select().from(feePlans).where(eq(feePlans.id, opts.feePlanId)).limit(1);
+    if (!p) throw conflict('Fee plan not found', 'FEE_PLAN_NOT_FOUND');
+    if (p.courseId !== opts.courseId) {
+      throw conflict("Fee plan does not belong to this batch's course", 'FEE_PLAN_COURSE_MISMATCH');
+    }
+    plan = p;
+  }
+  const [course] = await tx
+    .select({ feeAmount: courses.feeAmount })
+    .from(courses)
+    .where(eq(courses.id, opts.courseId))
+    .limit(1);
+  const feeAmount = plan ? plan.totalAmount : (course?.feeAmount ?? 0);
+
+  const admissionNo = await nextCode(tx, 'adm_seq', 'ADM');
+  const admissionDate = new Date();
+  const [admission] = await tx
+    .insert(admissions)
+    .values({
+      admissionNo,
+      studentId: opts.userId,
+      counsellorId: opts.staffId,
+      courseId: opts.courseId,
+      batchId: opts.batchId,
+      admissionDate: admissionDate.toISOString().slice(0, 10),
+      feePlanId: plan?.id,
+      feePlan: plan?.name,
+      feeAmount,
+      amountPaid: 0,
+      paymentStatus: 'pending',
+    })
+    .returning();
+
+  if (plan) await materialiseInstallments(tx, admission!.id, plan, admissionDate);
+  return admission!;
+}
+
 // ── Enroll a student ──────────────────────────────────────────────────────────
 export async function enrollStudent(
   batchId: string,
   userId: string,
   expiresAt?: string,
+  opts?: { feePlanId?: string; staffId?: string },
 ) {
-  // Confirm batch exists
-  const [batch] = await db.select().from(batches).where(eq(batches.id, batchId)).limit(1);
-  if (!batch) throw notFound();
+  return db.transaction(async (tx) => {
+    // Confirm batch exists
+    const [batch] = await tx.select().from(batches).where(eq(batches.id, batchId)).limit(1);
+    if (!batch) throw notFound();
 
-  // Capacity check
-  const [{ enrolled }] = await db
-    .select({ enrolled: count() })
-    .from(batchEnrollments)
-    .where(and(eq(batchEnrollments.batchId, batchId), eq(batchEnrollments.status, 'active')));
-  if (enrolled >= batch.capacity) {
-    throw conflict('Batch is at full capacity', 'BATCH_FULL');
-  }
+    // Capacity check
+    const [{ enrolled }] = await tx
+      .select({ enrolled: count() })
+      .from(batchEnrollments)
+      .where(and(eq(batchEnrollments.batchId, batchId), eq(batchEnrollments.status, 'active')));
+    if (enrolled >= batch.capacity) {
+      throw conflict('Batch is at full capacity', 'BATCH_FULL');
+    }
 
-  const [enrollment] = await db
-    .insert(batchEnrollments)
-    .values({
+    const [enrollment] = await tx
+      .insert(batchEnrollments)
+      .values({
+        userId,
+        batchId,
+        status: 'active',
+        expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+      })
+      .onConflictDoUpdate({
+        target: [batchEnrollments.userId, batchEnrollments.batchId],
+        set: { status: 'active', expiresAt: expiresAt ? new Date(expiresAt) : null },
+      })
+      .returning();
+
+    const admission = await createAdmissionForEnrolment(tx, {
       userId,
       batchId,
-      status: 'active',
-      expiresAt: expiresAt ? new Date(expiresAt) : undefined,
-    })
-    .onConflictDoUpdate({
-      target: [batchEnrollments.userId, batchEnrollments.batchId],
-      set: { status: 'active', expiresAt: expiresAt ? new Date(expiresAt) : null },
-    })
-    .returning();
+      courseId: batch.courseId,
+      feePlanId: opts?.feePlanId,
+      staffId: opts?.staffId,
+    });
 
-  return enrollment!;
+    return { ...enrollment!, admission };
+  });
 }
 
 // ── Bulk enroll ───────────────────────────────────────────────────────────────
@@ -160,38 +243,55 @@ export async function bulkEnrollStudents(
   batchId: string,
   userIds: string[],
   expiresAt?: string,
+  opts?: { feePlanId?: string; staffId?: string },
 ) {
-  const [batch] = await db.select().from(batches).where(eq(batches.id, batchId)).limit(1);
-  if (!batch) throw notFound();
+  return db.transaction(async (tx) => {
+    const [batch] = await tx.select().from(batches).where(eq(batches.id, batchId)).limit(1);
+    if (!batch) throw notFound();
 
-  const [{ enrolled }] = await db
-    .select({ enrolled: count() })
-    .from(batchEnrollments)
-    .where(and(eq(batchEnrollments.batchId, batchId), eq(batchEnrollments.status, 'active')));
+    const [{ enrolled }] = await tx
+      .select({ enrolled: count() })
+      .from(batchEnrollments)
+      .where(and(eq(batchEnrollments.batchId, batchId), eq(batchEnrollments.status, 'active')));
 
-  if (enrolled + userIds.length > batch.capacity) {
-    throw conflict(
-      `Enrolling ${userIds.length} students would exceed batch capacity of ${batch.capacity}`,
-      'BATCH_CAPACITY_EXCEEDED',
-    );
-  }
+    if (enrolled + userIds.length > batch.capacity) {
+      throw conflict(
+        `Enrolling ${userIds.length} students would exceed batch capacity of ${batch.capacity}`,
+        'BATCH_CAPACITY_EXCEEDED',
+      );
+    }
 
-  const rows = userIds.map((userId) => ({
-    userId,
-    batchId,
-    status: 'active' as const,
-    expiresAt: expiresAt ? new Date(expiresAt) : undefined,
-  }));
+    const rows = userIds.map((userId) => ({
+      userId,
+      batchId,
+      status: 'active' as const,
+      expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+    }));
 
-  await db
-    .insert(batchEnrollments)
-    .values(rows)
-    .onConflictDoUpdate({
-      target: [batchEnrollments.userId, batchEnrollments.batchId],
-      set: { status: 'active' },
-    });
+    await tx
+      .insert(batchEnrollments)
+      .values(rows)
+      .onConflictDoUpdate({
+        target: [batchEnrollments.userId, batchEnrollments.batchId],
+        set: { status: 'active' },
+      });
 
-  return { enrolled: userIds.length };
+    // Sequential rather than parallel: admission numbers come from a shared
+    // sequence, and each student needs their own duplicate check.
+    let admissionsCreated = 0;
+    for (const userId of userIds) {
+      const created = await createAdmissionForEnrolment(tx, {
+        userId,
+        batchId,
+        courseId: batch.courseId,
+        feePlanId: opts?.feePlanId,
+        staffId: opts?.staffId,
+      });
+      if (created) admissionsCreated++;
+    }
+
+    return { enrolled: userIds.length, admissionsCreated };
+  });
 }
 
 // ── Unenroll a student ────────────────────────────────────────────────────────

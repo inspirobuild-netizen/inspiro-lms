@@ -135,7 +135,10 @@ export default async function batchesRoutes(app: FastifyInstance) {
           error: { code: 'VALIDATION_ERROR', message: 'Invalid enrollment data', details: parsed.error.flatten() },
         });
       }
-      const enrollment = await enrollStudent(id, parsed.data.userId, parsed.data.expiresAt);
+      const enrollment = await enrollStudent(id, parsed.data.userId, parsed.data.expiresAt, {
+        feePlanId: parsed.data.feePlanId,
+        staffId: req.user.sub,
+      });
       return reply.status(201).send({ success: true, data: enrollment });
     },
   );
@@ -153,7 +156,10 @@ export default async function batchesRoutes(app: FastifyInstance) {
           error: { code: 'VALIDATION_ERROR', message: 'Invalid bulk enrollment data', details: parsed.error.flatten() },
         });
       }
-      const result = await bulkEnrollStudents(id, parsed.data.userIds, parsed.data.expiresAt);
+      const result = await bulkEnrollStudents(id, parsed.data.userIds, parsed.data.expiresAt, {
+        feePlanId: parsed.data.feePlanId,
+        staffId: req.user.sub,
+      });
       return reply.send({ success: true, data: result });
     },
   );
