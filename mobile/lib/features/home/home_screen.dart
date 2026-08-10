@@ -410,32 +410,17 @@ class _CourseCard extends StatelessWidget {
             // Real course image when the admin has set one; the subject-tinted
             // block is the fallback. (Was a gradient placeholder that ignored
             // thumbnailUrl entirely.)
-            Stack(
-              children: [
-                CourseThumb(
-                  url: course.thumbnailUrl,
-                  fallbackIcon: Icons.menu_book_rounded,
-                  fallbackColor: color,
-                  width: double.infinity,
-                  height: 84,
-                  borderRadius: BorderRadius.zero,
-                ),
-                // Only when the course actually has lessons — a "0% done"
-                // badge on an empty course is noise, not information.
-                if (progress != null && progress!.hasLessons)
-                  Positioned(
-                    left: 8, bottom: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text('${progress!.percent}% done',
-                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-              ],
+            // The percentage used to sit in a badge overlaid on this image,
+            // where it landed on top of the artwork and was unreadable against
+            // a busy marketing thumbnail. It now rides alongside the progress
+            // bar below, over a known background.
+            CourseThumb(
+              url: course.thumbnailUrl,
+              fallbackIcon: Icons.menu_book_rounded,
+              fallbackColor: color,
+              width: double.infinity,
+              height: 84,
+              borderRadius: BorderRadius.zero,
             ),
             Expanded(
               child: Padding(
@@ -452,14 +437,24 @@ class _CourseCard extends StatelessWidget {
                         style: const TextStyle(color: Colors.white38, fontSize: 11)),
                     const Spacer(),
                     if (progress != null && progress!.hasLessons) ...[
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: LinearProgressIndicator(
-                          value: progress!.percent / 100,
-                          minHeight: 4,
-                          backgroundColor: Colors.white.withValues(alpha: 0.08),
-                          valueColor: const AlwaysStoppedAnimation(Brand.teal),
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: LinearProgressIndicator(
+                                value: progress!.percent / 100,
+                                minHeight: 4,
+                                backgroundColor: Colors.white.withValues(alpha: 0.08),
+                                valueColor: const AlwaysStoppedAnimation(Brand.teal),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text('${progress!.percent}%',
+                              style: const TextStyle(
+                                  color: Brand.teal, fontSize: 10.5, fontWeight: FontWeight.bold)),
+                        ],
                       ),
                       const SizedBox(height: 6),
                     ],

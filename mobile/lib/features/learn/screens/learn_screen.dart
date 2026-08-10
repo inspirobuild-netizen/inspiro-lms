@@ -33,7 +33,8 @@ class LearnScreen extends ConsumerWidget {
     // courseId → my batch name (course is the master; batch belongs to it)
     final courseBatches = ref.watch(myCourseBatchesProvider).asData?.value ?? const <String, String>{};
     // courseId → real completed/total lesson progress
-    final courseProgress = ref.watch(courseProgressProvider).asData?.value ?? const <String, CourseProgress>{};
+    final courseProgress =
+        ref.watch(courseProgressProvider).asData?.value ?? const <String, CourseProgress>{};
 
     return TabPage(
       title: 'Learn',
@@ -46,7 +47,8 @@ class LearnScreen extends ConsumerWidget {
       ],
       body: coursesAsync.when(
         loading: () => const LoadingState(),
-        error: (e, _) => ErrorRetry(message: 'Could not load courses', onRetry: () => ref.invalidate(coursesProvider)),
+        error: (e, _) =>
+            ErrorRetry(message: 'Could not load courses', onRetry: () => ref.invalidate(coursesProvider)),
         data: (courses) {
           if (courses.isEmpty) {
             // Not enrolled in anything yet — send them to the marketing
@@ -65,7 +67,12 @@ class LearnScreen extends ConsumerWidget {
               ),
             );
           }
-          final featured = courses.take(3).toList();
+          // Only courses actually started belong in "Continue learning".
+          // Previously this was courses.take(3), so a student who had begun
+          // nothing saw the same course twice — once here and once under
+          // "All courses" — which read as a rendering bug.
+          final inProgress =
+              courses.where((c) => (courseProgress[c.id]?.completed ?? 0) > 0).take(5).toList();
           return RefreshIndicator(
             color: Brand.blue,
             backgroundColor: Brand.surface,
@@ -73,27 +80,31 @@ class LearnScreen extends ConsumerWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
               children: [
-                const SectionHeader(title: 'Continue learning'),
-                SizedBox(
-                  // Room for the progress bar + "N of M lessons" line.
-                  height: 196,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      for (var i = 0; i < featured.length; i++)
-                        _ContinueCard(
-                          course: featured[i],
-                          progress: courseProgress[featured[i].id],
-                          color: _styleFor(featured[i].subject).color,
-                        ),
-                    ],
+                if (inProgress.isNotEmpty) ...[
+                  const SectionHeader(title: 'Continue learning'),
+                  SizedBox(
+                    // Headroom for a two-line title plus the progress bar and
+                    // the "N of M lessons" line beneath it.
+                    height: 214,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        for (final c in inProgress)
+                          _ContinueCard(
+                            course: c,
+                            progress: courseProgress[c.id],
+                            color: _styleFor(c.subject).color,
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 24),
+                  const SizedBox(height: 24),
+                ],
                 const SectionHeader(title: 'All courses'),
                 ...courses.map((c) {
                   final st = _styleFor(c.subject);
-                  return _CourseTile(course: c, icon: st.icon, color: st.color, batchName: courseBatches[c.id]);
+                  return _CourseTile(
+                      course: c, icon: st.icon, color: st.color, batchName: courseBatches[c.id]);
                 }),
               ],
             ),
@@ -112,87 +123,84 @@ class _ContinueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => context.push('/course', extra: course.id),
-      child: Container(
-        width: 220,
-        margin: const EdgeInsets.only(right: 12),
-        decoration: BoxDecoration(
-          color: Brand.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
+    // A horizontal ListView stretches children to the rail height, which drew
+    // the card border around empty space under a one-line title. Top-aligning
+    // inside a full-height Column lets the card hug its own content while the
+    // rail keeps enough room for a two-line title.
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: () => context.push('/course', extra: course.id),
+          child: Container(
+            width: 250,
+            margin: const EdgeInsets.only(right: 12),
+            decoration: BoxDecoration(
+              color: Brand.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // No overlay badge here: it sat on top of the thumbnail artwork
+                // and was unreadable against a busy marketing image, while
+                // duplicating the progress bar and lesson count directly below.
                 if (course.thumbnailUrl != null && course.thumbnailUrl!.isNotEmpty)
                   CourseThumb(
                     url: course.thumbnailUrl,
                     fallbackIcon: Icons.menu_book,
                     fallbackColor: color,
-                    width: 220,
+                    width: 250,
                     height: 84,
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
                   )
                 else
                   Container(
-                    width: 220,
+                    width: 250,
                     height: 84,
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: [color.withValues(alpha: 0.7), color.withValues(alpha: 0.25)]),
+                      gradient: LinearGradient(
+                          colors: [color.withValues(alpha: 0.7), color.withValues(alpha: 0.25)]),
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
                     ),
                   ),
-                // Real progress only — hidden for courses with no lessons yet.
-                if (progress != null && progress!.hasLessons)
-                  Positioned(
-                    left: 10,
-                    bottom: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text('${progress!.percent}% done',
-                          style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.bold)),
-                    ),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(course.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold, height: 1.25)),
+                      const SizedBox(height: 2),
+                      Text(course.subject, style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                      if (progress != null && progress!.hasLessons) ...[
+                        const SizedBox(height: 10),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: progress!.percent / 100,
+                            minHeight: 5,
+                            backgroundColor: Colors.white.withValues(alpha: 0.08),
+                            valueColor: const AlwaysStoppedAnimation(Brand.teal),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text('${progress!.completed} of ${progress!.total} lessons · ${progress!.percent}%',
+                            style: const TextStyle(color: Colors.white38, fontSize: 10.5)),
+                      ],
+                    ],
                   ),
+                ),
               ],
             ),
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(course.title,
-                      maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 2),
-                  Text(course.subject, style: const TextStyle(color: Colors.white38, fontSize: 11)),
-                  if (progress != null && progress!.hasLessons) ...[
-                    const SizedBox(height: 10),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: progress!.percent / 100,
-                        minHeight: 5,
-                        backgroundColor: Colors.white.withValues(alpha: 0.08),
-                        valueColor: const AlwaysStoppedAnimation(Brand.teal),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text('${progress!.completed} of ${progress!.total} lessons',
-                        style: const TextStyle(color: Colors.white38, fontSize: 10.5)),
-                  ],
-                ],
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -212,7 +220,8 @@ class _CourseTile extends StatelessWidget {
         onTap: () => context.push('/course', extra: course.id),
         child: Row(
           children: [
-            CourseThumb(url: course.thumbnailUrl, fallbackIcon: icon, fallbackColor: color, width: 56, height: 46),
+            CourseThumb(
+                url: course.thumbnailUrl, fallbackIcon: icon, fallbackColor: color, width: 56, height: 46),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -233,7 +242,8 @@ class _CourseTile extends StatelessWidget {
                       child: Text(batchName!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Brand.amber, fontSize: 11, fontWeight: FontWeight.w600)),
+                          style:
+                              const TextStyle(color: Brand.amber, fontSize: 11, fontWeight: FontWeight.w600)),
                     ),
                   ],
                 ],

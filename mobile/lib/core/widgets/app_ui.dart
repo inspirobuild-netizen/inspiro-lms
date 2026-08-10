@@ -178,7 +178,13 @@ class GlassCard extends StatelessWidget {
     final card = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: (tint ?? Brand.surface).withValues(alpha: 0.85),
+        // Composite the tint OVER the base surface instead of replacing its
+        // alpha. `.withValues(alpha: 0.85)` on the tint itself discarded the
+        // caller's own alpha, so a subtle accent (e.g. red at 12% for a live
+        // class) came out as a near-solid slab that swallowed its own text.
+        // Opaque tints and the null case blend to exactly what they were.
+        color: Color.alphaBlend(tint ?? Colors.transparent, Brand.surface)
+            .withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
         boxShadow: [
