@@ -87,15 +87,13 @@ class MeScreen extends ConsumerWidget {
           _MenuGroup(items: [
             _MenuItem(Icons.leaderboard_outlined, 'Leaderboard', () => context.push('/leaderboard')),
             _MenuItem(Icons.track_changes_outlined, 'My Coach', () => context.push('/coach')),
-            const _MenuItem(Icons.card_membership_outlined, 'Subscription', null),
-            const _MenuItem(Icons.notifications_none_rounded, 'Notifications', null),
+            _MenuItem(Icons.card_membership_outlined, 'Subscription', () => context.push('/subscription')),
+            _MenuItem(Icons.notifications_none_rounded, 'Notifications', () => context.push('/notifications')),
           ]),
           const SizedBox(height: 16),
           const SectionHeader(title: 'Support'),
-          const _MenuGroup(items: [
-            _MenuItem(Icons.help_outline_rounded, 'Help & FAQ', null),
-            _MenuItem(Icons.info_outline_rounded, 'About Inspiro', null),
-            _MenuItem(Icons.privacy_tip_outlined, 'Privacy Policy', null),
+          _MenuGroup(items: [
+            _MenuItem(Icons.info_outline_rounded, 'About Inspiro', () => _showAbout(context)),
           ]),
           const SizedBox(height: 24),
           OutlinedButton.icon(
@@ -181,4 +179,56 @@ class _MenuGroup extends StatelessWidget {
       ),
     );
   }
+}
+
+// Keep in sync with `version:` in pubspec.yaml — shown to students and useful
+// when they report a problem.
+const String _kAppVersion = '1.0.0';
+
+void _showAbout(BuildContext context) {
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Brand.surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+    ),
+    builder: (_) => Padding(
+      padding: const EdgeInsets.fromLTRB(24, 22, 24, 34),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 22),
+          const Center(child: InspiroLogo(height: 46)),
+          const SizedBox(height: 18),
+          const Text('Inspiro IAS Academy',
+              style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          const Text(
+            'Your civil services preparation companion — courses, live classes, '
+            'mock tests and an AI study coach.',
+            style: TextStyle(color: Colors.white54, fontSize: 13, height: 1.5),
+          ),
+          const SizedBox(height: 18),
+          const Row(
+            children: [
+              Icon(Icons.tag, color: Colors.white24, size: 16),
+              SizedBox(width: 8),
+              Text('App version $_kAppVersion',
+                  style: TextStyle(color: Colors.white38, fontSize: 12.5)),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
 }

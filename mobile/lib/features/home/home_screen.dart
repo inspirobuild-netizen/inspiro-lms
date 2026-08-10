@@ -8,6 +8,7 @@ import '../courses/models/course.dart';
 import '../courses/providers/courses_provider.dart';
 import '../courses/widgets/course_thumb.dart';
 import '../live/providers/live_provider.dart';
+import '../notifications/providers/notifications_provider.dart';
 import 'providers/home_stats_provider.dart';
 import 'providers/my_batch_provider.dart';
 
@@ -33,7 +34,9 @@ class HomeScreen extends ConsumerWidget {
         const AmbientBackground(),
         SafeArea(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            // Bottom padding clears the floating AI button, which sits above
+            // this list and was overlapping the last row of tools.
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 104),
             children: [
               _Header(greeting: _greeting(), name: firstName),
               const SizedBox(height: 20),
@@ -52,6 +55,55 @@ class HomeScreen extends ConsumerWidget {
             ],
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// Bell with a live unread badge. Was an empty onPressed with no badge.
+class _NotificationBell extends ConsumerWidget {
+  const _NotificationBell();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unread = ref.watch(unreadCountProvider).asData?.value ?? 0;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.06),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          child: IconButton(
+            onPressed: () async {
+              await context.push('/notifications');
+              // Coming back, the count may have changed (items marked read).
+              ref.invalidate(unreadCountProvider);
+            },
+            icon: const Icon(Icons.notifications_none_rounded, color: Colors.white70, size: 22),
+          ),
+        ),
+        if (unread > 0)
+          Positioned(
+            right: 4, top: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              constraints: const BoxConstraints(minWidth: 17),
+              decoration: BoxDecoration(
+                color: Brand.red,
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(color: Brand.bg, width: 1.5),
+              ),
+              child: Text(
+                unread > 9 ? '9+' : '$unread',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -93,17 +145,7 @@ class _Header extends StatelessWidget {
             ],
           ),
         ),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.06),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-          ),
-          child: IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.notifications_none_rounded, color: Colors.white70, size: 22),
-          ),
-        ),
+        const _NotificationBell(),
       ],
     );
   }

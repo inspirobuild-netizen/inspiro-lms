@@ -26,14 +26,10 @@ class MainShell extends ConsumerWidget {
       extendBody: true,
       drawer: _SideDrawer(ref: ref),
       body: shell,
-      floatingActionButton: shell.currentIndex == 0
-          ? FloatingActionButton(
-              onPressed: () => context.push('/doubts'),
-              backgroundColor: Brand.blue,
-              elevation: 6,
-              child: const Icon(Icons.auto_awesome, color: Colors.white),
-            )
-          : null,
+      // No FAB: it pushed /doubts, which the home screen's "Ask AI" tool tile
+      // already does — and being pinned bottom-right it overlapped that very
+      // row. Removing the duplicate is the fix; padding only helped when the
+      // (short) home content happened to be scrolled to the bottom.
       bottomNavigationBar: _BottomBar(
         tabs: _tabs,
         currentIndex: shell.currentIndex,

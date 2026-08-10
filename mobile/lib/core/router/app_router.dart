@@ -20,6 +20,8 @@ import '../../features/doubts/screens/doubt_chat_screen.dart';
 import '../../features/current_affairs/screens/current_affairs_screen.dart';
 import '../../features/coach/screens/coach_screen.dart';
 import '../../features/enroll/screens/catalog_screen.dart';
+import '../../features/notifications/screens/notifications_screen.dart';
+import '../../features/profile/screens/subscription_screen.dart';
 import '../../features/enroll/screens/enroll_screen.dart';
 import '../../features/courses/models/course.dart';
 import '../../features/splash/splash_screen.dart';
@@ -76,6 +78,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/coach', builder: (_, __) => const CoachScreen()),
       GoRoute(path: '/leaderboard', builder: (_, __) => const LeaderboardScreen()),
       GoRoute(path: '/catalog', builder: (_, __) => const CatalogScreen()),
+      GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
+      GoRoute(path: '/subscription', builder: (_, __) => const SubscriptionScreen()),
       GoRoute(
         path: '/enroll',
         builder: (context, state) => EnrollScreen(course: state.extra as Course),
