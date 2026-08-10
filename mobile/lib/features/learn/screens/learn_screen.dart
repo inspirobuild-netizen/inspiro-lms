@@ -75,7 +75,8 @@ class LearnScreen extends ConsumerWidget {
               children: [
                 const SectionHeader(title: 'Continue learning'),
                 SizedBox(
-                  height: 168,
+                  // Room for the progress bar + "N of M lessons" line.
+                  height: 196,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     children: [

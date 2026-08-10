@@ -279,8 +279,10 @@ class _ContinueLearning extends ConsumerWidget {
           // Not enrolled yet — point at the catalog instead of an empty rail.
           return _BrowseCoursesPrompt(onTap: () => context.push('/catalog'));
         }
+        // Tall enough for thumb + title + subject + progress bar + batch chip.
+        // Was 168, which overflowed by 9px once the progress bar was added.
         return SizedBox(
-          height: 168,
+          height: 196,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             itemCount: featured.length,
