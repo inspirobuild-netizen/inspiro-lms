@@ -24,6 +24,17 @@ type CourseDetail = {
   modules: { id: string; title: string; order: number; lessonCount: number }[];
 };
 
+type CourseBatch = {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  startDate: string;
+  endDate: string;
+  capacity: number;
+  enrolledCount?: number;
+};
+
 type Installment = { label: string; amount: number; dueAfterDays: number };
 type FeePlan = {
   id: string;
@@ -102,6 +113,8 @@ export default function CourseBuilderPage() {
       <ThumbnailSection courseId={id} thumbnailUrl={course.thumbnailUrl} onChanged={invalidate} />
 
       {has('fees.configure') && <FeesSection courseId={id} feeAmount={course.feeAmount} onCourseFeeChanged={invalidate} />}
+
+      <BatchesSection courseId={id} courseTitle={course.title} />
 
       {/* Modules */}
       <div className="space-y-4">
@@ -325,6 +338,155 @@ function ThumbnailSection({ courseId, thumbnailUrl, onChanged }: { courseId: str
         label="Upload thumbnail"
       />
     </section>
+  );
+}
+
+// ── Batches under this course ─────────────────────────────────────────────────
+// Course is the master; a batch belongs to exactly one course and students
+// enrol into the batch. Batches were only reachable from the top-level Batches
+// page with a course dropdown, so the course itself never showed what ran under
+// it. Creating from here scopes the batch to this course implicitly.
+function BatchesSection({ courseId, courseTitle }: { courseId: string; courseTitle: string }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const qc = useQueryClient();
+  const [creating, setCreating] = useState(false);
+
+  const key = ['admin', 'course', courseId, 'batches'];
+  const { data, isLoading } = useQuery({
+    queryKey: key,
+    queryFn: () => api.get<CourseBatch[]>(`/api/v1/batches?courseId=${courseId}&limit=50`),
+    enabled: !!accessToken,
+  });
+  const batches = data?.data ?? [];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-display font-semibold text-lg text-slate-200">
+          Batches{' '}
+          <span className="text-slate-500 text-sm font-normal">
+            ({batches.length}) — students enrol into a batch, not the course
+          </span>
+        </h3>
+        <Button size="sm" onClick={() => setCreating(true)}>+ Create batch</Button>
+      </div>
+
+      <div className="rounded-2xl border border-white/8 bg-surface-1 divide-y divide-white/5">
+        {isLoading && <p className="text-sm text-slate-500 p-5">Loading…</p>}
+        {!isLoading && batches.length === 0 && (
+          <p className="text-sm text-slate-500 p-6 text-center">
+            No batches yet — create one so students have somewhere to be enrolled.
+          </p>
+        )}
+        {batches.map((b) => (
+          <Link
+            key={b.id}
+            href={`/batches/${b.id}`}
+            className="flex items-center gap-3 p-4 hover:bg-white/[0.03] transition-colors"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-slate-200 truncate">{b.name}</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {b.type} · {b.startDate} → {b.endDate}
+              </p>
+            </div>
+            {/* Only claim a headcount when the API actually sent one — a
+                default of 0 would read as "nobody enrolled" on a full batch. */}
+            <span className="text-xs text-slate-400 whitespace-nowrap">
+              {typeof b.enrolledCount === 'number'
+                ? `${b.enrolledCount}/${b.capacity} enrolled`
+                : `capacity ${b.capacity}`}
+            </span>
+            <Badge variant={b.status === 'active' ? 'teal' : 'amber'}>{b.status}</Badge>
+          </Link>
+        ))}
+      </div>
+
+      <CreateBatchModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        courseId={courseId}
+        courseTitle={courseTitle}
+        onCreated={() => void qc.invalidateQueries({ queryKey: key })}
+      />
+    </section>
+  );
+}
+
+function CreateBatchModal({
+  open, onClose, courseId, courseTitle, onCreated,
+}: {
+  open: boolean; onClose: () => void; courseId: string; courseTitle: string; onCreated: () => void;
+}) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const [name, setName] = useState('');
+  const [type, setType] = useState('offline');
+  const [targetExam, setTargetExam] = useState('upsc_cse');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [capacity, setCapacity] = useState('60');
+  const [error, setError] = useState<string | null>(null);
+
+  const create = useMutation({
+    mutationFn: () =>
+      api.post('/api/v1/admin/batches', {
+        name: name.trim(), courseId, type, targetExam,
+        startDate, endDate, capacity: Number(capacity) || 60,
+      }),
+    onSuccess: () => {
+      setError(null); setName(''); setStartDate(''); setEndDate('');
+      onCreated(); onClose();
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to create batch'),
+  });
+
+  const valid = name.trim().length >= 2 && !!startDate && !!endDate;
+
+  return (
+    <Modal open={open} onClose={onClose} title="Create batch" description={`Under ${courseTitle}`}>
+      <div className="space-y-3">
+        <Field label="Batch name">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Kerala PSC 2026 - Batch B" />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Mode">
+            <Select value={type} onChange={(e) => setType(e.target.value)}>
+              <option value="offline">Offline</option>
+              <option value="online">Online</option>
+              <option value="hybrid">Hybrid</option>
+            </Select>
+          </Field>
+          <Field label="Target exam">
+            <Select value={targetExam} onChange={(e) => setTargetExam(e.target.value)}>
+              <option value="upsc_cse">UPSC CSE</option>
+              <option value="kerala_psc">Kerala PSC</option>
+              <option value="ssc">SSC</option>
+              <option value="banking">Banking</option>
+            </Select>
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Start date">
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </Field>
+          <Field label="End date">
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </Field>
+        </div>
+        <Field label="Capacity">
+          <Input type="number" min={1} value={capacity} onChange={(e) => setCapacity(e.target.value)} />
+        </Field>
+        {error && <p className="text-sm text-red-400">{error}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button disabled={!valid || create.isPending} onClick={() => create.mutate()}>
+            {create.isPending ? 'Creating…' : 'Create batch'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

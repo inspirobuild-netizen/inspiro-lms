@@ -1,4 +1,4 @@
-import { eq, and, count } from 'drizzle-orm';
+import { eq, and, count, sql } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import {
   batches,
@@ -37,6 +37,14 @@ export async function listBatches(input: ListBatchesInput) {
     .select({
       batch: batches,
       course: { id: courses.id, title: courses.title },
+      // Correlated count so a batch list can show "N/capacity" without an
+      // extra request per row. Only `active` enrollments occupy a seat, which
+      // matches what the capacity guard in enrollStudent counts.
+      enrolledCount: sql<number>`(
+        select count(*)::int from ${batchEnrollments}
+        where ${batchEnrollments.batchId} = ${batches.id}
+          and ${batchEnrollments.status} = 'active'
+      )`,
     })
     .from(batches)
     .innerJoin(courses, eq(courses.id, batches.courseId))
@@ -44,7 +52,10 @@ export async function listBatches(input: ListBatchesInput) {
     .limit(limit)
     .offset(offset);
 
-  return { items: items.map((r) => ({ ...r.batch, course: r.course })), total };
+  return {
+    items: items.map((r) => ({ ...r.batch, course: r.course, enrolledCount: r.enrolledCount })),
+    total,
+  };
 }
 
 // ── Get single batch with stats ───────────────────────────────────────────────
