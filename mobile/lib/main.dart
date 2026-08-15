@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'package:media_kit/media_kit.dart';
 import 'core/api/api_client.dart';
 import 'core/router/app_router.dart';
@@ -21,9 +22,15 @@ void main() async {
   // unguarded call takes the whole app down on launch — a build without the
   // config would look like a mystery crash rather than "push isn't set up".
   // Losing push is acceptable; failing to start is not.
+  // Options come from the generated firebase_options.dart rather than the
+  // per-platform native files. iOS then needs no GoogleService-Info.plist —
+  // one committed source of truth for both platforms, and no CI secret to
+  // keep in sync. (Firebase client config is public by design; it ships inside
+  // every distributed binary. Access is governed by Security Rules, and the
+  // FCM server key is not in this file.)
   var firebaseReady = false;
   try {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     firebaseReady = true;
   } catch (e) {
     debugPrint('Firebase unavailable — continuing without push notifications: $e');
