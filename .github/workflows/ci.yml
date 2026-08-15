@@ -16,7 +16,7 @@ jobs:
           version: 11.9.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter api typecheck
@@ -33,7 +33,7 @@ jobs:
           version: 11.9.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter admin typecheck
@@ -69,6 +69,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.44.2
           cache: true
       - run: flutter pub get
       - run: flutter analyze
