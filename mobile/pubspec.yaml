@@ -58,8 +58,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/images/
-    - assets/icons/
     - assets/branding/
 
 # ── App icon (rounded adaptive) — run: dart run flutter_launcher_icons ─────────
