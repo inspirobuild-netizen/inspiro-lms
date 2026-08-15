@@ -16,10 +16,21 @@ void main() async {
   // Must run before anything touches ApiClient.dio (cookie jar + interceptors).
   await ApiClient.init();
 
-  await Firebase.initializeApp();
+  // Firebase is optional at startup. On iOS a missing GoogleService-Info.plist
+  // makes initializeApp() throw, and because this runs before runApp() an
+  // unguarded call takes the whole app down on launch — a build without the
+  // config would look like a mystery crash rather than "push isn't set up".
+  // Losing push is acceptable; failing to start is not.
+  var firebaseReady = false;
+  try {
+    await Firebase.initializeApp();
+    firebaseReady = true;
+  } catch (e) {
+    debugPrint('Firebase unavailable — continuing without push notifications: $e');
+  }
 
   // FCM — init after Firebase, non-blocking (token registration happens async)
-  unawaited(NotificationService.init());
+  if (firebaseReady) unawaited(NotificationService.init());
 
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
