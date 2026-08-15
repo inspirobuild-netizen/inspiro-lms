@@ -2,8 +2,10 @@ import { eq, and, count, asc, inArray, gt, isNull, or, sql } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { signBunnyUrl, signBunnyFileUrl } from '../../lib/bunny.js';
 import {
+  admissions,
   courses,
   batches,
+  enrollmentRequests,
   modules,
   lessons,
   lessonProgress,
@@ -349,6 +351,70 @@ export async function updateCourse(courseId: string, data: UpdateCourseInput) {
     .returning();
   if (!updated) throw notFound();
   return updated;
+}
+
+// ── Admin: delete course ──────────────────────────────────────────────────────
+/**
+ * Permanently delete a course, but only when nothing depends on it.
+ *
+ * Course is the master of the batch → enrolment chain, so this is the most
+ * destructive delete in the system: modules, lessons and fee plans all CASCADE.
+ * `batches.courseId` and `enrollmentRequests.courseId` are ON DELETE RESTRICT
+ * (Postgres would reject with a raw FK error), and `admissions.courseId` is
+ * SET NULL (which would silently orphan the admission's course). Each is
+ * checked explicitly so the caller gets a sentence, not a constraint name.
+ *
+ * Students are never enrolled in a course directly — they enrol in a batch —
+ * so "no students enrolled" is enforced by refusing any batch at all.
+ */
+export async function deleteCourse(courseId: string) {
+  return db.transaction(async (tx) => {
+    const [course] = await tx.select().from(courses).where(eq(courses.id, courseId)).limit(1);
+    if (!course) throw notFound();
+
+    const [{ batchCount }] = await tx
+      .select({ batchCount: count() })
+      .from(batches)
+      .where(eq(batches.courseId, courseId));
+    if (batchCount > 0) {
+      throw Object.assign(
+        new Error(
+          `This course has ${batchCount} batch${batchCount === 1 ? '' : 'es'} under it. Delete those first — students enrol in batches, so the batches carry the enrolments.`,
+        ),
+        { statusCode: 409, code: 'COURSE_HAS_BATCHES' },
+      );
+    }
+
+    const [{ admitted }] = await tx
+      .select({ admitted: count() })
+      .from(admissions)
+      .where(eq(admissions.courseId, courseId));
+    if (admitted > 0) {
+      throw Object.assign(
+        new Error(
+          `This course is referenced by ${admitted} admission record${admitted === 1 ? '' : 's'}. Unpublish it instead so the admission history stays intact.`,
+        ),
+        { statusCode: 409, code: 'COURSE_HAS_ADMISSIONS' },
+      );
+    }
+
+    const [{ requests }] = await tx
+      .select({ requests: count() })
+      .from(enrollmentRequests)
+      .where(eq(enrollmentRequests.courseId, courseId));
+    if (requests > 0) {
+      throw Object.assign(
+        new Error(
+          `This course has ${requests} enrolment request${requests === 1 ? '' : 's'} from the app. Resolve or reject them first.`,
+        ),
+        { statusCode: 409, code: 'COURSE_HAS_ENROLLMENT_REQUESTS' },
+      );
+    }
+
+    // Modules → lessons and fee plans cascade from here.
+    await tx.delete(courses).where(eq(courses.id, courseId));
+    return { deleted: true, id: courseId, title: course.title };
+  });
 }
 
 // ── Admin: create module ──────────────────────────────────────────────────────

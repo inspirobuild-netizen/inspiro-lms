@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createApiClient, ApiError } from '@/lib/api';
-import { useAuthStore } from '@/lib/auth';
+import { useAuthStore, useHasPermission } from '@/lib/auth';
 import { DataTable, Pagination, type Column } from '@/components/shared/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,6 +46,13 @@ export default function BatchesPage() {
     enabled: !!accessToken,
   });
 
+  // Every write below is gated on batches.manage. Without this an Admission
+  // Counsellor (who holds only batches.view) saw Activate/Archive/Delete and
+  // got a 403 on click — controls that lie about what the role can do.
+  const has = useHasPermission();
+  const canManage = has('batches.manage');
+  const [deleting, setDeleting] = useState<Batch | null>(null);
+
   const setStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       api.patch(`/api/v1/admin/batches/${id}`, { status }),
@@ -85,16 +92,26 @@ export default function BatchesPage() {
       render: (b) => (
         <div className="flex gap-2 justify-end">
           <Link href={`/batches/${b.id}`}>
-            <Button variant="outline" size="sm">Manage</Button>
+            <Button variant="outline" size="sm">{canManage ? 'Manage' : 'View'}</Button>
           </Link>
-          {b.status === 'upcoming' && (
+          {canManage && b.status === 'upcoming' && (
             <Button variant="ghost" size="sm" onClick={() => setStatus.mutate({ id: b.id, status: 'active' })}>
               Activate
             </Button>
           )}
-          {b.status === 'active' && (
+          {canManage && b.status === 'active' && (
             <Button variant="ghost" size="sm" onClick={() => setStatus.mutate({ id: b.id, status: 'archived' })}>
               Archive
+            </Button>
+          )}
+          {canManage && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-rose-400 hover:text-rose-300"
+              onClick={() => setDeleting(b)}
+            >
+              Delete
             </Button>
           )}
         </div>
@@ -109,7 +126,9 @@ export default function BatchesPage() {
           <h2 className="font-display font-bold text-2xl text-slate-100">Batches</h2>
           <p className="text-slate-400 text-sm mt-1">{data?.meta?.total ?? 0} batches</p>
         </div>
-        <NewBatchButton onCreated={() => void qc.invalidateQueries({ queryKey: ['admin', 'batches'] })} />
+        {canManage && (
+          <NewBatchButton onCreated={() => void qc.invalidateQueries({ queryKey: ['admin', 'batches'] })} />
+        )}
       </div>
 
       <DataTable
@@ -117,11 +136,77 @@ export default function BatchesPage() {
         data={data?.data ?? []}
         loading={isLoading}
         getKey={(b) => b.id}
-        emptyMessage="No batches yet — create your first one"
+        emptyMessage={canManage ? 'No batches yet — create your first one' : 'No batches to show'}
       />
 
       <Pagination page={page} limit={limit} total={data?.meta?.total ?? 0} onPage={setPage} />
+
+      <DeleteBatchModal
+        batch={deleting}
+        onClose={() => setDeleting(null)}
+        onDeleted={() => void qc.invalidateQueries({ queryKey: ['admin', 'batches'] })}
+      />
     </div>
+  );
+}
+
+// Deleting a batch is only allowed when nothing depends on it. The server is
+// the authority (it re-checks enrolments, admissions and live classes inside a
+// transaction); this modal shows the enrolment count up front so the common
+// "batch created by mistake" case is one confirm, and surfaces the server's
+// explanation verbatim when something else is in the way.
+function DeleteBatchModal({
+  batch, onClose, onDeleted,
+}: {
+  batch: Batch | null; onClose: () => void; onDeleted: () => void;
+}) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: students } = useQuery({
+    queryKey: ['admin', 'batch', batch?.id, 'students', 'precheck'],
+    queryFn: () => api.get<unknown[]>(`/api/v1/admin/batches/${batch!.id}/students?limit=1`),
+    enabled: !!accessToken && !!batch,
+  });
+  const enrolled = students?.meta?.total ?? 0;
+
+  const del = useMutation({
+    mutationFn: () => api.delete(`/api/v1/admin/batches/${batch!.id}`),
+    onSuccess: () => { setError(null); onDeleted(); onClose(); },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to delete batch'),
+  });
+
+  if (!batch) return null;
+  const blocked = enrolled > 0;
+
+  return (
+    <Modal open onClose={onClose} title="Delete batch" description={batch.name}>
+      <div className="space-y-3">
+        {blocked ? (
+          <p className="text-sm text-amber-300">
+            This batch has <strong>{enrolled}</strong> enrolled student{enrolled === 1 ? '' : 's'}. It can’t be
+            deleted — unenrol them first, or archive the batch to retire it while keeping its history.
+          </p>
+        ) : (
+          <p className="text-sm text-slate-300">
+            No students are enrolled. This permanently removes the batch and its instructor assignments.
+            This cannot be undone.
+          </p>
+        )}
+        {error && <p className="text-sm text-rose-400">{error}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button
+            className="bg-rose-600 hover:bg-rose-500"
+            disabled={blocked || del.isPending}
+            onClick={() => del.mutate()}
+          >
+            {del.isPending ? 'Deleting…' : 'Delete batch'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

@@ -23,6 +23,7 @@ import {
   updateProgress,
   createCourse,
   updateCourse,
+  deleteCourse,
   createModule,
   updateModule,
   reorderModules,
@@ -99,7 +100,7 @@ export default async function coursesRoutes(app: FastifyInstance) {
   // ── Create course ──────────────────────────────────────────────────────────
   app.post(
     '/admin/courses',
-    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'courses.manage')] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const input = validate(createCourseSchema, req.body, reply);
       if (!input) return;
@@ -111,7 +112,7 @@ export default async function coursesRoutes(app: FastifyInstance) {
   // ── Update course ──────────────────────────────────────────────────────────
   app.patch(
     '/admin/courses/:id',
-    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'courses.manage')] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const input = validate(updateCourseSchema, req.body, reply);
@@ -121,10 +122,21 @@ export default async function coursesRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── Delete course (only when nothing depends on it) ────────────────────────
+  app.delete(
+    '/admin/courses/:id',
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const result = await deleteCourse(id);
+      return reply.send({ success: true, data: result });
+    },
+  );
+
   // ── Create module ──────────────────────────────────────────────────────────
   app.post(
     '/admin/courses/:id/modules',
-    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'courses.manage')] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const input = validate(createModuleSchema, req.body, reply);
@@ -137,7 +149,7 @@ export default async function coursesRoutes(app: FastifyInstance) {
   // ── Update module ──────────────────────────────────────────────────────────
   app.patch(
     '/admin/modules/:id',
-    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'courses.manage')] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const input = validate(updateModuleSchema, req.body, reply);
@@ -150,7 +162,7 @@ export default async function coursesRoutes(app: FastifyInstance) {
   // ── Reorder modules ────────────────────────────────────────────────────────
   app.post(
     '/admin/courses/:id/modules/reorder',
-    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'courses.manage')] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const input = validate(reorderModulesSchema, req.body, reply);
       if (!input) return;
@@ -162,7 +174,7 @@ export default async function coursesRoutes(app: FastifyInstance) {
   // ── Delete module ──────────────────────────────────────────────────────────
   app.delete(
     '/admin/modules/:id',
-    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'courses.manage')] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const result = await deleteModule(id);
@@ -173,7 +185,7 @@ export default async function coursesRoutes(app: FastifyInstance) {
   // ── Create lesson ──────────────────────────────────────────────────────────
   app.post(
     '/admin/modules/:id/lessons',
-    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'courses.manage')] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const input = validate(createLessonSchema, req.body, reply);
@@ -186,7 +198,7 @@ export default async function coursesRoutes(app: FastifyInstance) {
   // ── Update lesson ──────────────────────────────────────────────────────────
   app.patch(
     '/admin/lessons/:id',
-    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'courses.manage')] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const input = validate(updateLessonSchema, req.body, reply);
@@ -199,7 +211,7 @@ export default async function coursesRoutes(app: FastifyInstance) {
   // ── Reorder lessons ────────────────────────────────────────────────────────
   app.post(
     '/admin/modules/:id/lessons/reorder',
-    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'courses.manage')] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const input = validate(
         z.object({ items: z.array(z.object({ id: z.string().uuid(), order: z.number().int().nonnegative() })).min(1) }),
@@ -215,7 +227,7 @@ export default async function coursesRoutes(app: FastifyInstance) {
   // ── Delete lesson ──────────────────────────────────────────────────────────
   app.delete(
     '/admin/lessons/:id',
-    { preHandler: [authenticate, requireRoleOrPermission(['admin', 'instructor'], 'courses.manage')] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const result = await deleteLesson(id);

@@ -6,6 +6,7 @@ import {
   batchEnrollments,
   batchInstructors,
   feePlans,
+  liveClasses,
   users,
   courses,
 } from '../../../drizzle/schema.js';
@@ -113,6 +114,63 @@ export async function updateBatch(batchId: string, data: UpdateBatchInput) {
 }
 
 // ── Archive batch ─────────────────────────────────────────────────────────────
+/**
+ * Permanently delete a batch, but only when nothing of record hangs off it.
+ *
+ * The FKs make an unguarded delete quietly destructive: enrollments,
+ * instructors, live classes and attendance all CASCADE, and `admissions.batchId`
+ * is ON DELETE SET NULL — so deleting a batch with a paid admission would
+ * detach that admission from its batch instead of failing. Each blocker gets
+ * its own code so the UI can say what is in the way rather than "cannot delete".
+ *
+ * Use archiveBatch (or PATCH status) to retire a batch that has history.
+ */
+export async function deleteBatch(batchId: string) {
+  return db.transaction(async (tx) => {
+    const [batch] = await tx.select().from(batches).where(eq(batches.id, batchId)).limit(1);
+    if (!batch) throw notFound();
+
+    // Every enrollment counts, not just active ones: a suspended row is still a
+    // record that a student sat in this batch.
+    const [{ enrolled }] = await tx
+      .select({ enrolled: count() })
+      .from(batchEnrollments)
+      .where(eq(batchEnrollments.batchId, batchId));
+    if (enrolled > 0) {
+      throw conflict(
+        `This batch has ${enrolled} enrolled student${enrolled === 1 ? '' : 's'}. Remove them or archive the batch instead.`,
+        'BATCH_HAS_ENROLLMENTS',
+      );
+    }
+
+    const [{ admitted }] = await tx
+      .select({ admitted: count() })
+      .from(admissions)
+      .where(eq(admissions.batchId, batchId));
+    if (admitted > 0) {
+      throw conflict(
+        `This batch is referenced by ${admitted} admission record${admitted === 1 ? '' : 's'}. Archive it instead so the admission history stays intact.`,
+        'BATCH_HAS_ADMISSIONS',
+      );
+    }
+
+    const [{ classes }] = await tx
+      .select({ classes: count() })
+      .from(liveClasses)
+      .where(eq(liveClasses.batchId, batchId));
+    if (classes > 0) {
+      throw conflict(
+        `This batch has ${classes} live class${classes === 1 ? '' : 'es'} scheduled or recorded. Delete those first, or archive the batch.`,
+        'BATCH_HAS_LIVE_CLASSES',
+      );
+    }
+
+    await tx.delete(batchInstructors).where(eq(batchInstructors.batchId, batchId));
+    await tx.delete(batches).where(eq(batches.id, batchId));
+    return { deleted: true, id: batchId, name: batch.name };
+  });
+}
+
 export async function archiveBatch(batchId: string) {
   const [updated] = await db
     .update(batches)

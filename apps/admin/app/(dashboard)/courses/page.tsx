@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createApiClient, ApiError } from '@/lib/api';
-import { useAuthStore } from '@/lib/auth';
+import { useAuthStore, useHasPermission } from '@/lib/auth';
 import { DataTable, Pagination, type Column } from '@/components/shared/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,8 @@ export default function CoursesPage() {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
   const qc = useQueryClient();
+  // Publish/unpublish, create and content editing all need courses.manage.
+  const canManage = useHasPermission()('courses.manage');
   const [page, setPage] = useState(1);
   const limit = 20;
 
@@ -88,16 +90,18 @@ export default function CoursesPage() {
       render: (c) => (
         <div className="flex gap-2 justify-end">
           <Link href={`/courses/${c.id}`}>
-            <Button variant="outline" size="sm">Manage content</Button>
+            <Button variant="outline" size="sm">{canManage ? 'Manage content' : 'View content'}</Button>
           </Link>
-          <Button
-            variant="ghost"
-            size="sm"
-            loading={togglePublish.isPending && (togglePublish.variables as { id: string })?.id === c.id}
-            onClick={() => togglePublish.mutate({ id: c.id, isPublished: !c.isPublished })}
-          >
-            {c.isPublished ? 'Unpublish' : 'Publish'}
-          </Button>
+          {canManage && (
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={togglePublish.isPending && (togglePublish.variables as { id: string })?.id === c.id}
+              onClick={() => togglePublish.mutate({ id: c.id, isPublished: !c.isPublished })}
+            >
+              {c.isPublished ? 'Unpublish' : 'Publish'}
+            </Button>
+          )}
         </div>
       ),
     },
@@ -110,7 +114,7 @@ export default function CoursesPage() {
           <h2 className="font-display font-bold text-2xl text-slate-100">Courses</h2>
           <p className="text-slate-400 text-sm mt-1">{data?.meta?.total ?? 0} courses</p>
         </div>
-        <CreateCourseButton onCreated={() => void qc.invalidateQueries({ queryKey: ['admin', 'courses'] })} />
+        {canManage && <CreateCourseButton onCreated={() => void qc.invalidateQueries({ queryKey: ['admin', 'courses'] })} />}
       </div>
 
       <DataTable

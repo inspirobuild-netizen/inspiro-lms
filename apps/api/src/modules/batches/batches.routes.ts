@@ -10,6 +10,7 @@ import {
   listBatchesSchema,
 } from './batches.schema.js';
 import {
+  deleteBatch,
   listBatches,
   getBatchById,
   createBatch,
@@ -93,9 +94,24 @@ export default async function batchesRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── Admin: archive batch ───────────────────────────────────────────────────
+  // ── Admin: delete batch (only when nothing depends on it) ──────────────────
+  // This used to archive, which meant the UI's delete silently left the batch
+  // in place as `archived`. Archiving is still available via
+  // PATCH /admin/batches/:id { status: 'archived' } — the update schema already
+  // accepts status — so retiring a batch with history is unchanged.
   app.delete(
     '/admin/batches/:id',
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const result = await deleteBatch(id);
+      return reply.send({ success: true, data: result });
+    },
+  );
+
+  // ── Admin: archive batch (explicit, for batches that have history) ─────────
+  app.post(
+    '/admin/batches/:id/archive',
     { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
     async (req, reply) => {
       const { id } = req.params as { id: string };

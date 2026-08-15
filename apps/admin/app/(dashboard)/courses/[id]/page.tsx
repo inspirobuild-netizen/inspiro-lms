@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createApiClient, ApiError } from '@/lib/api';
@@ -114,7 +114,9 @@ export default function CourseBuilderPage() {
 
       {has('fees.configure') && <FeesSection courseId={id} feeAmount={course.feeAmount} onCourseFeeChanged={invalidate} />}
 
-      <BatchesSection courseId={id} courseTitle={course.title} />
+      <BatchesSection courseId={id} courseTitle={course.title} canManageBatches={has('batches.manage')} />
+
+      {has('courses.manage') && <DangerZone courseId={id} courseTitle={course.title} />}
 
       {/* Modules */}
       <div className="space-y-4">
@@ -341,12 +343,102 @@ function ThumbnailSection({ courseId, thumbnailUrl, onChanged }: { courseId: str
   );
 }
 
+// ── Danger zone: delete this course ───────────────────────────────────────────
+// A course can only go when nothing hangs off it. Students never enrol in a
+// course directly — they enrol in a batch — so "no students" is enforced by
+// refusing while any batch exists. The server re-checks batches, admissions and
+// app enrolment requests in a transaction; this UI does a cheap pre-check so the
+// common case reads clearly, and shows the server's own sentence otherwise.
+function DangerZone({ courseId, courseTitle }: { courseId: string; courseTitle: string }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: batchesData } = useQuery({
+    queryKey: ['admin', 'course', courseId, 'batches'],
+    queryFn: () => api.get<CourseBatch[]>(`/api/v1/batches?courseId=${courseId}&limit=50`),
+    enabled: !!accessToken,
+  });
+  const batchCount = batchesData?.data?.length ?? 0;
+
+  const del = useMutation({
+    mutationFn: () => api.delete(`/api/v1/admin/courses/${courseId}`),
+    onSuccess: () => { setError(null); setOpen(false); router.push('/courses'); },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to delete course'),
+  });
+
+  const blocked = batchCount > 0;
+  // Typing the title is deliberate friction: deleting a course cascades its
+  // modules, lessons and fee plans.
+  const confirmed = confirmText.trim() === courseTitle.trim();
+
+  return (
+    <section className="rounded-2xl border border-rose-500/20 bg-rose-500/[0.03] p-5">
+      <h3 className="font-display font-semibold text-lg text-rose-300">Danger zone</h3>
+      <p className="text-sm text-slate-400 mt-1">
+        Deleting a course also removes its modules, lessons and fee plans. Only possible while no
+        batches, admissions or enrolment requests reference it.
+      </p>
+      <Button
+        size="sm"
+        className="mt-3 bg-rose-600 hover:bg-rose-500"
+        onClick={() => { setError(null); setConfirmText(''); setOpen(true); }}
+      >
+        Delete course
+      </Button>
+
+      <Modal open={open} onClose={() => setOpen(false)} title="Delete course" description={courseTitle}>
+        <div className="space-y-3">
+          {blocked ? (
+            <p className="text-sm text-amber-300">
+              This course has <strong>{batchCount}</strong> batch{batchCount === 1 ? '' : 'es'} under it.
+              Delete those first — students enrol in batches, so the batches carry the enrolments.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-slate-300">
+                This permanently removes the course along with its modules, lessons and fee plans.
+                This cannot be undone.
+              </p>
+              <Field label={`Type the course name to confirm`}>
+                <Input
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                  placeholder={courseTitle}
+                />
+              </Field>
+            </>
+          )}
+          {error && <p className="text-sm text-rose-400">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-rose-600 hover:bg-rose-500"
+              disabled={blocked || !confirmed || del.isPending}
+              onClick={() => del.mutate()}
+            >
+              {del.isPending ? 'Deleting…' : 'Delete course'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </section>
+  );
+}
+
 // ── Batches under this course ─────────────────────────────────────────────────
 // Course is the master; a batch belongs to exactly one course and students
 // enrol into the batch. Batches were only reachable from the top-level Batches
 // page with a course dropdown, so the course itself never showed what ran under
 // it. Creating from here scopes the batch to this course implicitly.
-function BatchesSection({ courseId, courseTitle }: { courseId: string; courseTitle: string }) {
+function BatchesSection({
+  courseId, courseTitle, canManageBatches,
+}: {
+  courseId: string; courseTitle: string; canManageBatches: boolean;
+}) {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
   const qc = useQueryClient();
@@ -369,7 +461,7 @@ function BatchesSection({ courseId, courseTitle }: { courseId: string; courseTit
             ({batches.length}) — students enrol into a batch, not the course
           </span>
         </h3>
-        <Button size="sm" onClick={() => setCreating(true)}>+ Create batch</Button>
+        {canManageBatches && <Button size="sm" onClick={() => setCreating(true)}>+ Create batch</Button>}
       </div>
 
       <div className="rounded-2xl border border-white/8 bg-surface-1 divide-y divide-white/5">
@@ -423,7 +515,7 @@ function CreateBatchModal({
   const api = createApiClient(accessToken);
   const [name, setName] = useState('');
   const [type, setType] = useState('offline');
-  const [targetExam, setTargetExam] = useState('upsc_cse');
+  const [targetExam, setTargetExam] = useState('upsc');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [capacity, setCapacity] = useState('60');
@@ -460,10 +552,9 @@ function CreateBatchModal({
           </Field>
           <Field label="Target exam">
             <Select value={targetExam} onChange={(e) => setTargetExam(e.target.value)}>
-              <option value="upsc_cse">UPSC CSE</option>
+              <option value="upsc">UPSC</option>
               <option value="kerala_psc">Kerala PSC</option>
-              <option value="ssc">SSC</option>
-              <option value="banking">Banking</option>
+              <option value="other_psc">Other PSC</option>
             </Select>
           </Field>
         </div>

@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createApiClient, ApiError } from '@/lib/api';
-import { useAuthStore } from '@/lib/auth';
+import { useAuthStore, useHasPermission } from '@/lib/auth';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,8 @@ export default function BatchDetailPage() {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
   const qc = useQueryClient();
+  // batches.view can reach this page; every write below needs batches.manage.
+  const canManage = useHasPermission()('batches.manage');
 
   const batchKey = ['admin', 'batch', id];
   const { data, isError, refetch } = useQuery({
@@ -104,11 +106,11 @@ export default function BatchDetailPage() {
           <h3 className="font-display font-semibold text-lg text-slate-200">
             Students <span className="text-slate-500 text-sm font-normal">({batch?.enrolledCount ?? 0} enrolled)</span>
           </h3>
-          <EnrollStudentButton batchId={id} courseId={batch?.course.id} onEnrolled={invalidate} />
+          {canManage && <EnrollStudentButton batchId={id} courseId={batch?.course.id} onEnrolled={invalidate} />}
         </div>
         {students.length === 0 ? (
           <p className="text-slate-500 text-sm rounded-2xl border border-white/8 bg-surface-1 p-6 text-center">
-            No students enrolled — use “Enroll student” to add them.
+            {canManage ? 'No students enrolled — use “Enroll student” to add them.' : 'No students enrolled.'}
           </p>
         ) : (
           <div className="rounded-2xl border border-white/8 bg-surface-1 divide-y divide-white/5">
@@ -118,12 +120,14 @@ export default function BatchDetailPage() {
                   <p className="text-sm text-slate-200">{s.user.name}</p>
                   <p className="text-xs text-slate-500">{formatPhone(s.user.phone)}</p>
                 </div>
-                <button
-                  className="text-xs text-rose-400/70 hover:text-rose-400"
-                  onClick={() => { if (confirm(`Remove ${s.user.name} from this batch?`)) unenroll.mutate(s.user.id); }}
-                >
-                  Unenroll
-                </button>
+                {canManage && (
+                  <button
+                    className="text-xs text-rose-400/70 hover:text-rose-400"
+                    onClick={() => { if (confirm(`Remove ${s.user.name} from this batch?`)) unenroll.mutate(s.user.id); }}
+                  >
+                    Unenroll
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -134,7 +138,7 @@ export default function BatchDetailPage() {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="font-display font-semibold text-lg text-slate-200">Instructors</h3>
-          <AssignInstructorButton batchId={id} assigned={batch?.instructors.map((i) => i.id) ?? []} onAssigned={invalidate} />
+          {canManage && <AssignInstructorButton batchId={id} assigned={batch?.instructors.map((i) => i.id) ?? []} onAssigned={invalidate} />}
         </div>
         {(batch?.instructors ?? []).length === 0 ? (
           <p className="text-slate-500 text-sm rounded-2xl border border-white/8 bg-surface-1 p-6 text-center">
@@ -145,12 +149,14 @@ export default function BatchDetailPage() {
             {batch!.instructors.map((i) => (
               <div key={i.id} className="flex items-center justify-between px-5 py-3">
                 <p className="text-sm text-slate-200">{i.name}</p>
-                <button
-                  className="text-xs text-rose-400/70 hover:text-rose-400"
-                  onClick={() => { if (confirm(`Remove ${i.name} as an instructor for this batch?`)) removeInstructor.mutate(i.id); }}
-                >
-                  Remove
-                </button>
+                {canManage && (
+                  <button
+                    className="text-xs text-rose-400/70 hover:text-rose-400"
+                    onClick={() => { if (confirm(`Remove ${i.name} as an instructor for this batch?`)) removeInstructor.mutate(i.id); }}
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
             ))}
           </div>
