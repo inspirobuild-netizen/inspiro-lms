@@ -76,6 +76,26 @@ export async function createEnrollRequest(studentId: string, input: CreateEnroll
     .limit(1);
   if (!course) throw err('Course not found', 404, 'COURSE_NOT_FOUND');
 
+  // Already enrolled? Then there is nothing to buy. Without this the student
+  // gets a UPI QR for money they do not owe and an app lead is raised for a
+  // course they already have — the duplicate check below only covers a second
+  // *pending request*, not an existing enrolment.
+  const [already] = await db
+    .select({ batchId: batchEnrollments.batchId })
+    .from(batchEnrollments)
+    .innerJoin(batches, eq(batches.id, batchEnrollments.batchId))
+    .where(
+      and(
+        eq(batchEnrollments.userId, studentId),
+        eq(batchEnrollments.status, 'active'),
+        eq(batches.courseId, input.courseId),
+      ),
+    )
+    .limit(1);
+  if (already) {
+    throw err('You are already enrolled in this course', 409, 'ALREADY_ENROLLED');
+  }
+
   const { amount, feePlanId } = await resolveAmount(input.courseId, input.feePlanId, input.installmentIndex);
   const lead = await ensureLead(studentId);
 
