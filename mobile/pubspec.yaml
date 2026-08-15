@@ -27,7 +27,9 @@ dependencies:
   media_kit_libs_video: ^1.0.5
 
   # Live class
-  agora_rtc_engine: ^6.3.2
+  # Pinned: 6.5.4 is the version proven to build on iOS under CocoaPods.
+  # A floating range is how the SPM header break reached us in the first place.
+  agora_rtc_engine: 6.5.4
 
   # UI
   cached_network_image: ^3.3.1
@@ -63,7 +65,10 @@ flutter:
 # ── App icon (rounded adaptive) — run: dart run flutter_launcher_icons ─────────
 flutter_launcher_icons:
   android: true
-  ios: false
+  ios: true
+  # App Store rejects icons containing an alpha channel, and the source is
+  # RGBA — this flattens it for the iOS set only.
+  remove_alpha_ios: true
   # Square icon source (generated from the logo — see scripts/make_icon).
   image_path: "assets/branding/app_icon.png"
   adaptive_icon_background: "#FFFFFF"

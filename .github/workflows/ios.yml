@@ -132,8 +132,11 @@ jobs:
 
           rm -f $RUNNER_TEMP/dist.p12
 
+      # --export-method avoids hand-writing an ExportOptions.plist, which would
+      # need the Apple team id and profile name. UNVERIFIED: this job cannot run
+      # until the signing secrets exist, so treat the first run as a shakedown.
       - name: Build signed IPA
-        run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+        run: flutter build ipa --release --export-method app-store
 
       - name: Upload to TestFlight
         env:
