@@ -55,5 +55,3 @@ key.properties
 google-services.json
 firebase-service-account*.json
 
-# CI workflow — add later via GitHub UI or a workflow-scoped token
-.github/workflows/

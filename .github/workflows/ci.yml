@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  api:
+    name: API — typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter api typecheck
+      - run: pnpm --filter api test
+      - run: pnpm --filter api build
+
+  admin:
+    name: Admin — typecheck, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter admin typecheck
+      - run: pnpm --filter admin build
+        env:
+          NEXT_PUBLIC_API_URL: https://api.inspiro.in
+
+  ai:
+    name: AI service — lint, test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: apps/ai/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check app tests
+      - run: pytest tests -q
+
+  flutter:
+    name: Flutter — analyze
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
