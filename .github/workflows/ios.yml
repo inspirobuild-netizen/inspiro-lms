@@ -34,6 +34,15 @@ jobs:
       - name: Flutter version
         run: flutter --version
 
+      # Flutter 3.44's `flutter create` produces an SPM-enabled iOS project, but
+      # agora_rtc_engine 6.5.x does not build that way — Xcode cannot find
+      # AgoraRtcWrapper/AgoraPIPController.h. flutter_local_notifications,
+      # media_kit_libs_ios_video and media_kit_video don't support SPM at all
+      # (the build logs them explicitly), so CocoaPods is the only integration
+      # this plugin set works on. Revisit once Agora ships SPM support.
+      - name: Use CocoaPods instead of Swift Package Manager
+        run: flutter config --no-enable-swift-package-manager
+
       - run: flutter pub get
 
       # No Firebase secret step: config comes from the committed
@@ -88,6 +97,15 @@ jobs:
           channel: stable
           flutter-version: 3.44.2
           cache: true
+
+      # Flutter 3.44's `flutter create` produces an SPM-enabled iOS project, but
+      # agora_rtc_engine 6.5.x does not build that way — Xcode cannot find
+      # AgoraRtcWrapper/AgoraPIPController.h. flutter_local_notifications,
+      # media_kit_libs_ios_video and media_kit_video don't support SPM at all
+      # (the build logs them explicitly), so CocoaPods is the only integration
+      # this plugin set works on. Revisit once Agora ships SPM support.
+      - name: Use CocoaPods instead of Swift Package Manager
+        run: flutter config --no-enable-swift-package-manager
 
       - run: flutter pub get
 

@@ -510,6 +510,15 @@ works regardless.
   completing fine server-side — check the DB, not the HTTP response.
 - Bodyless `POST`/`PATCH` from Dio must send `data: {}`; Fastify rejects
   `Content-Type: application/json` with an empty body (`FST_ERR_CTP_EMPTY_JSON_BODY`).
+- iOS builds must use **CocoaPods, not Swift Package Manager**. Flutter 3.44's
+  `flutter create` generates an SPM-enabled iOS project, but agora_rtc_engine
+  6.5.x fails there with `'AgoraRtcWrapper/AgoraPIPController.h' file not
+  found`, and flutter_local_notifications + media_kit_* don't support SPM at
+  all. CI runs `flutter config --no-enable-swift-package-manager` before
+  building; do the same on any Mac used for local iOS work.
+- `flutter analyze` exits 1 on warnings, and git does not track empty
+  directories — an asset directory declared in pubspec but empty passes
+  locally and fails in CI. Declare only directories with committed files.
 
 ---
 
