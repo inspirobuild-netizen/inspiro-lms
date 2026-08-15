@@ -130,5 +130,10 @@ class SummarizeArticleRequest(BaseModel):
 class SummarizeArticleResponse(BaseModel):
     summary: str
     exam_relevance: str
+    # 0..1. The API used to derive this by regexing `exam_relevance` prose,
+    # which matched the paper names a dismissal also mentions — every article
+    # scored the same. The model now grades against a rubric and returns the
+    # number directly.
+    exam_relevance_score: float = Field(default=0.5, ge=0.0, le=1.0)
     tags: list[str]
     mcqs: list[GeneratedQuestion] = Field(default_factory=list)

@@ -37,6 +37,10 @@ export interface AiExamResult {
 export interface AiSummaryResult {
   summary: string;
   exam_relevance: string;
+  /** 0..1, graded by the AI service against a rubric. Optional so an older
+   *  AI deployment doesn't break ingestion — callers fall back to the text
+   *  heuristic when it's absent. */
+  exam_relevance_score?: number;
   tags: string[];
   mcqs: AiGeneratedQuestion[];
 }

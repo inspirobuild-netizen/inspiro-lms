@@ -351,3 +351,44 @@ async def test_non_retryable_4xx_reports_body(monkeypatch, caplog):
     with caplog.at_level("ERROR"), pytest.raises(LlmError):
         await client.chat("system", "user")
     assert "model_decommissioned" in caplog.text
+
+
+# ── Exam-relevance score ───────────────────────────────────────────────────────
+
+def test_relevance_score_parsing_handles_model_variety():
+    """The model returns this as a float, an int, or a string, depending on the day."""
+    from app.routers.current_affairs import _parse_score
+
+    assert _parse_score(0.9) == 0.9
+    assert _parse_score(0) == 0.0
+    assert _parse_score(1) == 1.0
+    assert _parse_score("0.75") == 0.75
+    assert _parse_score("80%") == 0.8   # percent form
+    assert _parse_score(80) == 0.8      # bare percent
+    assert _parse_score(-2) == 0.0      # clamped up from below
+
+
+def test_out_of_range_score_is_never_promoted():
+    """A value above 1 is read as a percentage, not clamped up to 1.0.
+
+    The prompt asks for 0.0-1.0, so anything above it means the model either
+    used a percent scale or malfunctioned. Dividing sends a malfunction to the
+    bottom; clamping would send it to maximum relevance and badge the article
+    EXAM RELEVANT on the strength of a broken answer. Under-showing beats
+    over-claiming, which is the whole reason this scoring was rewritten.
+    """
+    from app.routers.current_affairs import _parse_score
+
+    assert _parse_score(1.4) < 0.7
+    assert _parse_score(999) < 0.7
+
+
+def test_relevance_score_falls_back_below_the_badge_threshold():
+    """A missing or junk score must never promote an article the model never graded.
+
+    The app badges at >= 0.7, so the fallback sits deliberately under it.
+    """
+    from app.routers.current_affairs import _parse_score
+
+    for bad in (None, "high", {}, [], True, False):
+        assert _parse_score(bad) < 0.7

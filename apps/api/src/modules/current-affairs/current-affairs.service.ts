@@ -26,6 +26,17 @@ const DEFAULT_FEEDS = [
 
 const MAX_ARTICLES_PER_RUN = 10;
 
+/// Prefer the AI service's graded number; fall back to reading its prose only
+/// when the field is missing (an AI deployment older than the rubric change).
+/// The heuristic below is a poor substitute — it put 100% of a four-day run at
+/// 0.8 — so anything it produces should be treated as "unknown", not a verdict.
+export function resolveRelevance(score: number | undefined, text: string | null | undefined): number {
+  if (typeof score === 'number' && Number.isFinite(score)) {
+    return Math.max(0, Math.min(1, score));
+  }
+  return scoreExamRelevance(text);
+}
+
 /// The AI service returns `exam_relevance` as free text, so this is a
 /// heuristic over prose rather than a real score — but the previous check,
 /// `/GS[1-4]|prelims|mains/i.test(...)`, matched the paper names an LLM
@@ -194,7 +205,7 @@ export async function ingestCurrentAffairs(): Promise<{ ingested: number; skippe
         summary: ai.summary,
         category: resolveCategory(ai.tags, title),
         sourceUrl: item.link || null,
-        upscRelevance: scoreExamRelevance(ai.exam_relevance),
+        upscRelevance: resolveRelevance(ai.exam_relevance_score, ai.exam_relevance),
         quizQuestion: mcq?.question ?? null,
         quizOptions: mcq?.options ?? null,
         quizCorrectIndex: mcq?.correct_index ?? null,
