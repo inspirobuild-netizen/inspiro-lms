@@ -39,22 +39,20 @@ export default function PrivacyPolicyPage() {
           <p className="text-sm text-slate-400 mt-2">Last updated: {UPDATED}</p>
         </header>
 
-        <div className="mt-6 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4 text-sm text-amber-200/90">
-          <strong className="font-semibold">Before publishing:</strong> the bracketed fields below
-          (legal entity name, registered address, Grievance Officer, support email) must be filled
-          in, and this policy should be reviewed by a lawyer. It was drafted from what the software
-          actually does, not from a template — but it is not legal advice.
-        </div>
-
         <Section id="intro" title="1. Who we are">
           <p>
-            This policy explains how <strong>[LEGAL ENTITY NAME]</strong>, operating as Inspiro IAS
-            Academy (&ldquo;Inspiro&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;), handles personal
-            data in the Inspiro mobile app and its administrative platform.
+            This policy explains how <strong>Inspiro</strong> (&ldquo;Inspiro&rdquo;,
+            &ldquo;we&rdquo;, &ldquo;us&rdquo;), which operates Inspiro IAS Academy, handles
+            personal data in the Inspiro mobile app and its administrative platform.
           </p>
           <p>
-            Registered address: <strong>[REGISTERED ADDRESS]</strong>. Contact:{' '}
-            <strong>[SUPPORT EMAIL]</strong>.
+            Registered address: OS 3 GCDA Complex, Marine Drive, Cochin, Ernakulam, Kerala, India.
+            <br />
+            Contact:{' '}
+            <a href="mailto:inspiro.build@gmail.com" className="text-violet-300 hover:underline">
+              inspiro.build@gmail.com
+            </a>
+            .
           </p>
           <p>
             It applies to students who use the app and to staff who use the admin panel. By using
@@ -205,7 +203,8 @@ export default function PrivacyPolicyPage() {
             not required to keep it. You may also withdraw consent.
           </p>
           <p>
-            To make a request, contact us at <strong>[SUPPORT EMAIL]</strong>. We may need to verify
+            To make a request, contact us at{' '}
+            <a href="mailto:inspiro.build@gmail.com" className="text-violet-300 hover:underline">inspiro.build@gmail.com</a>. We may need to verify
             your identity before acting, so that nobody else can make a request in your name.
           </p>
         </Section>
@@ -239,10 +238,10 @@ export default function PrivacyPolicyPage() {
             complaints about how your data is handled may be sent to:
           </p>
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-slate-200">
-            <p><strong>[GRIEVANCE OFFICER NAME]</strong></p>
+            <p><strong>Shafeeq</strong></p>
             <p className="text-slate-400">Grievance Officer, Inspiro IAS Academy</p>
-            <p className="text-slate-400">[GRIEVANCE OFFICER EMAIL]</p>
-            <p className="text-slate-400">[REGISTERED ADDRESS]</p>
+            <p className="text-slate-400"><a href="mailto:ict.uvaisalungal@gmail.com" className="text-violet-300 hover:underline">ict.uvaisalungal@gmail.com</a></p>
+            <p className="text-slate-400">OS 3 GCDA Complex, Marine Drive, Cochin, Ernakulam, Kerala, India</p>
           </div>
           <p>We aim to acknowledge complaints within 24 hours and resolve them within 15 days.</p>
         </Section>
