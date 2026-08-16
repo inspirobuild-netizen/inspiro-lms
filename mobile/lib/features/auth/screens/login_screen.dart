@@ -215,8 +215,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 28),
 
-                  // Sign up / Log in toggle (hidden mid-OTP and on the
-                  // email/testing path — switching then would be confusing)
+                  // Sign up / Log in toggle (hidden mid-OTP and on the email
+                  // path — switching then would be confusing)
                   if (!_useEmailLogin && !_otpSent) ...[
                     _SegmentedToggle(
                       isSignup: _isSignup,
@@ -245,15 +245,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 _useEmailLogin = !_useEmailLogin;
                                 _error = null;
                               }),
+                      // Presented as a first-class option, not a debug hatch.
+                      // It is the only path that works until MSG91 DLT approval
+                      // lands, it is how existing students sign in, and it is
+                      // how an App Store reviewer uses the demo account — a
+                      // control labelled "(testing)" reads as unfinished.
                       child: Text(
                         _useEmailLogin
                             ? 'Use mobile number instead'
-                            // TODO: remove before public release — testing-only
-                            // path while OTP/DLT approval is pending.
-                            : 'Email & password (testing)',
-                        style: TextStyle(
-                            color: _useEmailLogin ? Brand.blue : Colors.white38,
-                            fontSize: _useEmailLogin ? 13 : 12,
+                            : 'Sign in with email instead',
+                        style: const TextStyle(
+                            color: Brand.blue,
+                            fontSize: 13,
                             fontWeight: FontWeight.w600),
                       ),
                     ),
