@@ -19,14 +19,10 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _phoneCtrl = TextEditingController();
   final _otpCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _passwordCtrl = TextEditingController();
 
   bool _otpSent = false;
-  bool _useEmailLogin = false;
-  bool _obscurePassword = true;
   bool _loading = false;
-  // Sign up vs Log in is pure framing — the backend's verify-otp creates the
+  // Sign up vs Log in is pure framing — /auth/phone/firebase creates the
   // account on first use either way. Defaults to Sign up for fresh installs.
   bool _isSignup = true;
   String? _error;
@@ -54,9 +50,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       setState(() => _error = 'Enter a valid 10-digit number');
       return;
     }
+    // No fallback to point at any more — if Firebase did not initialise there
+    // is no other way in, so say something the user can actually act on.
     if (!PhoneAuthService.isAvailable) {
       setState(() => _error =
-          'Mobile sign-in is unavailable on this build. Use email sign-in below.');
+          'Sign-in is unavailable on this build. Please reinstall the latest '
+          'version of the app, or contact the academy for help.');
       return;
     }
     setState(() {
@@ -158,39 +157,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (mounted) context.go('/home');
   }
 
-  Future<void> _loginWithEmail() async {
-    final email = _emailCtrl.text.trim();
-    final password = _passwordCtrl.text;
-    if (email.isEmpty || !email.contains('@')) {
-      setState(() => _error = 'Enter a valid email address');
-      return;
-    }
-    if (password.isEmpty) {
-      setState(() => _error = 'Enter your password');
-      return;
-    }
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final res = await ApiClient.dio.post<Map<String, dynamic>>(
-        '/api/v1/auth/login',
-        data: {'email': email, 'password': password},
-      );
-      final data = res.data!['data'] as Map<String, dynamic>;
-      final user = AuthUser.fromJson(data['user'] as Map<String, dynamic>);
-      final token = data['accessToken'] as String;
-      await ref.read(authProvider.notifier).setAuth(user, token);
-      if (mounted) context.go('/home');
-    } on DioException catch (e) {
-      setState(() {
-        _error = _friendlyError(e);
-        _loading = false;
-      });
-    }
-  }
-
   Future<void> _demoLogin() async {
     await ref.read(authProvider.notifier).setAuth(
           const AuthUser(
@@ -232,8 +198,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   void dispose() {
     _phoneCtrl.dispose();
     _otpCtrl.dispose();
-    _emailCtrl.dispose();
-    _passwordCtrl.dispose();
     super.dispose();
   }
 
@@ -291,9 +255,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 28),
 
-                  // Sign up / Log in toggle (hidden mid-OTP and on the email
-                  // path — switching then would be confusing)
-                  if (!_useEmailLogin && !_otpSent) ...[
+                  // Sign up / Log in toggle (hidden mid-OTP — switching then
+                  // would be confusing)
+                  if (!_otpSent) ...[
                     _SegmentedToggle(
                       isSignup: _isSignup,
                       onChanged: _loading
@@ -306,36 +270,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     const SizedBox(height: 16),
                   ],
 
-                  // Form card
+                  // Form card. Mobile number is now the only way into the app:
+                  // Firebase verifies the number, so the email + password path
+                  // that stood in while MSG91's DLT registration was blocked is
+                  // gone. Staff and admin still sign in with email, but on the
+                  // web admin panel — /auth/login is untouched.
                   _GlassCard(
-                    child: _useEmailLogin
-                        ? _buildEmailStep()
-                        : (_otpSent ? _buildOtpStep() : _buildPhoneStep()),
-                  ),
-                  const SizedBox(height: 16),
-                  Center(
-                    child: TextButton(
-                      onPressed: _loading
-                          ? null
-                          : () => setState(() {
-                                _useEmailLogin = !_useEmailLogin;
-                                _error = null;
-                              }),
-                      // Presented as a first-class option, not a debug hatch.
-                      // It is the only path that works until MSG91 DLT approval
-                      // lands, it is how existing students sign in, and it is
-                      // how an App Store reviewer uses the demo account — a
-                      // control labelled "(testing)" reads as unfinished.
-                      child: Text(
-                        _useEmailLogin
-                            ? 'Use mobile number instead'
-                            : 'Sign in with email instead',
-                        style: const TextStyle(
-                            color: Brand.blue,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600),
-                      ),
-                    ),
+                    child: _otpSent ? _buildOtpStep() : _buildPhoneStep(),
                   ),
 
                   if (kDemoMode) ...[
@@ -439,50 +380,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white24, fontSize: 11.5, height: 1.4)),
         ),
-      ],
-    );
-  }
-
-  // ── Email + password step ──────────────────────────────────────────────────
-  Widget _buildEmailStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text('Welcome 👋',
-            style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        const Text('Sign in with your email and password',
-            style: TextStyle(color: Colors.white38, fontSize: 13)),
-        const SizedBox(height: 22),
-        const Text('Email', style: TextStyle(color: Colors.white60, fontSize: 13, fontWeight: FontWeight.w500)),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _emailCtrl,
-          keyboardType: TextInputType.emailAddress,
-          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
-          cursorColor: Brand.blue,
-          decoration: _fieldDecoration('you@example.com'),
-        ),
-        const SizedBox(height: 18),
-        const Text('Password', style: TextStyle(color: Colors.white60, fontSize: 13, fontWeight: FontWeight.w500)),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _passwordCtrl,
-          obscureText: _obscurePassword,
-          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
-          cursorColor: Brand.blue,
-          onSubmitted: (_) => _loginWithEmail(),
-          decoration: _fieldDecoration('••••••••').copyWith(
-            suffixIcon: IconButton(
-              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-              icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                  color: Colors.white38, size: 20),
-            ),
-          ),
-        ),
-        if (_error != null) _errorBox(),
-        const SizedBox(height: 22),
-        _primaryButton(label: 'Sign in', onTap: _loginWithEmail),
       ],
     );
   }
