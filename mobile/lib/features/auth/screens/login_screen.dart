@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/theme/brand.dart';
+import '../services/phone_auth_service.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -30,6 +32,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   String? _error;
   int _resendCountdown = 0;
 
+  // Firebase hands back a verification id with the SMS; the code the user
+  // types is meaningless without it. The resend token tells Firebase a second
+  // request is a retry of the same verification, not a new one.
+  String? _verificationId;
+  int? _resendToken;
+
   void _startResendTimer(int secs) {
     setState(() => _resendCountdown = secs);
     Future.doWhile(() async {
@@ -46,34 +54,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       setState(() => _error = 'Enter a valid 10-digit number');
       return;
     }
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final res = await ApiClient.dio.post<Map<String, dynamic>>(
-        '/api/v1/auth/send-otp',
-        data: {'phone': '91$phone'},
-      );
-      final data = res.data!['data'] as Map<String, dynamic>;
-      _startResendTimer((data['resendAfter'] as num).toInt());
-      setState(() {
-        _otpSent = true;
-        _loading = false;
-      });
-    } on DioException catch (e) {
-      setState(() {
-        _error = _friendlyError(e);
-        _loading = false;
-      });
-    }
-  }
-
-  Future<void> _verifyOtp() async {
-    final phone = _phoneCtrl.text.trim();
-    final otp = _otpCtrl.text.trim();
-    if (!RegExp(r'^\d{6}$').hasMatch(otp)) {
-      setState(() => _error = 'Enter the 6-digit OTP');
+    if (!PhoneAuthService.isAvailable) {
+      setState(() => _error =
+          'Mobile sign-in is unavailable on this build. Use email sign-in below.');
       return;
     }
     setState(() {
@@ -81,21 +64,98 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _error = null;
     });
     try {
-      final res = await ApiClient.dio.post<Map<String, dynamic>>(
-        '/api/v1/auth/verify-otp',
-        data: {'phone': '91$phone', 'otp': otp},
+      await PhoneAuthService.sendCode(
+        phoneE164: '+91$phone',
+        resendToken: _resendToken,
+        onCodeSent: (verificationId, resendToken) {
+          if (!mounted) return;
+          _verificationId = verificationId;
+          _resendToken = resendToken;
+          _startResendTimer(30);
+          setState(() {
+            _otpSent = true;
+            _loading = false;
+          });
+        },
+        // Android only: the SMS was read for the user, so skip the code screen
+        // entirely rather than making them retype what the phone already has.
+        onAutoVerified: (credential) async {
+          if (!mounted) return;
+          setState(() {
+            _otpSent = true;
+            _loading = true;
+          });
+          try {
+            await _completeSignIn(await PhoneAuthService.exchangeCredential(credential));
+          } catch (e) {
+            if (mounted) {
+              setState(() {
+                _error = _describe(e);
+                _loading = false;
+              });
+            }
+          }
+        },
+        onFailed: (message, _) {
+          if (!mounted) return;
+          setState(() {
+            _error = message;
+            _loading = false;
+          });
+        },
       );
-      final data = res.data!['data'] as Map<String, dynamic>;
-      final user = AuthUser.fromJson(data['user'] as Map<String, dynamic>);
-      final token = data['accessToken'] as String;
-      await ref.read(authProvider.notifier).setAuth(user, token);
-      if (mounted) context.go('/home');
-    } on DioException catch (e) {
-      setState(() {
-        _error = _friendlyError(e);
-        _loading = false;
-      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = _describe(e);
+          _loading = false;
+        });
+      }
     }
+  }
+
+  Future<void> _verifyOtp() async {
+    final otp = _otpCtrl.text.trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(otp)) {
+      setState(() => _error = 'Enter the 6-digit OTP');
+      return;
+    }
+    final verificationId = _verificationId;
+    if (verificationId == null) {
+      setState(() => _error = 'Request a new code and try again.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final idToken = await PhoneAuthService.exchangeSmsCode(
+        verificationId: verificationId,
+        smsCode: otp,
+      );
+      await _completeSignIn(idToken);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = _describe(e);
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  /// Trades a Firebase ID token for our own session and enters the app.
+  Future<void> _completeSignIn(String idToken) async {
+    final res = await ApiClient.dio.post<Map<String, dynamic>>(
+      '/api/v1/auth/phone/firebase',
+      data: {'idToken': idToken},
+    );
+    final data = res.data!['data'] as Map<String, dynamic>;
+    final user = AuthUser.fromJson(data['user'] as Map<String, dynamic>);
+    final token = data['accessToken'] as String;
+    await ref.read(authProvider.notifier).setAuth(user, token);
+    if (mounted) context.go('/home');
   }
 
   Future<void> _loginWithEmail() async {
@@ -142,6 +202,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           'demo-token',
         );
     if (mounted) context.go('/home');
+  }
+
+  /// One place to turn anything thrown by the phone flow into user-facing
+  /// text — it can fail at Firebase (FirebaseAuthException) or at our API
+  /// (DioException), and the user should not be able to tell which.
+  String _describe(Object error) {
+    if (error is DioException) return _friendlyError(error);
+    if (error is FirebaseAuthException || error is PhoneAuthFailure) {
+      return PhoneAuthService.describe(error);
+    }
+    return 'Something went wrong. Please try again.';
   }
 
   String _friendlyError(DioException e) {
@@ -424,10 +495,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         Row(
           children: [
             InkWell(
+              // Drop the verification id too: going back usually means the
+              // number was wrong, and a resend token from the old number
+              // would be rejected against the new one.
               onTap: () => setState(() {
                 _otpSent = false;
                 _error = null;
                 _otpCtrl.clear();
+                _verificationId = null;
+                _resendToken = null;
+                _resendCountdown = 0;
               }),
               borderRadius: BorderRadius.circular(10),
               child: const Padding(

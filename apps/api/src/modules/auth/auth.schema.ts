@@ -11,6 +11,13 @@ export const verifyOtpSchema = z.object({
   otp: z.string().length(6).regex(/^\d{6}$/, 'OTP must be 6 digits'),
 });
 
+// The ID token Firebase hands back after a successful phone verification.
+// Only its length is bounded here — authenticity is established by verifying
+// the signature against Google's public keys, never by shape.
+export const firebasePhoneSchema = z.object({
+  idToken: z.string().min(20).max(4096),
+});
+
 export const loginSchema = z.object({
   email: z.string().email().max(255).transform((v) => v.trim().toLowerCase()),
   password: z.string().min(8).max(128),

@@ -1,12 +1,14 @@
 import { randomBytes } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
+import { verifyFirebasePhoneToken } from '../../lib/firebase-auth.js';
 import { redis, OTP_TTL } from '../../lib/redis.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../lib/jwt.js';
 import { sendOtp as dispatchSms } from '../../lib/sms.js';
 import { verifyPassword, hashPassword } from '../../lib/password.js';
 import { sendEmail, passwordResetEmail } from '../../lib/mailer.js';
 import { getRolePermissions } from '../../lib/permissions.js';
+import { logger } from '../../lib/logger.js';
 import { users, refreshTokens, staffRoles } from '../../../drizzle/schema.js';
 
 const OTP_RATE_LIMIT_TTL = 60; // 1 resend per minute
@@ -93,6 +95,80 @@ export async function verifyOtpAndIssueTokens(phone: string, otp: string) {
     .from(users)
     .where(eq(users.phone, phone))
     .limit(1);
+
+  if (!user) {
+    [user] = await db
+      .insert(users)
+      .values({ phone, name: 'New User', role: 'student' })
+      .returning();
+  }
+
+  if (!user!.isActive) {
+    throw Object.assign(new Error('Your account has been suspended'), {
+      statusCode: 403,
+      code: 'ACCOUNT_SUSPENDED',
+    });
+  }
+
+  return issueTokenPair(user!);
+}
+
+// ── Firebase phone sign-in ────────────────────────────────────────────────────
+/**
+ * Finds the account behind a Firebase-verified number.
+ *
+ * Firebase always returns E.164 (+919876543210), but users.phone was filled
+ * in long before any format was enforced and production holds a mix: some
+ * rows are E.164, some are bare ten digits, a couple are neither. An exact
+ * match would hand a student who signed up months ago a brand-new empty
+ * account and quietly strand their enrolments, progress and fee records, so
+ * an exact miss falls back to comparing the last ten digits.
+ *
+ * The adopted row is deliberately *not* rewritten to E.164 here: leads.phone
+ * is matched against users.phone verbatim (see ensureLead in
+ * enrollment.service), so silently changing one without the other would break
+ * the CRM link for exactly the students this is trying to protect. Aligning
+ * both is a one-off data migration, not a side effect of signing in.
+ */
+async function findUserByVerifiedPhone(phoneE164: string) {
+  // Match on the last ten digits rather than the string, so "+919526374215"
+  // and "9526374215" are understood to be the same person. Note this cannot
+  // use idx_users_phone, but it only runs at sign-in and the table is small.
+  const last10 = phoneE164.replace(/\D/g, '').slice(-10);
+  const matches = await db
+    .select()
+    .from(users)
+    .where(sql`right(regexp_replace(${users.phone}, '[^0-9]', '', 'g'), 10) = ${last10}`)
+    .limit(2);
+
+  // More than one row claims this number. Preferring the E.164 one would look
+  // tidy and be wrong: in production the E.164 row is the empty duplicate and
+  // the ten-digit row is the student with the enrolments. There is no rule
+  // that reliably picks the real account, and guessing signs someone into
+  // somebody else's, so refuse and make a human merge them.
+  if (matches.length > 1) {
+    logger.error({ last10 }, 'Multiple user rows share this phone number — cannot resolve sign-in');
+    throw Object.assign(new Error('There is a problem with your account. Please contact the academy.'), {
+      statusCode: 409,
+      code: 'AMBIGUOUS_PHONE_RECORD',
+    });
+  }
+
+  return matches[0];
+}
+
+/**
+ * Exchanges a Firebase phone-auth ID token for our own token pair.
+ *
+ * Deliberately mirrors verifyOtpAndIssueTokens: Firebase replaces only the
+ * "prove this phone belongs to you" step. First-login creation, the
+ * suspension check and token issuance are identical, so app leads, lead
+ * matching and admissions continue to key on phone exactly as before.
+ */
+export async function verifyFirebasePhoneAndIssueTokens(idToken: string) {
+  const { phone } = await verifyFirebasePhoneToken(idToken);
+
+  let user = await findUserByVerifiedPhone(phone);
 
   if (!user) {
     [user] = await db
