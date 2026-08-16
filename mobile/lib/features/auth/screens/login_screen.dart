@@ -147,7 +147,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   String _friendlyError(DioException e) {
     if (e.type == DioExceptionType.connectionError ||
         e.error.toString().contains('Failed host lookup')) {
-      return 'Cannot reach the server. Check your connection or try Demo Mode below.';
+      // The Demo Mode button this used to point at only renders when built
+      // with --dart-define=DEMO_MODE=true, so in a release build it told
+      // users to tap something that isn't on the screen.
+      return kDemoMode
+          ? 'Cannot reach the server. Check your connection or try Demo Mode below.'
+          : 'Cannot reach the server. Check your internet connection and try again.';
     }
     return e.message ?? 'Something went wrong. Please try again.';
   }
