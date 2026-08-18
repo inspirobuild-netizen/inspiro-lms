@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate.js';
+import { resolveDoc } from '../../lib/local-storage.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import {
   createCourseSchema,
@@ -20,6 +21,7 @@ import {
   getCourseDetail,
   getModuleLessons,
   getLessonWatchUrl,
+  getLessonFileName,
   updateProgress,
   createCourse,
   updateCourse,
@@ -80,6 +82,28 @@ export default async function coursesRoutes(app: FastifyInstance) {
   });
 
   // ── Signed watch URL ───────────────────────────────────────────────────────
+  // ── Stream a notes PDF ─────────────────────────────────────────────────────
+  // Authenticated and enrolment-checked on every request, so the URL is safe
+  // to hand to the app but useless to anyone else.
+  app.get('/lessons/:id/file', { preHandler: [authenticate] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const filename = await getLessonFileName(id, req.user.sub, req.user.role);
+    const found = await resolveDoc(filename);
+    if (!found) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'FILE_MISSING', message: 'These notes are no longer available' },
+      });
+    }
+    // inline so the app's viewer renders it rather than the OS offering a
+    // download — the whole point is that notes stay inside the app.
+    return reply
+      .header('Content-Type', found.contentType)
+      .header('Content-Length', found.size)
+      .header('Content-Disposition', 'inline')
+      .send(found.stream);
+  });
+
   app.get('/lessons/:id/watch-url', { preHandler: [authenticate] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const result = await getLessonWatchUrl(id, req.user.sub, req.user.role);

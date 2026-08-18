@@ -181,6 +181,84 @@ export default function CourseBuilderPage() {
 }
 
 
+
+// ── Notes (PDF) upload for a lesson ───────────────────────────────────────────
+// Uploads through our API rather than direct-to-storage: notes are paid
+// content held on the server's own disk behind the enrolment gate, so there is
+// no third-party upload URL to hand the browser. Files are small enough that
+// relaying them costs nothing meaningful.
+function PdfLessonControl({ lesson, onChanged }: { lesson: Lesson; onChanged: () => void }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const attached = !!lesson.fileUrl;
+
+  async function upload(file: File) {
+    setError(null);
+    if (file.type !== 'application/pdf') {
+      setError('Notes must be a PDF file');
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      setError('Notes must be 25 MB or smaller');
+      return;
+    }
+    setBusy(true);
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/media/pdf`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error?.message ?? 'Upload failed');
+
+      // Store the bare filename; the API resolves it behind the access gate.
+      await api.patch(`/api/v1/admin/lessons/${lesson.id}`, { fileUrl: json.data.filename });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void upload(f);
+        }}
+      />
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          loading={busy}
+          onClick={() => inputRef.current?.click()}
+        >
+          {attached ? 'Replace notes' : '+ Upload notes (PDF)'}
+        </Button>
+        {attached && !busy && (
+          <span className="text-xs text-teal-300">PDF attached</span>
+        )}
+      </div>
+      {error && <p className="text-xs text-rose-400 mt-1">{error}</p>}
+    </div>
+  );
+}
+
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 type CourseTab = 'details' | 'content' | 'fees';
 
@@ -300,6 +378,7 @@ function ModuleCard({
                 </button>
               </div>
               {l.type === 'video' && <VideoLessonControl lesson={l} onChanged={refresh} />}
+              {l.type === 'pdf' && <PdfLessonControl lesson={l} onChanged={refresh} />}
               <LessonQuizControl lesson={l} />
             </div>
           ))}
@@ -319,7 +398,6 @@ function AddLessonForm({ moduleId, nextOrder, onAdded }: { moduleId: string; nex
   const [title, setTitle] = useState('');
   const [type, setType] = useState('video');
   const [minutes, setMinutes] = useState('');
-  const [fileUrl, setFileUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const create = useMutation({
@@ -329,11 +407,11 @@ function AddLessonForm({ moduleId, nextOrder, onAdded }: { moduleId: string; nex
         type,
         order: nextOrder,
         ...(minutes && Number(minutes) > 0 ? { duration: Number(minutes) * 60 } : {}),
-        ...(type === 'pdf' && fileUrl.trim() ? { fileUrl: fileUrl.trim() } : {}),
+
       }),
     onSuccess: () => {
       setOpen(false);
-      setTitle(''); setMinutes(''); setFileUrl(''); setError(null);
+      setTitle(''); setMinutes(''); setError(null);
       onAdded();
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to add lesson'),
@@ -360,15 +438,11 @@ function AddLessonForm({ moduleId, nextOrder, onAdded }: { moduleId: string; nex
               <Input value={minutes} inputMode="numeric" onChange={(e) => setMinutes(e.target.value.replace(/\D/g, ''))} placeholder="45" />
             </Field>
           </div>
-          {type === 'video' && (
+          {(type === 'video' || type === 'pdf') && (
             <p className="text-xs text-slate-500 -mt-1">
-              You&apos;ll upload the video file right after creating this lesson.
+              You&apos;ll upload the {type === 'pdf' ? 'notes PDF' : 'video file'} right after creating
+              this lesson.
             </p>
-          )}
-          {type === 'pdf' && (
-            <Field label="File URL">
-              <Input value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} placeholder="https://…" />
-            </Field>
           )}
           {error && <p className="text-sm text-rose-400">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">

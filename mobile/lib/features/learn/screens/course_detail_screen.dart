@@ -134,13 +134,22 @@ class CourseDetailScreen extends ConsumerWidget {
                 } else {
                   state = _LessonState.upNext;
                 }
-                final playable = !l.locked && l.type == 'video';
+                // Notes open in the in-app reader; video in the player. Both
+                // are real destinations — a lesson type with nowhere to go
+                // just looks broken to a student.
+                final isNotes = l.type == 'pdf';
+                final openable = !l.locked && (l.type == 'video' || isNotes);
                 return _LessonTile(
                   title: _numberedTitle(i + 1, l.title),
-                  duration: l.durationLabel.isEmpty ? l.type : l.durationLabel,
+                  duration: l.durationLabel.isEmpty
+                      ? (isNotes ? 'Notes · PDF' : l.type)
+                      : l.durationLabel,
                   state: state,
-                  onTap: playable
-                      ? () => context.push('/lesson-player', extra: {'lessonId': l.id, 'title': l.title})
+                  onTap: openable
+                      ? () => context.push(
+                            isNotes ? '/notes' : '/lesson-player',
+                            extra: {'lessonId': l.id, 'title': l.title},
+                          )
                       : null,
                 );
               },

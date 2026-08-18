@@ -370,11 +370,48 @@ export async function getLessonWatchUrl(lessonId: string, userId: string, role: 
   }
 
   if ((lesson.type === 'pdf' || lesson.type === 'audio') && lesson.fileUrl) {
+    // Notes uploaded through the admin panel are stored on our own disk and
+    // recorded as a bare filename. They are paid content, so rather than a
+    // public or signed static URL the client is pointed at an endpoint that
+    // re-checks enrolment on every request — a leaked link is then worth
+    // nothing to anyone not enrolled.
+    if (!lesson.fileUrl.includes('://')) {
+      return { type: lesson.type, url: `/api/v1/lessons/${lessonId}/file`, expiresIn: 0 };
+    }
+
+    // Legacy rows still holding a full Bunny pull-zone URL.
     const path = new URL(lesson.fileUrl).pathname;
     return { type: lesson.type, url: signBunnyFileUrl(path, 3600), expiresIn: 3600 };
   }
 
   throw Object.assign(new Error('No media attached to this lesson'), { statusCode: 404, code: 'NO_MEDIA' });
+}
+
+
+/**
+ * Resolves a notes lesson to its stored filename, applying exactly the same
+ * checks as getLessonWatchUrl — drip, enrolment, verification, expiry. The
+ * streaming route calls this so the file can never be reached by a student
+ * who could not open the lesson itself.
+ */
+export async function getLessonFileName(lessonId: string, userId: string, role: string): Promise<string> {
+  const [lesson] = await db.select().from(lessons).where(eq(lessons.id, lessonId)).limit(1);
+  if (!lesson) throw notFound('Lesson');
+
+  if (role === 'student') {
+    const [mod] = await db.select().from(modules).where(eq(modules.id, lesson.moduleId)).limit(1);
+    if (!mod) throw notFound('Module');
+    if (!isDripUnlocked(mod.unlockDate)) throw forbidden('This module is not yet available');
+    await assertEnrolled(userId, mod.courseId);
+  }
+
+  if (!lesson.fileUrl || lesson.fileUrl.includes('://')) {
+    throw Object.assign(new Error('No notes attached to this lesson'), {
+      statusCode: 404,
+      code: 'NO_MEDIA',
+    });
+  }
+  return lesson.fileUrl;
 }
 
 // ── Update lesson watch progress ──────────────────────────────────────────────

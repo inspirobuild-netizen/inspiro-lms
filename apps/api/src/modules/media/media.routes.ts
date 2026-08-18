@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../../middleware/authenticate.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
-import { EXT_BY_MIME, saveImage, resolveImage } from '../../lib/local-storage.js';
+import { EXT_BY_MIME, DOC_EXT_BY_MIME, saveImage, resolveImage, saveDoc } from '../../lib/local-storage.js';
 import { createVideoSchema, bunnyWebhookSchema, createPresignedUploadSchema } from './media.schema.js';
 import {
   createBunnyVideo,
@@ -101,6 +101,45 @@ export default async function mediaRoutes(app: FastifyInstance) {
         .where(eq(lessons.bunnyVideoId, guid));
 
       return reply.send({ success: true, data: { deleted: true } });
+    },
+  );
+
+  // ── POST /admin/media/pdf ──────────────────────────────────────────────────
+  // Lesson notes. Unlike thumbnails these are paid content, so the response is
+  // a bare filename, not a public URL — students read notes only through
+  // GET /lessons/:id/file, which applies the same enrolment gate as video.
+  // Storing a guessable public URL would hand the whole course library to
+  // anyone who could enumerate it.
+  app.post(
+    '/admin/media/pdf',
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
+    async (req, reply) => {
+      const file = await req.file({ limits: { fileSize: 25 * 1024 * 1024 } });
+      if (!file) {
+        return reply.status(400).send({ success: false, error: { code: 'NO_FILE', message: 'Attach a PDF file' } });
+      }
+
+      // Checked server-side: the client's `accept` attribute is a hint, not a
+      // control, and a renamed .exe would otherwise land on disk.
+      if (!DOC_EXT_BY_MIME[file.mimetype]) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_DOC_TYPE', message: 'Only PDF files are allowed for notes' },
+        });
+      }
+
+      let buffer: Buffer;
+      try {
+        buffer = await file.toBuffer();
+      } catch {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'DOC_TOO_LARGE', message: 'Notes must be 25 MB or smaller' },
+        });
+      }
+
+      const filename = await saveDoc(buffer);
+      return reply.status(201).send({ success: true, data: { filename } });
     },
   );
 

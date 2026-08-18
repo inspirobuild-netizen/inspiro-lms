@@ -34,7 +34,17 @@ export const createLessonSchema = z.object({
   isDownloadable: z.boolean().default(false),
   bunnyVideoId: z.string().optional(),
   bunnyLibraryId: z.string().optional(),
-  fileUrl: z.string().url().optional(),
+  // Either a bare stored filename ("<uuid>.pdf") for notes uploaded through
+  // the admin panel, or a full URL for legacy rows that still point at Bunny.
+  // A plain .url() would reject every new upload.
+  fileUrl: z
+    .string()
+    .min(1)
+    .max(2048)
+    .refine((v) => /^[0-9a-f-]{36}\.pdf$/.test(v) || /^https?:\/\//.test(v), {
+      message: 'Must be an uploaded file reference or an http(s) URL',
+    })
+    .optional(),
 });
 
 export const updateLessonSchema = createLessonSchema.partial();
