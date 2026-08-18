@@ -227,24 +227,67 @@ export async function getCourseDetail(courseId: string, userId: string, role: st
     .where(eq(modules.courseId, courseId))
     .orderBy(asc(modules.order));
 
-  // Annotate each module with unlock status and lesson count
-  const enriched = await Promise.all(
-    moduleList.map(async (mod) => {
-      const [{ lessonCount }] = await db
-        .select({ lessonCount: count() })
-        .from(lessons)
-        .where(eq(lessons.moduleId, mod.id));
+  const moduleIds = moduleList.map((m) => m.id);
 
-      return {
-        ...mod,
-        isUnlocked: isDripUnlocked(mod.unlockDate),
-        lessonCount,
-      };
-    }),
-  );
+  // Every lesson for the course in ONE query, then grouped in memory. This
+  // used to be a COUNT per module on the server and a request per module from
+  // the app — 1 + N round trips before a student saw anything. Courses have
+  // tens of lessons, not thousands, so one fetch is cheaper than the chatter.
+  const lessonList = moduleIds.length
+    ? await db
+        .select()
+        .from(lessons)
+        .where(inArray(lessons.moduleId, moduleIds))
+        .orderBy(asc(lessons.order))
+    : [];
+
+  let progressMap: Record<string, { watchedSeconds: number; isCompleted: boolean }> = {};
+  if (role === 'student' && lessonList.length > 0) {
+    const progRows = await db
+      .select()
+      .from(lessonProgress)
+      .where(
+        and(
+          eq(lessonProgress.userId, userId),
+          inArray(lessonProgress.lessonId, lessonList.map((l) => l.id)),
+        ),
+      );
+    progressMap = Object.fromEntries(
+      progRows.map((p) => [p.lessonId, { watchedSeconds: p.watchedSeconds, isCompleted: p.isCompleted }]),
+    );
+  }
+
+  const byModule = new Map<string, typeof lessonList>();
+  for (const l of lessonList) {
+    const arr = byModule.get(l.moduleId) ?? [];
+    arr.push(l);
+    byModule.set(l.moduleId, arr);
+  }
+
+  const enriched = moduleList.map((mod) => {
+    const isUnlocked = isDripUnlocked(mod.unlockDate);
+    const mine = byModule.get(mod.id) ?? [];
+
+    return {
+      ...mod,
+      isUnlocked,
+      lessonCount: mine.length,
+      lessons: mine.map((lesson) => ({
+        ...lesson,
+        // Raw storage ids never go to students; they get a signed URL instead.
+        bunnyVideoId: role === 'student' ? undefined : lesson.bunnyVideoId,
+        bunnyLibraryId: role === 'student' ? undefined : lesson.bunnyLibraryId,
+        // A locked module's lessons are listed so the student can see what is
+        // coming, but the watch-url endpoint still refuses them.
+        locked: role === 'student' && !isUnlocked,
+        progress: progressMap[lesson.id] ?? { watchedSeconds: 0, isCompleted: false },
+      })),
+    };
+  });
 
   return { ...course, modules: enriched };
 }
+
 
 // ── Get module with its lessons (with drip + progress) ────────────────────────
 export async function getModuleLessons(moduleId: string, userId: string, role: string) {

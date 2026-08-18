@@ -42,12 +42,42 @@ class CourseDetailScreen extends ConsumerWidget {
   }
 
   Widget _content(BuildContext context, CourseDetail detail, String? batchName) {
-    // Flatten modules → ordered lessons and compute per-lesson display state.
+    // Modules are how staff organise a course, so the app shows that structure
+    // rather than flattening it. Progress and "what to watch next" are still
+    // course-wide — a student thinks in terms of the course, not the module.
+    final modules = detail.modules.where((m) => m.lessons.isNotEmpty).toList();
     final lessons = detail.modules.expand((m) => m.lessons).toList();
     final total = lessons.length;
     final completed = lessons.where((l) => l.isCompleted).length;
     final progress = total == 0 ? 0.0 : completed / total;
-    bool watchingAssigned = false;
+
+    // Resolved up front so the list builder stays pure — the "watching" marker
+    // is the first unfinished lesson across the WHOLE course, which cannot be
+    // worked out from inside one module.
+    final states = <String, _LessonState>{};
+    var watchingAssigned = false;
+    for (final l in lessons) {
+      if (l.isCompleted) {
+        states[l.id] = _LessonState.completed;
+      } else if (l.locked) {
+        states[l.id] = _LessonState.locked;
+      } else if (!watchingAssigned) {
+        watchingAssigned = true;
+        states[l.id] = _LessonState.watching;
+      } else {
+        states[l.id] = _LessonState.upNext;
+      }
+    }
+
+    // Flattened so the whole thing stays one sliver: nesting a list per module
+    // would lose lazy building on a long course.
+    final rows = <_ContentRow>[];
+    for (final m in modules) {
+      rows.add(_ContentRow.module(m));
+      for (var i = 0; i < m.lessons.length; i++) {
+        rows.add(_ContentRow.lesson(m.lessons[i], i + 1));
+      }
+    }
 
     // First non-completed, unlocked video lesson — what the header play button opens.
     CourseLesson? current;
@@ -101,7 +131,10 @@ class CourseDetailScreen extends ConsumerWidget {
                 const SizedBox(height: 24),
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                   const Text('Course Content', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                  Text('$total ${total == 1 ? 'Lesson' : 'Lessons'}',
+                  Text(
+                      modules.length > 1
+                          ? '${modules.length} modules · $total ${total == 1 ? 'lesson' : 'lessons'}'
+                          : '$total ${total == 1 ? 'Lesson' : 'Lessons'}',
                       style: const TextStyle(color: Colors.white38, fontSize: 13)),
                 ]),
                 const SizedBox(height: 12),
@@ -120,29 +153,32 @@ class CourseDetailScreen extends ConsumerWidget {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
             sliver: SliverList.builder(
-              itemCount: lessons.length,
+              itemCount: rows.length,
               itemBuilder: (context, i) {
-                final l = lessons[i];
-                _LessonState state;
-                if (l.isCompleted) {
-                  state = _LessonState.completed;
-                } else if (l.locked) {
-                  state = _LessonState.locked;
-                } else if (!watchingAssigned) {
-                  watchingAssigned = true;
-                  state = _LessonState.watching;
-                } else {
-                  state = _LessonState.upNext;
+                final row = rows[i];
+
+                if (row.module != null) {
+                  return _ModuleHeader(
+                    title: row.module!.title,
+                    lessonCount: row.module!.lessons.length,
+                    locked: !row.module!.unlocked,
+                    isFirst: i == 0,
+                  );
                 }
+
+                final l = row.lesson!;
+                final state = states[l.id] ?? _LessonState.upNext;
                 // Notes open in the in-app reader; video in the player. Both
                 // are real destinations — a lesson type with nowhere to go
                 // just looks broken to a student.
                 final isNotes = l.type == 'pdf';
                 final openable = !l.locked && (l.type == 'video' || isNotes);
                 return _LessonTile(
-                  title: _numberedTitle(i + 1, l.title),
+                  // Numbered within its module, matching how staff name them.
+                  title: _numberedTitle(row.position!, l.title),
+                  isNotes: isNotes,
                   duration: l.durationLabel.isEmpty
-                      ? (isNotes ? 'Notes · PDF' : l.type)
+                      ? (isNotes ? 'PDF notes' : l.type)
                       : l.durationLabel,
                   state: state,
                   onTap: openable
@@ -323,8 +359,15 @@ class _LessonTile extends StatelessWidget {
   final String title;
   final String duration;
   final _LessonState state;
+  final bool isNotes;
   final VoidCallback? onTap;
-  const _LessonTile({required this.title, required this.duration, required this.state, this.onTap});
+  const _LessonTile({
+    required this.title,
+    required this.duration,
+    required this.state,
+    required this.isNotes,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -340,8 +383,10 @@ class _LessonTile extends StatelessWidget {
         break;
       case _LessonState.watching:
         accent = Brand.blue;
-        icon = Icons.play_circle_fill;
-        status = 'Continue';
+        // A play button on a set of notes tells the student the wrong thing
+        // about what happens when they tap it.
+        icon = isNotes ? Icons.description : Icons.play_circle_fill;
+        status = isNotes ? 'Read' : 'Continue';
         break;
       case _LessonState.locked:
         accent = Colors.white24;
@@ -350,8 +395,8 @@ class _LessonTile extends StatelessWidget {
         break;
       case _LessonState.upNext:
         accent = Colors.white54;
-        icon = Icons.play_circle_outline;
-        status = 'Up Next';
+        icon = isNotes ? Icons.description_outlined : Icons.play_circle_outline;
+        status = isNotes ? 'Read' : 'Up Next';
         break;
     }
 
@@ -402,4 +447,71 @@ String _numberedTitle(int position, String title) {
       RegExp(r'^(lesson\s*)?\d{1,3}\s*[.):-]', caseSensitive: false).hasMatch(trimmed);
   if (alreadyNumbered) return trimmed;
   return '${position.toString().padLeft(2, '0')}. $trimmed';
+}
+
+/// One entry in the course-content list: either a module heading or a lesson.
+class _ContentRow {
+  final CourseModule? module;
+  final CourseLesson? lesson;
+
+  /// Position of the lesson WITHIN its module, 1-based.
+  final int? position;
+
+  const _ContentRow.module(this.module) : lesson = null, position = null;
+  const _ContentRow.lesson(this.lesson, this.position) : module = null;
+}
+
+class _ModuleHeader extends StatelessWidget {
+  final String title;
+  final int lessonCount;
+  final bool locked;
+  final bool isFirst;
+
+  const _ModuleHeader({
+    required this.title,
+    required this.lessonCount,
+    required this.locked,
+    required this.isFirst,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(top: isFirst ? 0 : 22, bottom: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 20,
+            decoration: BoxDecoration(
+              color: locked ? Colors.white24 : Brand.blue,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: locked ? Colors.white38 : Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                height: 1.3,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (locked)
+            const Icon(Icons.lock_outline, color: Colors.white24, size: 15)
+          else
+            Text(
+              '$lessonCount',
+              style: const TextStyle(color: Colors.white30, fontSize: 12.5, fontWeight: FontWeight.w600),
+            ),
+        ],
+      ),
+    );
+  }
 }

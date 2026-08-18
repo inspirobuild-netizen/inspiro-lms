@@ -15,7 +15,7 @@ const _demoCourses = [
       description: 'Fundamentals of the Indian economy.'),
 ];
 
-final coursesProvider = FutureProvider.autoDispose<List<Course>>((ref) async {
+final coursesProvider = FutureProvider<List<Course>>((ref) async {
   return apiOrDemo(() async {
     final res = await ApiClient.dio.get<Map<String, dynamic>>(
       '/api/v1/courses',
@@ -73,7 +73,7 @@ final courseFeePlansProvider =
 
 // ── Course detail (modules + lessons) ─────────────────────────────────────────
 final courseDetailProvider =
-    FutureProvider.autoDispose.family<CourseDetail, String>((ref, courseId) async {
+    FutureProvider.family<CourseDetail, String>((ref, courseId) async {
   final demo = CourseDetail(
     course: _demoCourses.firstWhere((c) => c.id == courseId, orElse: () => _demoCourses.first),
     modules: const [
@@ -89,28 +89,17 @@ final courseDetailProvider =
   );
 
   return apiOrDemo(() async {
-    // Course detail (with modules)
+    // One request: the API nests lessons inside modules. It used to fetch the
+    // course, then a request per module, so a student watched a spinner for
+    // 1 + N round trips before any content appeared.
     final detailRes = await ApiClient.dio.get<Map<String, dynamic>>('/api/v1/courses/$courseId');
     final data = detailRes.data!['data'] as Map<String, dynamic>;
     final course = Course.fromJson(data);
-    final rawModules = (data['modules'] as List?)?.cast<Map<String, dynamic>>() ?? [];
 
-    // Fetch lessons for each module in parallel
-    final modules = await Future.wait(rawModules.map((m) async {
-      final mid = m['id'] as String;
-      List<CourseLesson> lessons = const [];
-      try {
-        final lr = await ApiClient.dio.get<Map<String, dynamic>>('/api/v1/modules/$mid/lessons');
-        lessons = (lr.data!['data'] as List)
-            .cast<Map<String, dynamic>>()
-            .map(CourseLesson.fromJson)
-            .toList();
-      } catch (_) {/* module locked / no access */}
-      return CourseModule.fromJson({...m, 'lessons': lessons.map((l) => {
-            'id': l.id, 'title': l.title, 'type': l.type, 'duration': l.duration,
-            'isCompleted': l.isCompleted, 'locked': l.locked,
-          }).toList()});
-    }));
+    final modules = ((data['modules'] as List?) ?? const [])
+        .cast<Map<String, dynamic>>()
+        .map(CourseModule.fromJson)
+        .toList();
 
     return CourseDetail(course: course, modules: modules);
   }, demo);

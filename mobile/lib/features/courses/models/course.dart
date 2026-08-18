@@ -102,7 +102,12 @@ class CourseLesson {
         title: json['title'] as String,
         type: (json['type'] as String?) ?? 'video',
         duration: json['duration'] as int?,
-        isCompleted: json['isCompleted'] as bool? ?? false,
+        // The API nests this under `progress`; the flat key is only ever
+        // present in demo fixtures. Reading just the flat one meant every
+        // lesson looked unfinished no matter how much had been watched.
+        isCompleted: (json['progress'] as Map<String, dynamic>?)?['isCompleted'] as bool? ??
+            json['isCompleted'] as bool? ??
+            false,
         locked: json['locked'] as bool? ?? false,
       );
 
