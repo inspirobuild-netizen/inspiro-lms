@@ -88,8 +88,70 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
     }
   }
 
+  Widget _buildAlreadyEnrolled() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 40, 20, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Brand.teal.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Brand.teal.withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Brand.teal, size: 26),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('You are already enrolled',
+                          style: TextStyle(
+                              color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Text('Nothing more to pay for ${widget.course.title}.',
+                          style: const TextStyle(color: Colors.white60, fontSize: 13, height: 1.4)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 22),
+          BrandButton(
+            label: 'Open the course',
+            onTap: () => context.pushReplacement('/course', extra: widget.course.id),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Staff can enrol a student straight from the admin panel, which is a
+    // different path from this one — so a student can arrive here already
+    // having access. Without this the flow ran all the way to the payment
+    // screen before the API refused with ALREADY_ENROLLED, which reads as
+    // being asked to pay twice for a course they already own.
+    final alreadyEnrolled = ref
+            .watch(coursesProvider)
+            .asData
+            ?.value
+            .any((c) => c.id == widget.course.id) ??
+        false;
+
+    if (alreadyEnrolled) {
+      return AppScaffold(
+        title: widget.course.title,
+        body: _buildAlreadyEnrolled(),
+      );
+    }
+
     return AppScaffold(
       title: switch (_step) {
         _Step.pickPlan => 'Choose a plan',
