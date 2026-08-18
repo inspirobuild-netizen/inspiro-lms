@@ -10,7 +10,14 @@ class Settings(BaseSettings):
 
     # Groq
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    # Groq retires models without notice — llama-3.3-70b-versatile started
+    # returning 404 "model does not exist", which silently broke every AI
+    # feature (coach, doubts, exam generation, current affairs) at once.
+    # Chosen over gpt-oss-120b for rate-limit headroom: the 120b hit a 429 on
+    # its second call, and current-affairs ingestion makes dozens per run.
+    # Verify a replacement with response_format=json_object before switching —
+    # everything here depends on JSON mode.
+    groq_model: str = "openai/gpt-oss-20b"
     groq_base_url: str = "https://api.groq.com/openai/v1"
 
     # Embeddings — any OpenAI-compatible /embeddings endpoint.
