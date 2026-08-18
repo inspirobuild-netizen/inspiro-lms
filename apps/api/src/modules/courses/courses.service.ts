@@ -1,6 +1,9 @@
 import { eq, and, count, asc, inArray, gt, isNull, or, sql } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
-import { signBunnyUrl, signBunnyFileUrl } from '../../lib/bunny.js';
+import { signBunnyMp4Url, signBunnyFileUrl, orderResolutions } from '../../lib/bunny.js';
+import { redis } from '../../lib/redis.js';
+import { logger } from '../../lib/logger.js';
+import { getBunnyVideoStatus } from '../media/media.service.js';
 import {
   admissions,
   courses,
@@ -288,6 +291,33 @@ export async function getModuleLessons(moduleId: string, userId: string, role: s
   }));
 }
 
+
+const WATCH_URL_TTL = 7200;
+
+// Bunny's rendition list never changes once encoding finishes, so cache it and
+// keep the watch-url endpoint from making a Bunny API call on every play.
+async function getCachedResolutions(videoId: string): Promise<string[]> {
+  const key = `bunnyres:${videoId}`;
+  const cached = await redis.get(key);
+  if (cached) return cached ? cached.split(',').filter(Boolean) : [];
+
+  let ordered: string[] = [];
+  try {
+    const { availableResolutions } = await getBunnyVideoStatus(videoId);
+    ordered = orderResolutions(availableResolutions ?? '');
+  } catch (err) {
+    // A Bunny outage should not take playback down for videos we have already
+    // resolved, but there is nothing to fall back to on a cold cache.
+    logger.warn({ err, videoId }, 'Could not read Bunny renditions');
+    return [];
+  }
+
+  // Only cache a real answer — caching an empty list would pin a still-encoding
+  // video as unplayable for the whole TTL.
+  if (ordered.length > 0) await redis.set(key, ordered.join(','), 'EX', 60 * 60 * 24 * 30);
+  return ordered;
+}
+
 // ── Get signed watch URL for a lesson ────────────────────────────────────────
 export async function getLessonWatchUrl(lessonId: string, userId: string, role: string) {
   const [lesson] = await db.select().from(lessons).where(eq(lessons.id, lessonId)).limit(1);
@@ -302,7 +332,41 @@ export async function getLessonWatchUrl(lessonId: string, userId: string, role: 
   }
 
   if (lesson.type === 'video' && lesson.bunnyVideoId) {
-    return { type: 'video', url: signBunnyUrl(lesson.bunnyVideoId), expiresIn: 7200 };
+    const videoId = lesson.bunnyVideoId;
+    const resolutions = await getCachedResolutions(videoId);
+
+    if (resolutions.length === 0) {
+      throw Object.assign(new Error('This video is still being processed. Please try again shortly.'), {
+        statusCode: 409,
+        code: 'VIDEO_NOT_READY',
+      });
+    }
+
+    // Best first. The player defaults to [0] and offers the rest for manual
+    // switching, since MP4 gives us no adaptive bitrate.
+    const qualities = resolutions.map((r) => ({
+      label: r,
+      url: signBunnyMp4Url(videoId, r, WATCH_URL_TTL),
+    }));
+
+    // Where the student stopped last time, so the player can pick up there.
+    const [seen] = await db
+      .select({ watchedSeconds: lessonProgress.watchedSeconds, isCompleted: lessonProgress.isCompleted })
+      .from(lessonProgress)
+      .where(and(eq(lessonProgress.lessonId, lessonId), eq(lessonProgress.userId, userId)))
+      .limit(1);
+
+    // Resuming a lesson already finished would drop the student at the end
+    // credits rather than letting them rewatch it.
+    const resumeSeconds = seen && !seen.isCompleted ? seen.watchedSeconds : 0;
+
+    return {
+      type: 'video',
+      url: qualities[0]!.url,
+      qualities,
+      resumeSeconds,
+      expiresIn: WATCH_URL_TTL,
+    };
   }
 
   if ((lesson.type === 'pdf' || lesson.type === 'audio') && lesson.fileUrl) {

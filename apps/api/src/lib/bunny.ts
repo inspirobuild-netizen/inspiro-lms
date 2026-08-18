@@ -51,6 +51,36 @@ function bunnyToken(key: string, path: string, expires: number): string {
     .replace(/=/g, '');
 }
 
+// Signed URL for one MP4 rendition of a Bunny Stream video.
+//
+// We serve MP4 rather than the HLS playlist because CDN token authentication
+// and HLS are structurally incompatible on a native player: the master
+// playlist points at RELATIVE sub-paths (`480p/video.m3u8`), Bunny does not
+// rewrite them to carry the token, and standard URL resolution drops the
+// query string — so the playlist loads and every rendition after it is 403.
+// An MP4 is a single request, so one signature covers the whole lesson.
+//
+// The trade-off is no adaptive bitrate; the player offers the renditions
+// manually instead, which is why listMp4Renditions exists.
+export function signBunnyMp4Url(videoId: string, resolution: string, ttlSeconds = 7200): string {
+  const hostname = requireEnv('BUNNY_CDN_HOSTNAME');
+  const tokenKey = requireEnv('BUNNY_TOKEN_AUTH_KEY');
+
+  const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const path = `/${videoId}/play_${resolution}.mp4`;
+
+  return `https://${hostname}${path}?token=${bunnyToken(tokenKey, path, expires)}&expires=${expires}`;
+}
+
+// Highest first, so the caller can take [0] as the default.
+const RESOLUTION_ORDER = ['1080p', '720p', '480p', '360p', '240p'];
+
+/** Orders Bunny's comma-separated availableResolutions best-first. */
+export function orderResolutions(available: string): string[] {
+  const have = new Set(available.split(',').map((r) => r.trim()).filter(Boolean));
+  return RESOLUTION_ORDER.filter((r) => have.has(r));
+}
+
 // Signed URL for a file on Bunny pull-zone (PDFs, images)
 export function signBunnyFileUrl(filePath: string, ttlSeconds = 3600): string {
   const hostname = requireEnv('BUNNY_CDN_HOSTNAME');
