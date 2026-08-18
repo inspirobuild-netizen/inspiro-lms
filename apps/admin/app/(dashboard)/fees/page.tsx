@@ -344,8 +344,8 @@ function EnrollmentRequestsSection() {
 
   return (
     <div className="rounded-2xl border border-white/8 bg-surface-1 p-5">
-      <h3 className="font-semibold text-slate-200 text-sm">Enrollment requests</h3>
-      <p className="text-xs text-slate-500 mt-0.5 mb-3">Students who paid via the app and submitted a UPI reference — verify against your bank before admitting.</p>
+      <h3 className="font-semibold text-slate-200 text-sm">App enrolment requests</h3>
+      <p className="text-xs text-slate-500 mt-0.5 mb-3">Students who enrolled through the mobile app and submitted a UPI reference. Check the payment against your bank, then approve to give them access. Not to be confused with Students &rarr; Verification, which reviews identity documents.</p>
 
       {requestsQ.isLoading ? (
         <p className="text-sm text-slate-500">Loading…</p>
