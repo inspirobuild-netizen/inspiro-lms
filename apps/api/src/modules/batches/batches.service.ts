@@ -9,9 +9,12 @@ import {
   liveClasses,
   users,
   courses,
+  enrollmentRequests,
 } from '../../../drizzle/schema.js';
 import { nextCode } from '../leads/leads.service.js';
 import { materialiseInstallments } from '../fees/fees.service.js';
+import { sendNotificationToUser } from '../notifications/notifications.service.js';
+import { logger } from '../../lib/logger.js';
 import type { CreateBatchInput, UpdateBatchInput, ListBatchesInput } from './batches.schema.js';
 
 function notFound(entity = 'Batch') {
@@ -250,6 +253,46 @@ async function createAdmissionForEnrolment(
 }
 
 // ── Enroll a student ──────────────────────────────────────────────────────────
+
+/**
+ * Closes off any app enrolment request this manual enrolment has just granted.
+ *
+ * A student can ask for a course from the app (creating a pending
+ * enrollment_request) and then be enrolled by staff from the Batches page,
+ * which is a completely separate code path. Without this, the request sits
+ * pending for ever and the app keeps telling a student who already has full
+ * access that they are "awaiting verification".
+ *
+ * Returns the student ids that had a request resolved, so the caller can tell
+ * them the good news.
+ */
+async function resolvePendingEnrolRequests(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  opts: { userId: string; courseId: string; admissionId?: string | null; staffId?: string },
+): Promise<boolean> {
+  const resolved = await tx
+    .update(enrollmentRequests)
+    .set({
+      status: 'verified',
+      verifiedBy: opts.staffId ?? null,
+      verifiedAt: new Date(),
+      // May be null when the student already had an admission for this
+      // course — the request is still resolved either way.
+      resultingAdmissionId: opts.admissionId ?? null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(enrollmentRequests.studentId, opts.userId),
+        eq(enrollmentRequests.courseId, opts.courseId),
+        eq(enrollmentRequests.status, 'pending'),
+      ),
+    )
+    .returning({ id: enrollmentRequests.id });
+
+  return resolved.length > 0;
+}
+
 export async function enrollStudent(
   batchId: string,
   userId: string,
@@ -292,7 +335,14 @@ export async function enrollStudent(
       staffId: opts?.staffId,
     });
 
-    return { ...enrollment!, admission };
+    const hadRequest = await resolvePendingEnrolRequests(tx, {
+      userId,
+      courseId: batch.courseId,
+      admissionId: admission?.id ?? null,
+      staffId: opts?.staffId,
+    });
+
+    return { ...enrollment!, admission, resolvedRequest: hadRequest, batchName: batch.name };
   });
 }
 
@@ -337,6 +387,7 @@ export async function bulkEnrollStudents(
     // Sequential rather than parallel: admission numbers come from a shared
     // sequence, and each student needs their own duplicate check.
     let admissionsCreated = 0;
+    const notify: string[] = [];
     for (const userId of userIds) {
       const created = await createAdmissionForEnrolment(tx, {
         userId,
@@ -346,9 +397,17 @@ export async function bulkEnrollStudents(
         staffId: opts?.staffId,
       });
       if (created) admissionsCreated++;
+
+      const hadRequest = await resolvePendingEnrolRequests(tx, {
+        userId,
+        courseId: batch.courseId,
+        admissionId: created?.id ?? null,
+        staffId: opts?.staffId,
+      });
+      if (hadRequest) notify.push(userId);
     }
 
-    return { enrolled: userIds.length, admissionsCreated };
+    return { enrolled: userIds.length, admissionsCreated, notifyStudents: notify, batchName: batch.name };
   });
 }
 

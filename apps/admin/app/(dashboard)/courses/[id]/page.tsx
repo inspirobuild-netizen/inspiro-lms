@@ -83,6 +83,7 @@ export default function CourseBuilderPage() {
   });
 
   const [newModule, setNewModule] = useState('');
+  const [tab, setTab] = useState<CourseTab>('details');
 
   if (isLoading) return <p className="text-slate-400">Loading course…</p>;
   if (isError || !data)
@@ -110,55 +111,117 @@ export default function CourseBuilderPage() {
         </div>
       </div>
 
-      <ThumbnailSection courseId={id} thumbnailUrl={course.thumbnailUrl} onChanged={invalidate} />
+      <CourseTabs
+        tab={tab}
+        onChange={setTab}
+        showFees={has('fees.configure')}
+        moduleCount={course.modules.length}
+      />
 
-      {has('fees.configure') && <FeesSection courseId={id} feeAmount={course.feeAmount} onCourseFeeChanged={invalidate} />}
+      {tab === 'details' && (
+        <div className="space-y-6">
+          <ThumbnailSection courseId={id} thumbnailUrl={course.thumbnailUrl} onChanged={invalidate} />
+          <BatchesSection courseId={id} courseTitle={course.title} canManageBatches={has('batches.manage')} />
+          {has('courses.manage') && <DangerZone courseId={id} courseTitle={course.title} />}
+        </div>
+      )}
 
-      <BatchesSection courseId={id} courseTitle={course.title} canManageBatches={has('batches.manage')} />
+      {/* The Fees tab is not rendered at all without the permission, and the
+          tab itself is hidden too — an empty tab reads as a broken page rather
+          than as "not yours to edit". The API enforces this independently. */}
+      {tab === 'fees' && has('fees.configure') && (
+        <FeesSection courseId={id} feeAmount={course.feeAmount} onCourseFeeChanged={invalidate} />
+      )}
 
-      {has('courses.manage') && <DangerZone courseId={id} courseTitle={course.title} />}
+      {tab === 'content' && (
+        <div className="space-y-6">
+          <div className="space-y-4">
+            {course.modules.length === 0 && (
+              <p className="text-slate-500 text-sm rounded-2xl border border-white/8 bg-surface-1 p-6 text-center">
+                No modules yet — add the first module below, then add lessons inside it.
+              </p>
+            )}
+            {course.modules.map((mod, i) => (
+              <ModuleCard
+                key={mod.id}
+                index={i + 1}
+                module={mod}
+                onChanged={invalidate}
+                onDelete={() => {
+                  if (confirm(`Delete module "${mod.title}" and all its lessons?`)) deleteModule.mutate(mod.id);
+                }}
+              />
+            ))}
+          </div>
 
-      {/* Modules */}
-      <div className="space-y-4">
-        {course.modules.length === 0 && (
-          <p className="text-slate-500 text-sm rounded-2xl border border-white/8 bg-surface-1 p-6 text-center">
-            No modules yet — add the first module below, then add lessons inside it.
-          </p>
-        )}
-        {course.modules.map((mod, i) => (
-          <ModuleCard
-            key={mod.id}
-            index={i + 1}
-            module={mod}
-            onChanged={invalidate}
-            onDelete={() => {
-              if (confirm(`Delete module "${mod.title}" and all its lessons?`)) deleteModule.mutate(mod.id);
-            }}
-          />
-        ))}
-      </div>
+          <div className="flex gap-2">
+            <Input
+              value={newModule}
+              onChange={(e) => setNewModule(e.target.value)}
+              placeholder="New module title (e.g. Module 1: Historical Background)"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newModule.trim().length >= 2) {
+                  addModule.mutate(newModule.trim());
+                  setNewModule('');
+                }
+              }}
+            />
+            <Button
+              loading={addModule.isPending}
+              disabled={newModule.trim().length < 2}
+              onClick={() => { addModule.mutate(newModule.trim()); setNewModule(''); }}
+            >
+              + Add module
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-      {/* Add module */}
-      <div className="flex gap-2">
-        <Input
-          value={newModule}
-          onChange={(e) => setNewModule(e.target.value)}
-          placeholder="New module title (e.g. Module 1: Historical Background)"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && newModule.trim().length >= 2) {
-              addModule.mutate(newModule.trim());
-              setNewModule('');
-            }
-          }}
-        />
-        <Button
-          loading={addModule.isPending}
-          disabled={newModule.trim().length < 2}
-          onClick={() => { addModule.mutate(newModule.trim()); setNewModule(''); }}
-        >
-          + Add module
-        </Button>
-      </div>
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+type CourseTab = 'details' | 'content' | 'fees';
+
+function CourseTabs({
+  tab, onChange, showFees, moduleCount,
+}: {
+  tab: CourseTab;
+  onChange: (t: CourseTab) => void;
+  showFees: boolean;
+  moduleCount: number;
+}) {
+  const tabs: { id: CourseTab; label: string; badge?: number }[] = [
+    { id: 'details', label: 'Details' },
+    { id: 'content', label: 'Content', badge: moduleCount },
+    ...(showFees ? [{ id: 'fees' as const, label: 'Fees & plans' }] : []),
+  ];
+
+  return (
+    <div className="flex gap-1 border-b border-white/8 overflow-x-auto">
+      {tabs.map((t) => {
+        const active = t.id === tab;
+        return (
+          <button
+            key={t.id}
+            onClick={() => onChange(t.id)}
+            className={`relative whitespace-nowrap px-4 py-2.5 text-sm font-medium transition-colors ${
+              active ? 'text-violet-300' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {t.label}
+            {typeof t.badge === 'number' && t.badge > 0 && (
+              <span className="ml-2 rounded-full bg-white/8 px-1.5 py-0.5 text-[11px] text-slate-400">
+                {t.badge}
+              </span>
+            )}
+            {active && (
+              <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-violet-400" />
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }

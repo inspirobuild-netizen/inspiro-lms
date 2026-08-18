@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../../middleware/authenticate.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
+import { sendNotificationToUser } from '../notifications/notifications.service.js';
+import { logger } from '../../lib/logger.js';
 import {
   createBatchSchema,
   updateBatchSchema,
@@ -30,6 +32,28 @@ const pageSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
+
+
+/**
+ * Tells a student they now have access. Best-effort: enrolment has already
+ * been committed by the time this runs, so a notification failure is logged
+ * and swallowed rather than surfaced as a failed enrolment.
+ */
+async function notifyEnrolled(userId: string, batchName: string, hadPendingRequest: boolean) {
+  try {
+    await sendNotificationToUser(
+      userId,
+      'You are enrolled',
+      hadPendingRequest
+        ? `Your enrolment request has been approved. You now have access to ${batchName}.`
+        : `You have been enrolled in ${batchName}. Your course is ready.`,
+      'admission_update',
+      { batchName },
+    );
+  } catch (err) {
+    logger.warn({ err, userId }, 'Could not notify student of enrolment');
+  }
+}
 
 export default async function batchesRoutes(app: FastifyInstance) {
   // ── Student: my batches ────────────────────────────────────────────────────
@@ -155,6 +179,11 @@ export default async function batchesRoutes(app: FastifyInstance) {
         feePlanId: parsed.data.feePlanId,
         staffId: req.user.sub,
       });
+
+      // Outside the transaction on purpose: a push failure must never roll
+      // back an enrolment that already succeeded.
+      await notifyEnrolled(parsed.data.userId, enrollment.batchName, enrollment.resolvedRequest);
+
       return reply.status(201).send({ success: true, data: enrollment });
     },
   );
@@ -176,6 +205,11 @@ export default async function batchesRoutes(app: FastifyInstance) {
         feePlanId: parsed.data.feePlanId,
         staffId: req.user.sub,
       });
+
+      for (const userId of result.notifyStudents) {
+        await notifyEnrolled(userId, result.batchName, true);
+      }
+
       return reply.send({ success: true, data: result });
     },
   );

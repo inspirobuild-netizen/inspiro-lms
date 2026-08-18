@@ -33,6 +33,12 @@ class CatalogScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final catalogAsync = ref.watch(catalogProvider);
     final pendingAsync = ref.watch(myEnrollRequestsProvider);
+    // Courses the student can actually open. This is the source of truth for
+    // enrolment — a request row can be stale (staff can enrol someone straight
+    // from the admin panel, which is a different code path), and showing
+    // "Awaiting verification" to a student who already has access is worse
+    // than showing nothing.
+    final enrolledAsync = ref.watch(coursesProvider);
 
     return AppScaffold(
       title: 'Explore courses',
@@ -51,11 +57,16 @@ class CatalogScreen extends ConsumerWidget {
             );
           }
 
-          final pending = pendingAsync.asData?.value
-                  .where((r) => r.status == 'pending')
-                  .map((r) => r.courseId)
-                  .toSet() ??
-              const <String>{};
+          final enrolledIds =
+              enrolledAsync.asData?.value.map((c) => c.id).toSet() ?? const <String>{};
+
+          // Access wins over a pending row, never the other way round.
+          final pending = (pendingAsync.asData?.value
+                      .where((r) => r.status == 'pending')
+                      .map((r) => r.courseId)
+                      .toSet() ??
+                  const <String>{})
+              .difference(enrolledIds);
 
           return RefreshIndicator(
             color: Brand.blue,
@@ -63,6 +74,7 @@ class CatalogScreen extends ConsumerWidget {
             onRefresh: () async {
               ref.invalidate(catalogProvider);
               ref.invalidate(myEnrollRequestsProvider);
+              ref.invalidate(coursesProvider);
             },
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
@@ -77,7 +89,10 @@ class CatalogScreen extends ConsumerWidget {
                       child: _CatalogCard(
                         course: c,
                         awaitingVerification: pending.contains(c.id),
-                        onTap: () => context.push('/enroll', extra: c),
+                        isEnrolled: enrolledIds.contains(c.id),
+                        onTap: () => enrolledIds.contains(c.id)
+                            ? context.push('/course', extra: c.id)
+                            : context.push('/enroll', extra: c),
                       ),
                     )),
               ],
@@ -92,18 +107,20 @@ class CatalogScreen extends ConsumerWidget {
 class _CatalogCard extends StatelessWidget {
   final Course course;
   final bool awaitingVerification;
+  final bool isEnrolled;
   final VoidCallback onTap;
 
   const _CatalogCard({
     required this.course,
     required this.awaitingVerification,
+    required this.isEnrolled,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return GlassCard(
-      onTap: awaitingVerification ? null : onTap,
+      onTap: awaitingVerification && !isEnrolled ? null : onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -163,7 +180,21 @@ class _CatalogCard extends StatelessWidget {
                         style: TextStyle(
                             color: Brand.teal, fontSize: 17, fontWeight: FontWeight.bold)),
               ),
-              if (awaitingVerification)
+              if (isEnrolled)
+                ElevatedButton.icon(
+                  onPressed: onTap,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Brand.teal,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.check_circle, size: 16),
+                  label: const Text('Enrolled — open',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                )
+              else if (awaitingVerification)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
