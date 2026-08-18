@@ -29,8 +29,11 @@ class VideoPlayerScreen extends StatefulWidget {
 }
 
 class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
-  late final Player _player;
-  late final VideoController _controller;
+  // Not `final`: a quality switch replaces both. Reopening media on an
+  // existing Player leaves it unable to seek at all — verified on device, the
+  // skip buttons go dead too — so the only reliable switch is a fresh player.
+  late Player _player;
+  late VideoController _controller;
 
   bool _loading = true;
   String? _error;
@@ -74,9 +77,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
       final resumeAt = Duration(seconds: (data['resumeSeconds'] as num?)?.toInt() ?? 0);
 
-      await _player.open(Media(qualities.first.url), play: false);
-      if (resumeAt > const Duration(seconds: 5)) await _player.seek(resumeAt);
-      await _player.play();
+      await _player.open(Media(qualities.first.url));
+      if (resumeAt > const Duration(seconds: 5)) await _seekWhenReady(resumeAt);
 
       if (!mounted) return;
       setState(() {
@@ -95,15 +97,40 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     }
   }
 
+  /// Seeks to [to] and keeps trying until the position actually reflects it.
+  ///
+  /// Only works while the player is PLAYING. mpv drops seeks until the
+  /// demuxer has loaded the file, and opening with `play: false` never forces
+  /// that load — so seeking on a paused, freshly-opened file is a silent
+  /// no-op no matter how long you wait or how often you retry. Callers must
+  /// open with `play: true` and pause afterwards if needed.
+  ///
+  /// There is also no readiness signal worth waiting on: every rendition of a
+  /// lesson is the same video and reports the same duration, so a duration
+  /// event says nothing about which file is loaded. Hence verify rather than
+  /// predict — seek, check, retry. Giving up means starting from the
+  /// beginning, which is the behaviour this replaces.
+  Future<void> _seekWhenReady(Duration to) async {
+    if (to <= Duration.zero) return;
+    for (var attempt = 0; attempt < 20; attempt++) {
+      await _player.seek(to);
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      if (!mounted) return;
+      if ((_player.state.position - to).abs() < const Duration(seconds: 2)) return;
+    }
+  }
+
   /// Switching rendition means reopening a different file, so the position has
   /// to be carried across by hand or the student is thrown back to the start.
   Future<void> _switchQuality(VideoQuality q) async {
     final at = _player.state.position;
     final wasPlaying = _player.state.playing;
     setState(() => _currentQuality = q.label);
-    await _player.open(Media(q.url), play: false);
-    await _player.seek(at);
-    if (wasPlaying) await _player.play();
+
+    // play: true so the demuxer actually loads and will accept the seek.
+    await _player.open(Media(q.url));
+    await _seekWhenReady(at);
+    if (!wasPlaying) await _player.pause();
   }
 
   void _startProgressReporting() {
@@ -178,6 +205,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           ),
           if (!_loading && _error == null)
             PlayerControls(
+              // Forces a fresh subscription when the player is replaced.
+              key: ValueKey(_player),
               player: _player,
               title: widget.title,
               qualities: _qualities,
