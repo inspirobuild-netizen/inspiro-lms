@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../../middleware/authenticate.js';
-import { requireRole } from '../../middleware/require-role.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import { EXT_BY_MIME, saveImage, resolveImage } from '../../lib/local-storage.js';
 import { createVideoSchema, bunnyWebhookSchema, createPresignedUploadSchema } from './media.schema.js';
@@ -22,7 +21,7 @@ export default async function mediaRoutes(app: FastifyInstance) {
   // Step 1 of upload flow: admin creates a video slot in Bunny, gets upload URL
   app.post(
     '/admin/media/create-video',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const parsed = createVideoSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -56,7 +55,7 @@ export default async function mediaRoutes(app: FastifyInstance) {
   // Poll transcoding status (admin/instructor use during upload flow)
   app.get(
     '/admin/media/video/:guid/status',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const { guid } = req.params as { guid: string };
       const status = await getBunnyVideoStatus(guid);
@@ -90,7 +89,7 @@ export default async function mediaRoutes(app: FastifyInstance) {
   // Remove video from Bunny and clear lesson reference
   app.delete(
     '/admin/media/video/:guid',
-    { preHandler: [authenticate, requireRole(['admin', 'instructor'])] },
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
     async (req, reply) => {
       const { guid } = req.params as { guid: string };
       await deleteBunnyVideo(guid);
