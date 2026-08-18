@@ -18,25 +18,26 @@ function requireEnv(key: string): string {
 //      returned 404 for every video (verified against a real upload).
 //   2. Bunny's token is base64url of the RAW sha256 digest, not hex.
 //   3. HLS is not one request. The master playlist points at relative
-//      sub-paths (`480p/video.m3u8`), which point at segments. A token
-//      covering only playlist.m3u8 authorises the first request and
-//      nothing after it, so playback starts and then stalls. Signing the
-//      DIRECTORY (`/{videoId}/`) and passing it as `token_path` covers the
-//      renditions and every segment under them.
+//      sub-paths (`480p/video.m3u8`), which point at segments — and Bunny
+//      does NOT rewrite the playlist to carry tokens, so each of those is
+//      an unsigned request unless the token already covers it. Bunny treats
+//      the signed string as a PATH PREFIX, so signing `/{videoId}/` (with
+//      the trailing slash) authorises the renditions and every segment
+//      beneath it. Signing only playlist.m3u8 authorises the first request
+//      and nothing after it — playback would start, then stall.
+//      Do NOT send a `token_path` parameter: verified against a live
+//      library, adding it makes Bunny reject the request with 403.
 export function signBunnyUrl(videoId: string, ttlSeconds = 7200): string {
   const hostname = requireEnv('BUNNY_CDN_HOSTNAME');
   const tokenKey = requireEnv('BUNNY_TOKEN_AUTH_KEY');
 
   const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
 
-  // Directory token: authorise everything under the video's folder.
-  const tokenPath = `/${videoId}/`;
-  const token = bunnyToken(tokenKey, tokenPath, expires);
+  // Sign the video's folder as a prefix, so one token covers the master
+  // playlist, every rendition and every segment.
+  const token = bunnyToken(tokenKey, `/${videoId}/`, expires);
 
-  return (
-    `https://${hostname}/${videoId}/playlist.m3u8` +
-    `?token=${token}&expires=${expires}&token_path=${encodeURIComponent(tokenPath)}`
-  );
+  return `https://${hostname}/${videoId}/playlist.m3u8?token=${token}&expires=${expires}`;
 }
 
 // Bunny token auth: base64url( sha256_raw( key + path + expires ) ).
