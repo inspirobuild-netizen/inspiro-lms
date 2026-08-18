@@ -136,7 +136,7 @@ class CourseDetailScreen extends ConsumerWidget {
                 }
                 final playable = !l.locked && l.type == 'video';
                 return _LessonTile(
-                  title: '${(i + 1).toString().padLeft(2, '0')}. ${l.title}',
+                  title: _numberedTitle(i + 1, l.title),
                   duration: l.durationLabel.isEmpty ? l.type : l.durationLabel,
                   state: state,
                   onTap: playable
@@ -378,4 +378,19 @@ class _LessonTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Prefixes a lesson with its position, unless the title already carries one.
+///
+/// Staff commonly name lessons "01. Introduction …" in the admin panel, and
+/// blindly prefixing the index turned that into "01. 01. Introduction …".
+/// Numbering is useful when it is missing, so add it only then rather than
+/// forbidding either convention.
+String _numberedTitle(int position, String title) {
+  final trimmed = title.trimLeft();
+  // Matches "1.", "01.", "1)", "1 -", "Lesson 1:" and similar openers.
+  final alreadyNumbered =
+      RegExp(r'^(lesson\s*)?\d{1,3}\s*[.):-]', caseSensitive: false).hasMatch(trimmed);
+  if (alreadyNumbered) return trimmed;
+  return '${position.toString().padLeft(2, '0')}. $trimmed';
 }

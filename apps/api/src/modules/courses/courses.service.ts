@@ -390,8 +390,13 @@ export async function updateProgress(lessonId: string, userId: string, data: Upd
     .onConflictDoUpdate({
       target: [lessonProgress.userId, lessonProgress.lessonId],
       set: {
+        // Last position, so the player resumes where the student stopped —
+        // including when they rewind.
         watchedSeconds: data.watchedSeconds,
-        isCompleted,
+        // Completion is sticky. Writing the incoming value directly meant
+        // that rewatching a finished lesson from the middle marked it
+        // unfinished again, and the course dropped from 100% back to 0%.
+        isCompleted: sql`${lessonProgress.isCompleted} OR ${isCompleted}`,
         lastWatchedAt: new Date(),
       },
     })
