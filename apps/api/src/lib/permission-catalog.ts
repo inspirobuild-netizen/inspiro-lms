@@ -48,6 +48,7 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { code: 'feedback.view', label: 'View student feedback', category: 'Academics' },
   { code: 'mentors.view', label: 'View mentor / instructor workload', category: 'Academics' },
   { code: 'content.manage', label: 'Curate current-affairs & AI content', category: 'Academics' },
+  { code: 'banners.manage', label: 'Publish home banners & broadcasts', category: 'Academics' },
 
   // Insights
   { code: 'analytics.view', label: 'View own analytics', category: 'Insights' },

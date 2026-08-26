@@ -804,3 +804,24 @@ export const studentFeedback = pgTable('student_feedback', {
 }, (t) => ({
   createdIdx: index('idx_feedback_created').on(t.createdAt),
 }));
+
+// ── Home banners ──────────────────────────────────────────────────────────────
+// Sliding promo/branding cards on the student home screen. An optional
+// courseId makes a banner tappable straight into that course — deliberately
+// no external URL field, so a tap never throws a student out of the app.
+export const banners = pgTable('banners', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  title: varchar('title', { length: 160 }).notNull(),
+  imageUrl: text('image_url').notNull(),
+  courseId: uuid('course_id').references(() => courses.id, { onDelete: 'set null' }),
+  sortOrder: integer('sort_order').notNull().default(0),
+  isActive: boolean('is_active').notNull().default(true),
+  // Optional scheduling window; null on either side means "no bound".
+  startsAt: timestamp('starts_at', { withTimezone: true }),
+  endsAt: timestamp('ends_at', { withTimezone: true }),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  activeIdx: index('idx_banners_active').on(t.isActive, t.sortOrder),
+}));

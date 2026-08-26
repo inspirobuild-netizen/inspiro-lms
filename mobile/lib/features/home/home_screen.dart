@@ -11,6 +11,7 @@ import '../live/providers/live_provider.dart';
 import '../notifications/providers/notifications_provider.dart';
 import 'providers/home_stats_provider.dart';
 import 'providers/my_batch_provider.dart';
+import 'widgets/banner_rail.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -40,6 +41,10 @@ class HomeScreen extends ConsumerWidget {
             children: [
               _Header(greeting: _greeting(), name: firstName),
               const SizedBox(height: 20),
+              // Self-hiding: renders nothing when no banners are published,
+              // so it carries its own bottom spacing rather than leaving a
+              // gap between two fixed spacers.
+              const BannerRail(),
               const _StreakCard(),
               const SizedBox(height: 16),
               // Self-hiding: renders nothing unless a class is actually live,
