@@ -1,4 +1,5 @@
 import {
+  primaryKey,
   pgTable,
   pgEnum,
   text,
@@ -723,4 +724,72 @@ export const lessonsRelations = relations(lessons, ({ one, many }) => ({
 export const examsRelations = relations(exams, ({ many }) => ({
   questions: many(questions),
   attempts: many(examAttempts),
+}));
+// ── Mentor segment ────────────────────────────────────────────────────────────
+// A mentor is a staff user holding the Mentor role. The profile carries their
+// subject identity; mentor_batches is the admin-managed mapping that scopes
+// everything a mentor can touch.
+export const mentorProfiles = pgTable('mentor_profiles', {
+  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  coreSubject: varchar('core_subject', { length: 100 }).notNull(),
+  strongSubjects: text('strong_subjects').array().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const mentorBatches = pgTable('mentor_batches', {
+  mentorId: uuid('mentor_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  batchId: uuid('batch_id').notNull().references(() => batches.id, { onDelete: 'cascade' }),
+  assignedAt: timestamp('assigned_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.mentorId, t.batchId] }),
+  batchIdx: index('idx_mentor_batches_batch').on(t.batchId),
+}));
+
+// ── Activity space ────────────────────────────────────────────────────────────
+// Batch-scoped tasks published by a mentor or coordinator; students submit in
+// the app. One row per batch — publishing to several batches inserts several
+// rows, which keeps every read a single indexed lookup.
+export const activities = pgTable('activities', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  batchId: uuid('batch_id').notNull().references(() => batches.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description').notNull(),
+  dueAt: timestamp('due_at', { withTimezone: true }),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  batchIdx: index('idx_activities_batch').on(t.batchId, t.createdAt),
+}));
+
+export const activitySubmissions = pgTable('activity_submissions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  activityId: uuid('activity_id').notNull().references(() => activities.id, { onDelete: 'cascade' }),
+  studentId: uuid('student_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  body: text('body').notNull(),
+  imageUrl: text('image_url'),
+  submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  reviewedBy: uuid('reviewed_by').references(() => users.id, { onDelete: 'set null' }),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  remarks: text('remarks'),
+}, (t) => ({
+  uqSubmission: uniqueIndex('activity_submissions_activity_id_student_id_key').on(t.activityId, t.studentId),
+  activityIdx: index('idx_submissions_activity').on(t.activityId),
+  studentIdx: index('idx_submissions_student').on(t.studentId),
+}));
+
+// ── Feedback space ────────────────────────────────────────────────────────────
+// Collected from students in the app; read by the academic coordinator.
+export const studentFeedback = pgTable('student_feedback', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  studentId: uuid('student_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  batchId: uuid('batch_id').references(() => batches.id, { onDelete: 'set null' }),
+  category: varchar('category', { length: 40 }).notNull(),
+  rating: integer('rating'),
+  message: text('message').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  createdIdx: index('idx_feedback_created').on(t.createdAt),
 }));

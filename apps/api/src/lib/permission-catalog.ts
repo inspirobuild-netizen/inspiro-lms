@@ -43,6 +43,9 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { code: 'exams.manage', label: 'Manage exams & questions', category: 'Academics' },
   { code: 'doubts.view', label: 'View doubts', category: 'Academics' },
   { code: 'doubts.manage', label: 'Answer, assign & resolve doubts', category: 'Academics' },
+  { code: 'activities.view', label: 'View activities and submissions', category: 'Academics' },
+  { code: 'activities.manage', label: 'Publish activities & review submissions', category: 'Academics' },
+  { code: 'feedback.view', label: 'View student feedback', category: 'Academics' },
   { code: 'mentors.view', label: 'View mentor / instructor workload', category: 'Academics' },
   { code: 'content.manage', label: 'Curate current-affairs & AI content', category: 'Academics' },
 

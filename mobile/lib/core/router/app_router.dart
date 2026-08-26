@@ -8,6 +8,8 @@ import '../../features/learn/screens/learn_screen.dart';
 import '../../features/learn/screens/course_detail_screen.dart';
 import '../../features/learn/screens/video_player_screen.dart';
 import '../../features/learn/screens/notes_viewer_screen.dart';
+import '../../features/spaces/screens/activity_space_screen.dart';
+import '../../features/spaces/screens/feedback_space_screen.dart';
 import '../../features/exams/screens/exams_screen.dart';
 import '../../features/exams/screens/exam_player_screen.dart';
 import '../../features/exams/screens/exam_review_screen.dart';
@@ -97,6 +99,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           final extra = state.extra as Map<String, String>;
           return VideoPlayerScreen(lessonId: extra['lessonId']!, title: extra['title']!);
         },
+      ),
+      GoRoute(
+        path: '/activities',
+        builder: (context, state) => const ActivitySpaceScreen(),
+      ),
+      GoRoute(
+        path: '/feedback',
+        builder: (context, state) => const FeedbackSpaceScreen(),
       ),
       GoRoute(
         path: '/notes',

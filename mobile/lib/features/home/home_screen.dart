@@ -527,13 +527,30 @@ class _ToolsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    // Five tools no longer fit one row on a small phone, and the three
+    // student spaces (doubt / activity / feedback) belong together.
+    return Column(
       children: [
-        _Tool(Icons.psychology_alt_outlined, 'Ask AI', Brand.blue, () => context.push('/doubts')),
-        const SizedBox(width: 12),
-        _Tool(Icons.track_changes_outlined, 'Coach', Brand.amber, () => context.push('/coach')),
-        const SizedBox(width: 12),
-        _Tool(Icons.newspaper_outlined, 'Affairs', Brand.teal, () => context.push('/current-affairs')),
+        Row(
+          children: [
+            _Tool(Icons.psychology_alt_outlined, 'Doubts', Brand.blue, () => context.push('/doubts')),
+            const SizedBox(width: 12),
+            _Tool(Icons.assignment_outlined, 'Activity', Brand.teal, () => context.push('/activities')),
+            const SizedBox(width: 12),
+            _Tool(Icons.rate_review_outlined, 'Feedback', Brand.amber, () => context.push('/feedback')),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            _Tool(Icons.track_changes_outlined, 'Coach', Brand.amber, () => context.push('/coach')),
+            const SizedBox(width: 12),
+            _Tool(Icons.newspaper_outlined, 'Affairs', Brand.teal, () => context.push('/current-affairs')),
+            const SizedBox(width: 12),
+            // Keeps the second row aligned with the first.
+            const Expanded(child: SizedBox.shrink()),
+          ],
+        ),
       ],
     );
   }
