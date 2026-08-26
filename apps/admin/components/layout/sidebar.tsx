@@ -120,7 +120,9 @@ const navItems: NavItem[] = [
   {
     label: 'Mentors',
     href: '/mentors',
-    group: 'academic',
+    // Staffing, not Academic: this is where mentors are hired, given a
+    // subject and mapped to batches, so it belongs beside Staff and Roles.
+    group: 'staffing',
     permission: 'mentors.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -309,18 +311,6 @@ const navItems: NavItem[] = [
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-      </svg>
-    ),
-  },
-  {
-    // Admin-only (no permission flag): mapping mentors to batches decides
-    // whose students they see.
-    label: 'Mentor Setup',
-    href: '/mentors/manage',
-    group: 'staffing',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
       </svg>
     ),
   },
