@@ -10,6 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, Select, Field } from '@/components/ui/modal';
+import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { ImageUpload } from '@/components/shared/image-upload';
 import { money } from '@/lib/utils';
 
@@ -919,39 +921,235 @@ function FeePlanModal({
 function LessonQuizControl({ lesson }: { lesson: Lesson }) {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
+  const qc = useQueryClient();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [configuring, setConfiguring] = useState(false);
 
+  const key = ['admin', 'lesson', lesson.id, 'quiz'];
   const { data } = useQuery({
-    queryKey: ['admin', 'lesson', lesson.id, 'quiz'],
-    queryFn: () => api.get<{ id: string; title: string; isPublished: boolean }[]>(`/api/v1/admin/exams?lessonId=${lesson.id}&limit=1`),
+    queryKey: key,
+    queryFn: () => api.get<TopicExam[]>(`/api/v1/admin/exams?lessonId=${lesson.id}&limit=1`),
     enabled: !!accessToken,
   });
-
   const quiz = data?.data?.[0];
 
-  if (quiz) {
+  const refresh = () => void qc.invalidateQueries({ queryKey: key });
+
+  const publish = useMutation({
+    mutationFn: () =>
+      quiz!.isPublished
+        ? api.patch(`/api/v1/admin/exams/${quiz!.id}`, { isPublished: false })
+        : api.post(`/api/v1/admin/exams/${quiz!.id}/publish`, {}),
+    onSuccess: () => {
+      toast(quiz!.isPublished ? 'Topic exam unpublished' : 'Topic exam published', 'success');
+      refresh();
+    },
+    onError: (e) => toast(e instanceof ApiError ? e.message : 'Could not change status', 'error'),
+  });
+
+  const remove = useMutation({
+    mutationFn: () => api.delete(`/api/v1/admin/exams/${quiz!.id}`),
+    onSuccess: () => {
+      toast('Topic exam deleted', 'success');
+      refresh();
+    },
+    onError: (e) => toast(e instanceof ApiError ? e.message : 'Could not delete', 'error'),
+  });
+
+  if (!quiz) {
     return (
-      <div className="mt-2">
-        <Link href={`/exams/${quiz.id}`} className="inline-flex items-center gap-1.5 text-xs text-teal-300 hover:text-teal-200">
-          <Badge variant={quiz.isPublished ? 'success' : 'slate'}>Quiz</Badge>
-          {quiz.title} →
+      <div className="mt-2 flex items-center gap-3">
+        <Button variant="outline" size="sm" onClick={() => setConfiguring(true)}>
+          + Topic exam
+        </Button>
+        <Link
+          href={`/exams/generate?lessonId=${lesson.id}&${new URLSearchParams({ topic: lesson.title }).toString()}`}
+          className="text-xs text-slate-400 hover:text-slate-200"
+        >
+          Generate with AI
         </Link>
+        {configuring && (
+          <TopicExamModal
+            api={api}
+            lesson={lesson}
+            onClose={() => setConfiguring(false)}
+            onSaved={() => {
+              setConfiguring(false);
+              toast('Topic exam created', 'success');
+              refresh();
+            }}
+          />
+        )}
       </div>
     );
   }
 
-  const params = new URLSearchParams({ title: lesson.title });
+  // Publishing an exam with no questions would hand students an empty paper.
+  const ready = quiz.questionCount > 0;
+
   return (
-    <div className="mt-2 flex items-center gap-3">
-      <Link href={`/exams?createFor=${lesson.id}&${params.toString()}`} className="text-xs text-slate-400 hover:text-slate-200">
-        + Quiz (manual)
-      </Link>
-      <Link
-        href={`/exams/generate?lessonId=${lesson.id}&${new URLSearchParams({ topic: lesson.title }).toString()}`}
-        className="text-xs text-slate-400 hover:text-slate-200"
-      >
-        + Quiz (AI)
-      </Link>
+    <div className="mt-2 rounded-xl border border-white/8 bg-surface-2 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={quiz.isPublished ? 'success' : 'slate'}>
+          {quiz.isPublished ? 'Published' : 'Draft'}
+        </Badge>
+        <span className="text-sm text-slate-200">{quiz.title}</span>
+        <span className="text-xs text-slate-500">
+          {quiz.questionCount} question{quiz.questionCount === 1 ? '' : 's'} · {quiz.marksPerQuestion} mark
+          {quiz.marksPerQuestion === 1 ? '' : 's'} each
+          {quiz.negMarks > 0 ? ` · −${quiz.negMarks} wrong` : ' · no negative'} · {quiz.durationMins} min
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-2 mt-2.5">
+        <Link href={`/exams/${quiz.id}`}>
+          <Button variant="outline" size="sm">Questions</Button>
+        </Link>
+        <Button variant="outline" size="sm" onClick={() => setConfiguring(true)}>
+          Settings
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          loading={publish.isPending}
+          disabled={!quiz.isPublished && !ready}
+          onClick={() => publish.mutate()}
+        >
+          {quiz.isPublished ? 'Unpublish' : 'Publish'}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            const ok = await confirm({
+              title: 'Delete this topic exam?',
+              message: 'Its questions and any student attempts go with it.',
+              destructive: true,
+            });
+            if (ok) remove.mutate();
+          }}
+        >
+          Delete
+        </Button>
+      </div>
+      {!quiz.isPublished && !ready && (
+        <p className="text-xs text-amber-300/80 mt-2">Add at least one question before publishing.</p>
+      )}
+      {configuring && (
+        <TopicExamModal
+          api={api}
+          lesson={lesson}
+          exam={quiz}
+          onClose={() => setConfiguring(false)}
+          onSaved={() => {
+            setConfiguring(false);
+            toast('Settings saved', 'success');
+            refresh();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+type TopicExam = {
+  id: string;
+  title: string;
+  subject: string;
+  isPublished: boolean;
+  questionCount: number;
+  marksPerQuestion: number;
+  negMarks: number;
+  durationMins: number;
+  passPercent: number;
+};
+
+/**
+ * Create or reconfigure the exam attached to one lesson, without leaving the
+ * Content tab. The exam belongs to the lesson, so it is configured beside
+ * that lesson's video and notes rather than on a separate Exams page.
+ */
+function TopicExamModal({
+  api,
+  lesson,
+  exam,
+  onClose,
+  onSaved,
+}: {
+  api: ReturnType<typeof createApiClient>;
+  lesson: Lesson;
+  exam?: TopicExam;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [title, setTitle] = useState(exam?.title ?? `${lesson.title} — Test`);
+  const [subject, setSubject] = useState(exam?.subject ?? '');
+  const [duration, setDuration] = useState(String(exam?.durationMins ?? 15));
+  const [marks, setMarks] = useState(String(exam?.marksPerQuestion ?? 1));
+  const [neg, setNeg] = useState(String(exam?.negMarks ?? 0));
+  const [pass, setPass] = useState(String(exam?.passPercent ?? 40));
+
+  const save = useMutation({
+    mutationFn: () => {
+      const payload = {
+        title: title.trim(),
+        subject: subject.trim() || 'General',
+        durationMins: Number(duration) || 15,
+        marksPerQuestion: Number(marks) || 1,
+        negMarks: Number(neg) || 0,
+        passPercent: Number(pass) || 40,
+      };
+      return exam
+        ? api.patch(`/api/v1/admin/exams/${exam.id}`, payload)
+        : // type + lessonId are what make this a TOPIC exam belonging to this
+          // lesson rather than a loose paper on the Exams page.
+          api.post('/api/v1/admin/exams', { ...payload, type: 'topic_quiz', lessonId: lesson.id });
+    },
+    onSuccess: onSaved,
+    onError: (e) => toast(e instanceof ApiError ? e.message : 'Could not save', 'error'),
+  });
+
+  const num = (v: string) => v.replace(/[^0-9.]/g, '');
+
+  return (
+    <Modal open onClose={onClose} title={exam ? 'Topic exam settings' : 'New topic exam'}>
+      <div className="space-y-4">
+        <Field label="Title">
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+        </Field>
+        <Field label="Subject">
+          <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Polity" />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Duration (minutes)">
+            <Input value={duration} inputMode="numeric" onChange={(e) => setDuration(num(e.target.value))} />
+          </Field>
+          <Field label="Pass mark (%)">
+            <Input value={pass} inputMode="numeric" onChange={(e) => setPass(num(e.target.value))} />
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Marks per correct answer">
+            <Input value={marks} inputMode="decimal" onChange={(e) => setMarks(num(e.target.value))} />
+          </Field>
+          <Field label="Negative per wrong answer">
+            <Input value={neg} inputMode="decimal" onChange={(e) => setNeg(num(e.target.value))} />
+          </Field>
+        </div>
+        <p className="text-xs text-slate-500">
+          Students may sit an exam once. Questions are added after saving.
+        </p>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button loading={save.isPending} disabled={title.trim().length < 2} onClick={() => save.mutate()}>
+            {exam ? 'Save' : 'Create'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

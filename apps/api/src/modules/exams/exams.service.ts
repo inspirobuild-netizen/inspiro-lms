@@ -86,10 +86,64 @@ export async function listAllExams(input: ListExamsInput) {
 
   const [{ total }] = await db.select({ total: count() }).from(exams).where(where);
   const items = await db.select().from(exams).where(where).limit(limit).offset(offset);
-  return { items, total };
+
+  // questionCount lets the course Content tab show whether a topic exam is
+  // ready to publish. Deliberately a second grouped query rather than a
+  // correlated subquery in the SELECT list: the inline version returned 0 for
+  // every exam, including ones with three and five questions.
+  if (items.length === 0) return { items: [], total };
+
+  const counts = await db
+    .select({ examId: questions.examId, n: count() })
+    .from(questions)
+    .where(inArray(questions.examId, items.map((e) => e.id)))
+    .groupBy(questions.examId);
+  const countBy = new Map(counts.map((c) => [c.examId, Number(c.n)]));
+
+  return {
+    items: items.map((e) => ({ ...e, questionCount: countBy.get(e.id) ?? 0 })),
+    total,
+  };
 }
 
 export async function createExam(data: CreateExamInput, createdBy: string) {
+  // A lesson has exactly ONE topic exam. Without this a second could be
+  // attached, and since the course Content tab reads back a single exam per
+  // lesson the extra one would be invisible to staff while still live for
+  // students.
+  if (data.lessonId) {
+    const [existing] = await db
+      .select({ id: exams.id, title: exams.title })
+      .from(exams)
+      .where(eq(exams.lessonId, data.lessonId))
+      .limit(1);
+    if (existing) {
+      throw err(
+        `This lesson already has an exam ("${existing.title}"). Edit or delete it first.`,
+        409,
+        'LESSON_EXAM_EXISTS',
+      );
+    }
+  }
+
+  // A lesson has ONE topic exam. Without this a second could be attached, and
+  // since the course Content tab reads back a single exam per lesson the
+  // extra one would be invisible to staff while still live for students.
+  if (data.lessonId) {
+    const [existing] = await db
+      .select({ id: exams.id, title: exams.title })
+      .from(exams)
+      .where(eq(exams.lessonId, data.lessonId))
+      .limit(1);
+    if (existing) {
+      throw err(
+        `This lesson already has an exam ("${existing.title}"). Edit or delete it first.`,
+        409,
+        'LESSON_EXAM_EXISTS',
+      );
+    }
+  }
+
   const [exam] = await db
     .insert(exams)
     .values({
