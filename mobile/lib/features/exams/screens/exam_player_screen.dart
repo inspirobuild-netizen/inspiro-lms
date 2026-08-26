@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../models/exam.dart';
@@ -8,17 +9,17 @@ import '../providers/exams_provider.dart';
 /// Interactive exam player. When [examId] is a real backend id it starts an
 /// attempt, loads server questions and submits for server-side scoring.
 /// Otherwise (Demo Mode / no id) it uses sample questions with local scoring.
-class ExamPlayerScreen extends StatefulWidget {
+class ExamPlayerScreen extends ConsumerStatefulWidget {
   final String? examId;
   final String title;
   final int durationMins;
   const ExamPlayerScreen({super.key, this.examId, this.title = 'Mock Test', this.durationMins = 20});
 
   @override
-  State<ExamPlayerScreen> createState() => _ExamPlayerScreenState();
+  ConsumerState<ExamPlayerScreen> createState() => _ExamPlayerScreenState();
 }
 
-class _ExamPlayerScreenState extends State<ExamPlayerScreen> with WidgetsBindingObserver {
+class _ExamPlayerScreenState extends ConsumerState<ExamPlayerScreen> with WidgetsBindingObserver {
   static const _sample = [
     ExamQuestionApi(id: 'q1', subject: 'Indian Polity', marks: 2.0, correct: 2,
         body: 'Which article of the Indian Constitution provides for the Right to Constitutional Remedies?',
@@ -184,6 +185,13 @@ class _ExamPlayerScreenState extends State<ExamPlayerScreen> with WidgetsBinding
     }
 
     if (!mounted) return;
+
+    // The Exams tab lives in an IndexedStack shell and stays mounted, so its
+    // providers never refetch on their own — without this the attempt would
+    // not appear under Attended and the exam would still look available.
+    ref.invalidate(myAttemptsProvider);
+    ref.invalidate(examsProvider);
+
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => _ResultScreen(result: result, terminated: _terminated)),
     );

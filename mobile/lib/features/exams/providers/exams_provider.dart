@@ -101,6 +101,11 @@ class ExamRepository {
     try {
       final res = await ApiClient.dio.post<Map<String, dynamic>>(
         '/api/v1/exams/attempts/$attemptId/violation',
+        // Dio sets Content-Type: application/json even with no payload, and
+        // Fastify rejects an empty body under that header
+        // (FST_ERR_CTP_EMPTY_JSON_BODY). Every violation silently 400'd and
+        // was swallowed by the catch below, so no warning ever appeared.
+        data: const <String, dynamic>{},
       );
       final d = res.data!['data'] as Map<String, dynamic>;
       return ViolationOutcome(
