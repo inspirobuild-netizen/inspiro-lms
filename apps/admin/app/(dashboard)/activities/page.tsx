@@ -60,7 +60,7 @@ export default function ActivitiesPage() {
 
   const batchesQ = useQuery({
     queryKey: ['admin', 'batches', 'for-activities'],
-    queryFn: () => api.get<{ items: Batch[] }>('/api/v1/batches?limit=100'),
+    queryFn: () => api.get<Batch[]>('/api/v1/batches?limit=100'),
   });
 
   const remove = useMutation({
@@ -142,7 +142,7 @@ export default function ActivitiesPage() {
       {creating && (
         <PublishModal
           api={api}
-          batches={batchesQ.data?.data.items ?? []}
+          batches={batchesQ.data?.data ?? []}
           onClose={() => setCreating(false)}
           onDone={() => {
             setCreating(false);

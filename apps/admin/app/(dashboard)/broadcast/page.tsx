@@ -220,7 +220,7 @@ function BannerModal({
 
   const coursesQ = useQuery({
     queryKey: ['admin', 'courses', 'for-banner'],
-    queryFn: () => api.get<{ items: Course[] }>('/api/v1/admin/courses?limit=100'),
+    queryFn: () => api.get<Course[]>('/api/v1/courses?limit=100'),
   });
 
   async function upload(file: File) {
@@ -304,7 +304,7 @@ function BannerModal({
           <Field label="Opens course (optional)">
             <Select value={courseId} onChange={(e) => setCourseId(e.target.value)}>
               <option value="">Not tappable</option>
-              {(coursesQ.data?.data.items ?? []).map((c) => (
+              {(coursesQ.data?.data ?? []).map((c) => (
                 <option key={c.id} value={c.id}>{c.title}</option>
               ))}
             </Select>

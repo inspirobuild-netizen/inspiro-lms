@@ -75,7 +75,7 @@ export default function MentorsPage() {
 
   const batchesQ = useQuery({
     queryKey: ['admin', 'batches', 'for-mentors'],
-    queryFn: () => api.get<{ items: Batch[] }>('/api/v1/batches?limit=100'),
+    queryFn: () => api.get<Batch[]>('/api/v1/batches?limit=100'),
     enabled: !!accessToken && isAdmin,
   });
 
@@ -167,7 +167,7 @@ export default function MentorsPage() {
         <ConfigureModal
           api={api}
           mentor={editing}
-          batches={batchesQ.data?.data.items ?? []}
+          batches={batchesQ.data?.data ?? []}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
