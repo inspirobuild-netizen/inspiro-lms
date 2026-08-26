@@ -88,6 +88,48 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
     }
   }
 
+  Widget _buildAwaitingApproval() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 40, 20, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Brand.amber.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Brand.amber.withValues(alpha: 0.35)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.hourglass_top_rounded, color: Brand.amber, size: 26),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Admission received',
+                          style: TextStyle(
+                              color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
+                      Text(
+                        'Your admission has been recorded. Course access opens once our office '
+                        'confirms the payment — usually within a working day. No further payment '
+                        'is needed here.',
+                        style: TextStyle(color: Colors.white60, fontSize: 13, height: 1.45),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAlreadyEnrolled() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 40, 20, 28),
@@ -149,6 +191,22 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
       return AppScaffold(
         title: widget.course.title,
         body: _buildAlreadyEnrolled(),
+      );
+    }
+
+    // A counsellor has admitted them and the office is confirming the
+    // payment. Asking for money now would be asking them to pay twice.
+    final awaitingApproval = ref
+            .watch(myPendingAccessProvider)
+            .asData
+            ?.value
+            .contains(widget.course.id) ??
+        false;
+
+    if (awaitingApproval) {
+      return AppScaffold(
+        title: widget.course.title,
+        body: _buildAwaitingApproval(),
       );
     }
 

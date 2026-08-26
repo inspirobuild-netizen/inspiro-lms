@@ -78,7 +78,7 @@ export default async function enrollmentRoutes(app: FastifyInstance) {
     if (!p) return;
     const input = validate(verifyEnrollRequestSchema, req.body, reply);
     if (!input) return;
-    const result = await verifyEnrollRequest(p.id, input, req.user.sub);
+    const result = await verifyEnrollRequest(p.id, input, req.user.sub, req.user.role);
     await logAudit(req, {
       action: 'enrollment_request.verified',
       entityType: 'enrollment_request',

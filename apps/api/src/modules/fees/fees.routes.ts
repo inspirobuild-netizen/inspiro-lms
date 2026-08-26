@@ -121,7 +121,7 @@ export default async function feesRoutes(app: FastifyInstance) {
     if (!p) return;
     const input = validate(recordPaymentSchema, req.body, reply);
     if (!input) return;
-    const result = await recordPayment(p.id, input, req.user.sub);
+    const result = await recordPayment(p.id, input, req.user.sub, req.user.role);
     await logAudit(req, {
       action: 'payment.recorded',
       entityType: 'admission',

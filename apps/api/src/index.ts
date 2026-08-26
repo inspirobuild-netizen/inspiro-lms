@@ -47,6 +47,7 @@ await app.register(import('./modules/users/users.routes.js'), { prefix: '/api/v1
 await app.register(import('./modules/batches/batches.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/courses/courses.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/media/media.routes.js'), { prefix: '/api/v1' });
+await app.register(import('./modules/finance/finance.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/exams/exams.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/live/live.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/notifications/notifications.routes.js'), { prefix: '/api/v1' });

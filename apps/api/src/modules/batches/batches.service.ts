@@ -297,7 +297,7 @@ export async function enrollStudent(
   batchId: string,
   userId: string,
   expiresAt?: string,
-  opts?: { feePlanId?: string; staffId?: string },
+  opts?: { feePlanId?: string; staffId?: string; staffRole?: string },
 ) {
   return db.transaction(async (tx) => {
     // Confirm batch exists
@@ -318,12 +318,15 @@ export async function enrollStudent(
       .values({
         userId,
         batchId,
-        status: 'active',
+        status: opts?.staffRole === 'admin' || !opts?.staffRole ? 'active' : 'pending_approval',
         expiresAt: expiresAt ? new Date(expiresAt) : undefined,
       })
       .onConflictDoUpdate({
         target: [batchEnrollments.userId, batchEnrollments.batchId],
-        set: { status: 'active', expiresAt: expiresAt ? new Date(expiresAt) : null },
+        set: {
+          status: opts?.staffRole === 'admin' || !opts?.staffRole ? 'active' : 'pending_approval',
+          expiresAt: expiresAt ? new Date(expiresAt) : null,
+        },
       })
       .returning();
 
@@ -351,7 +354,7 @@ export async function bulkEnrollStudents(
   batchId: string,
   userIds: string[],
   expiresAt?: string,
-  opts?: { feePlanId?: string; staffId?: string },
+  opts?: { feePlanId?: string; staffId?: string; staffRole?: string },
 ) {
   return db.transaction(async (tx) => {
     const [batch] = await tx.select().from(batches).where(eq(batches.id, batchId)).limit(1);
@@ -369,10 +372,12 @@ export async function bulkEnrollStudents(
       );
     }
 
+    const enrolStatus =
+      opts?.staffRole === 'admin' || !opts?.staffRole ? ('active' as const) : ('pending_approval' as const);
     const rows = userIds.map((userId) => ({
       userId,
       batchId,
-      status: 'active' as const,
+      status: enrolStatus,
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
     }));
 
@@ -381,7 +386,7 @@ export async function bulkEnrollStudents(
       .values(rows)
       .onConflictDoUpdate({
         target: [batchEnrollments.userId, batchEnrollments.batchId],
-        set: { status: 'active' },
+        set: { status: enrolStatus },
       });
 
     // Sequential rather than parallel: admission numbers come from a shared
@@ -491,4 +496,17 @@ export async function getMyBatches(userId: string) {
     .from(batchEnrollments)
     .innerJoin(batches, eq(batchEnrollments.batchId, batches.id))
     .where(and(eq(batchEnrollments.userId, userId), eq(batchEnrollments.status, 'active')));
+}
+
+// Course ids where the student has an enrolment awaiting the admin's payment
+// check. The app uses this to show "Awaiting confirmation" instead of an
+// Enrol button — without it, a counsellor-admitted student is invited to pay
+// a second time through the app.
+export async function getMyPendingCourseIds(userId: string): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ courseId: batches.courseId })
+    .from(batchEnrollments)
+    .innerJoin(batches, eq(batchEnrollments.batchId, batches.id))
+    .where(and(eq(batchEnrollments.userId, userId), eq(batchEnrollments.status, 'pending_approval')));
+  return rows.map((r) => r.courseId);
 }

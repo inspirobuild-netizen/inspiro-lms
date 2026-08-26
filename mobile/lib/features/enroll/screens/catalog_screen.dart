@@ -39,6 +39,7 @@ class CatalogScreen extends ConsumerWidget {
     // "Awaiting verification" to a student who already has access is worse
     // than showing nothing.
     final enrolledAsync = ref.watch(coursesProvider);
+    final pendingAccessAsync = ref.watch(myPendingAccessProvider);
 
     return AppScaffold(
       title: 'Explore courses',
@@ -60,12 +61,16 @@ class CatalogScreen extends ConsumerWidget {
           final enrolledIds =
               enrolledAsync.asData?.value.map((c) => c.id).toSet() ?? const <String>{};
 
+          // Two ways to be "awaiting": an app enrol request the office has
+          // not verified, or a counsellor admission the admin has not yet
+          // approved. Either way the student must not be asked to pay.
           // Access wins over a pending row, never the other way round.
-          final pending = (pendingAsync.asData?.value
-                      .where((r) => r.status == 'pending')
-                      .map((r) => r.courseId)
-                      .toSet() ??
-                  const <String>{})
+          final pending = ((pendingAsync.asData?.value
+                          .where((r) => r.status == 'pending')
+                          .map((r) => r.courseId)
+                          .toSet() ??
+                      const <String>{})
+                  .union(pendingAccessAsync.asData?.value ?? const <String>{}))
               .difference(enrolledIds);
 
           return RefreshIndicator(
@@ -75,6 +80,7 @@ class CatalogScreen extends ConsumerWidget {
               ref.invalidate(catalogProvider);
               ref.invalidate(myEnrollRequestsProvider);
               ref.invalidate(coursesProvider);
+              ref.invalidate(myPendingAccessProvider);
             },
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),

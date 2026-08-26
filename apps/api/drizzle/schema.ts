@@ -29,7 +29,10 @@ export const attendanceTypeEnum = pgEnum('attendance_type', ['live_class', 'offl
 export const attendanceStatusEnum = pgEnum('attendance_status', ['present', 'absent', 'late']);
 export const notificationTypeEnum = pgEnum('notification_type', ['class_reminder', 'exam_alert', 'result', 'announcement', 'doubt_reply', 'achievement', 'lead_assigned', 'verification_update', 'admission_update', 'credentials_issued']);
 export const leaderboardPeriodEnum = pgEnum('leaderboard_period', ['weekly', 'monthly', 'all_time']);
-export const enrollmentStatusEnum = pgEnum('enrollment_status', ['active', 'expired', 'suspended']);
+// pending_approval: created by a counsellor and awaiting the admin
+// maker-checker step. assertEnrolled and every student-facing list require
+// 'active', so a pending enrolment grants nothing until approved.
+export const enrollmentStatusEnum = pgEnum('enrollment_status', ['active', 'expired', 'suspended', 'pending_approval']);
 export const targetExamEnum = pgEnum('target_exam', ['upsc', 'kerala_psc', 'other_psc']);
 // Admission CRM (Phase 2)
 export const leadSourceEnum = pgEnum('lead_source', ['facebook', 'instagram', 'google', 'website', 'walk_in', 'referral', 'seminar', 'campaign', 'mobile_app', 'other']);
@@ -310,10 +313,18 @@ export const payments = pgTable('payments', {
   reference: varchar('reference', { length: 120 }),
   note: text('note'),
   collectedBy: uuid('collected_by').references(() => users.id, { onDelete: 'set null' }),
+  // Maker-checker: staff-recorded payments start 'pending' and count toward
+  // the rollup only once an admin verifies them, so amountPaid/paymentStatus
+  // are CONFIRMED money. Admin-recorded payments verify themselves. Default
+  // 'verified' keeps rows from before this column counting.
+  status: verificationStatusEnum('status').notNull().default('verified'),
+  verifiedBy: uuid('verified_by').references(() => users.id, { onDelete: 'set null' }),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   admissionIdx: index('idx_payments_admission').on(t.admissionId),
   createdIdx: index('idx_payments_created').on(t.createdAt),
+  statusIdx: index('idx_payments_status').on(t.status),
 }));
 
 // A student's self-serve "I want to enrol + I've paid" claim from the mobile

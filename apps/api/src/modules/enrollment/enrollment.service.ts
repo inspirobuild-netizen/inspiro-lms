@@ -198,7 +198,16 @@ export async function listEnrollRequests(status?: string) {
 // transaction, then record the payment (its own transaction) only after
 // that one commits — a payment ledger write must never roll back alongside
 // an already-successful admission.
-export async function verifyEnrollRequest(requestId: string, input: VerifyEnrollRequestInput, staffId: string) {
+export async function verifyEnrollRequest(
+  requestId: string,
+  input: VerifyEnrollRequestInput,
+  staffId: string,
+  staffRole = 'admin',
+) {
+  // Maker-checker: a counsellor's verification records everything but grants
+  // nothing — access opens when an admin confirms the money. An admin doing
+  // this directly is both maker and checker, so it activates immediately.
+  const isAdmin = staffRole === 'admin';
   const result = db.transaction(async (tx) => {
     const [reqRow] = await tx.select().from(enrollmentRequests).where(eq(enrollmentRequests.id, requestId)).limit(1);
     if (!reqRow) throw err('Enrollment request not found', 404, 'NOT_FOUND');
@@ -224,7 +233,7 @@ export async function verifyEnrollRequest(requestId: string, input: VerifyEnroll
       .from(batchEnrollments)
       .where(and(eq(batchEnrollments.batchId, input.batchId), eq(batchEnrollments.status, 'active')));
     if (Number(enrolled) >= batch.capacity) throw err('Batch is at full capacity', 409, 'BATCH_FULL');
-    await tx.insert(batchEnrollments).values({ userId: reqRow.studentId, batchId: input.batchId, status: 'active' });
+    await tx.insert(batchEnrollments).values({ userId: reqRow.studentId, batchId: input.batchId, status: isAdmin ? 'active' : 'pending_approval' });
 
     const admissionNo = await nextCode(tx, 'adm_seq', 'ADM');
     const [admission] = await tx
@@ -265,8 +274,15 @@ export async function verifyEnrollRequest(requestId: string, input: VerifyEnroll
 
   const finish = async () => {
     const r = await result;
-    await recordPayment(r.admissionId, { amount: r.amount, method: r.method, reference: r.reference }, staffId);
-    await sendNotificationToUser(r.studentId, 'Admission confirmed', 'Your payment has been verified and course access is now active.', 'admission_update');
+    await recordPayment(r.admissionId, { amount: r.amount, method: r.method, reference: r.reference }, staffId, staffRole);
+    await sendNotificationToUser(
+      r.studentId,
+      isAdmin ? 'Admission confirmed' : 'Admission received',
+      isAdmin
+        ? 'Your payment has been verified and course access is now active.'
+        : 'Your admission has been recorded. Course access opens once our office confirms the payment — usually within a working day.',
+      'admission_update',
+    );
     return r;
   };
   return finish();

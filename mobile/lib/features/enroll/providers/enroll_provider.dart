@@ -43,3 +43,14 @@ class EnrollApi {
     );
   }
 }
+
+/// Course ids where a counsellor has admitted the student but the admin has
+/// not yet confirmed the payment. The catalogue shows these as awaiting
+/// confirmation; without it the student is shown an Enrol button and invited
+/// to pay a second time.
+final myPendingAccessProvider = FutureProvider.autoDispose<Set<String>>((ref) async {
+  final res = await ApiClient.dio
+      .get<Map<String, dynamic>>('/api/v1/enrollments/my-pending');
+  final data = res.data!['data'] as Map<String, dynamic>;
+  return ((data['courseIds'] as List?) ?? const []).cast<String>().toSet();
+});

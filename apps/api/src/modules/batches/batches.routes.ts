@@ -19,6 +19,7 @@ import {
   updateBatch,
   archiveBatch,
   enrollStudent,
+  getMyPendingCourseIds,
   bulkEnrollStudents,
   unenrollStudent,
   getBatchStudents,
@@ -39,14 +40,16 @@ const pageSchema = z.object({
  * been committed by the time this runs, so a notification failure is logged
  * and swallowed rather than surfaced as a failed enrolment.
  */
-async function notifyEnrolled(userId: string, batchName: string, hadPendingRequest: boolean) {
+async function notifyEnrolled(userId: string, batchName: string, hadPendingRequest: boolean, isLive: boolean) {
   try {
     await sendNotificationToUser(
       userId,
-      'You are enrolled',
-      hadPendingRequest
-        ? `Your enrolment request has been approved. You now have access to ${batchName}.`
-        : `You have been enrolled in ${batchName}. Your course is ready.`,
+      isLive ? 'You are enrolled' : 'Enrolment received',
+      isLive
+        ? (hadPendingRequest
+            ? `Your enrolment request has been approved. You now have access to ${batchName}.`
+            : `You have been enrolled in ${batchName}. Your course is ready.`)
+        : `Your enrolment in ${batchName} has been recorded. Access opens once our office confirms the payment.`,
       'admission_update',
       { batchName },
     );
@@ -60,6 +63,12 @@ export default async function batchesRoutes(app: FastifyInstance) {
   app.get('/batches/my', { preHandler: [authenticate] }, async (req, reply) => {
     const data = await getMyBatches(req.user.sub);
     return reply.send({ success: true, data });
+  });
+
+  // ── Enrolments awaiting the admin payment check ───────────────────────────
+  app.get('/enrollments/my-pending', { preHandler: [authenticate] }, async (req, reply) => {
+    const courseIds = await getMyPendingCourseIds(req.user.sub);
+    return reply.send({ success: true, data: { courseIds } });
   });
 
   // ── Public-ish: list batches (authenticated) ───────────────────────────────
@@ -178,11 +187,12 @@ export default async function batchesRoutes(app: FastifyInstance) {
       const enrollment = await enrollStudent(id, parsed.data.userId, parsed.data.expiresAt, {
         feePlanId: parsed.data.feePlanId,
         staffId: req.user.sub,
+        staffRole: req.user.role,
       });
 
       // Outside the transaction on purpose: a push failure must never roll
       // back an enrolment that already succeeded.
-      await notifyEnrolled(parsed.data.userId, enrollment.batchName, enrollment.resolvedRequest);
+      await notifyEnrolled(parsed.data.userId, enrollment.batchName, enrollment.resolvedRequest, req.user.role === 'admin');
 
       return reply.status(201).send({ success: true, data: enrollment });
     },
@@ -204,10 +214,11 @@ export default async function batchesRoutes(app: FastifyInstance) {
       const result = await bulkEnrollStudents(id, parsed.data.userIds, parsed.data.expiresAt, {
         feePlanId: parsed.data.feePlanId,
         staffId: req.user.sub,
+        staffRole: req.user.role,
       });
 
       for (const userId of result.notifyStudents) {
-        await notifyEnrolled(userId, result.batchName, true);
+        await notifyEnrolled(userId, result.batchName, true, req.user.role === 'admin');
       }
 
       return reply.send({ success: true, data: result });

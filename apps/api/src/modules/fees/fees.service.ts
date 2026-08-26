@@ -128,7 +128,15 @@ export async function listInstallments(admissionId: string) {
  * rollup from the ledger. All in one transaction so the rollup can never
  * drift from the underlying payment rows.
  */
-export async function recordPayment(admissionId: string, input: RecordPaymentInput, collectedBy: string) {
+export async function recordPayment(
+  admissionId: string,
+  input: RecordPaymentInput,
+  collectedBy: string,
+  collectorRole = 'admin',
+) {
+  // Maker-checker: only an admin's own entries are trusted on sight. A
+  // counsellor's entry is a CLAIM until an admin verifies it against the bank.
+  const autoVerified = collectorRole === 'admin';
   return db.transaction(async (tx) => {
     const [adm] = await tx.select().from(admissions).where(eq(admissions.id, admissionId)).limit(1);
     if (!adm) throw err('Admission not found', 404, 'ADMISSION_NOT_FOUND');
@@ -136,7 +144,7 @@ export async function recordPayment(admissionId: string, input: RecordPaymentInp
     const [{ paidSoFar }] = await tx
       .select({ paidSoFar: sql<number>`coalesce(sum(${payments.amount}), 0)` })
       .from(payments)
-      .where(eq(payments.admissionId, admissionId));
+      .where(and(eq(payments.admissionId, admissionId), sql`${payments.status} <> 'rejected'`));
 
     if (round2(Number(paidSoFar) + input.amount) > round2(adm.feeAmount) + 0.01) {
       throw err(
@@ -165,11 +173,15 @@ export async function recordPayment(admissionId: string, input: RecordPaymentInp
         reference: input.reference ?? null,
         note: input.note ?? null,
         collectedBy,
+        status: autoVerified ? 'verified' : 'pending',
+        verifiedBy: autoVerified ? collectedBy : null,
+        verifiedAt: autoVerified ? new Date() : null,
       })
       .returning();
 
-    // Apply to the targeted installment, else oldest-unpaid first.
-    let remaining = input.amount;
+    // Apply to the targeted installment, else oldest-unpaid first — but only
+    // verified money moves installments; a pending claim waits for the admin.
+    let remaining = autoVerified ? input.amount : 0;
     const targets = input.installmentId
       ? await tx.select().from(admissionInstallments).where(eq(admissionInstallments.id, input.installmentId))
       : await tx
@@ -195,11 +207,12 @@ export async function recordPayment(admissionId: string, input: RecordPaymentInp
       remaining = round2(remaining - applied);
     }
 
-    // Recompute the rollup from the ledger — never incremented blindly.
+    // Recompute the rollup from the ledger — never incremented blindly, and
+    // only VERIFIED rows count: amountPaid is confirmed money.
     const [{ total }] = await tx
       .select({ total: sql<number>`coalesce(sum(${payments.amount}), 0)` })
       .from(payments)
-      .where(eq(payments.admissionId, admissionId));
+      .where(and(eq(payments.admissionId, admissionId), eq(payments.status, 'verified')));
     const amountPaid = round2(Number(total));
     const paymentStatus = amountPaid <= 0 ? 'pending' : amountPaid + 0.01 >= adm.feeAmount ? 'paid' : 'partial';
 

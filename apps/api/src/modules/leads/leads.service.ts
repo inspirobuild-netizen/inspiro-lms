@@ -197,7 +197,7 @@ export async function changeStatus(leadId: string, toStatus: string, changedBy: 
 }
 
 // ── Convert a lead into a verified student + admission (atomic) ────────────────
-export async function convertLead(leadId: string, input: ConvertLeadInput, counsellorId: string) {
+export async function convertLead(leadId: string, input: ConvertLeadInput, counsellorId: string, counsellorRole = 'admin') {
   const result = db.transaction(async (tx) => {
     const [lead] = await tx.select().from(leads).where(eq(leads.id, leadId)).limit(1);
     if (!lead) throw err('Lead not found', 404, 'LEAD_NOT_FOUND');
@@ -288,7 +288,7 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
       .from(batchEnrollments)
       .where(and(eq(batchEnrollments.batchId, input.batchId), eq(batchEnrollments.status, 'active')));
     if (Number(enrolled) >= batch.capacity) throw err('Batch is at full capacity', 409, 'BATCH_FULL');
-    await tx.insert(batchEnrollments).values({ userId: student!.id, batchId: input.batchId, status: 'active' });
+    await tx.insert(batchEnrollments).values({ userId: student!.id, batchId: input.batchId, status: counsellorRole === 'admin' ? 'active' : 'pending_approval' });
 
     const admissionNo = await nextCode(tx, 'adm_seq', 'ADM');
     const admissionDate = input.admissionDate ?? new Date().toISOString().slice(0, 10);
@@ -338,6 +338,7 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
         r.admissionId,
         { amount: input.collectAmount, method: input.collectMethod, reference: input.collectReference },
         counsellorId,
+        counsellorRole,
       );
     }
     if (r.passwordSet && r.studentEmail) {
@@ -345,9 +346,23 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
       void sendEmail({ to: r.studentEmail, subject, html });
     }
     if (r.passwordSet) {
-      await sendNotificationToUser(r.studentId, 'Welcome to Inspiro!', 'Your admission is confirmed and course access is now active.', 'credentials_issued');
+      await sendNotificationToUser(
+        r.studentId,
+        'Welcome to Inspiro!',
+        counsellorRole === 'admin'
+          ? 'Your admission is confirmed and course access is now active.'
+          : 'Your admission has been recorded. Course access opens once our office confirms the payment.',
+        'credentials_issued',
+      );
     } else {
-      await sendNotificationToUser(r.studentId, 'Admission confirmed', 'Your admission is confirmed and course access is now active.', 'admission_update');
+      await sendNotificationToUser(
+        r.studentId,
+        counsellorRole === 'admin' ? 'Admission confirmed' : 'Admission received',
+        counsellorRole === 'admin'
+          ? 'Your admission is confirmed and course access is now active.'
+          : 'Your admission has been recorded. Course access opens once our office confirms the payment.',
+        'admission_update',
+      );
     }
     await notifyAdmins('Lead converted', `${r.studentName} (${r.leadCode}) converted to admission ${r.admissionNo}.`, 'admission_update', { admissionId: r.admissionId });
     return r;

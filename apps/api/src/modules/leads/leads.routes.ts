@@ -86,7 +86,7 @@ export default async function leadsRoutes(app: FastifyInstance) {
     if (!parsed.success) return bad(reply, parsed.error);
     const viewAll = await hasPermission(req, 'leads.view_all');
     await getLead(id, { ownerId: req.user.sub, viewAll });
-    const result = await convertLead(id, parsed.data, req.user.sub);
+    const result = await convertLead(id, parsed.data, req.user.sub, req.user.role);
     await logAudit(req, { action: 'lead.converted', entityType: 'lead', entityId: id, meta: { admissionNo: result.admissionNo, studentId: result.studentId } });
     return reply.status(201).send({ success: true, data: result });
   });
