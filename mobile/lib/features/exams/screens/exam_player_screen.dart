@@ -18,7 +18,7 @@ class ExamPlayerScreen extends StatefulWidget {
   State<ExamPlayerScreen> createState() => _ExamPlayerScreenState();
 }
 
-class _ExamPlayerScreenState extends State<ExamPlayerScreen> {
+class _ExamPlayerScreenState extends State<ExamPlayerScreen> with WidgetsBindingObserver {
   static const _sample = [
     ExamQuestionApi(id: 'q1', subject: 'Indian Polity', marks: 2.0, correct: 2,
         body: 'Which article of the Indian Constitution provides for the Right to Constitutional Remedies?',
@@ -48,11 +48,69 @@ class _ExamPlayerScreenState extends State<ExamPlayerScreen> {
   late int _remaining;
   Timer? _timer;
 
+  // ── Proctoring ────────────────────────────────────────────────────────────
+  // Leaving the exam — by back press or by minimising the app — is a
+  // violation. Two are warnings; the third ends the attempt. The SERVER
+  // counts them and decides: the app reports the event and obeys the answer,
+  // so a tampered build cannot simply stop counting.
+  int _warningsLeft = 2;
+  bool _terminated = false;
+  bool _submitting = false;
+  // Suppresses the lifecycle handler while WE are the reason the app is
+  // backgrounding (submitting, or already finished).
+  bool _finished = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _remaining = widget.durationMins * 60;
     _load();
+  }
+
+  /// Fires when the app goes to the background — the app-minimise case.
+  /// `inactive` is deliberately ignored: it also fires for transient system
+  /// UI such as the notification shade or an incoming call banner, and
+  /// punishing that would be unfair.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.paused) return;
+    if (_finished || _terminated || _attemptId == null) return;
+    _reportViolation('You left the exam');
+  }
+
+  /// Reports one violation and applies whatever the server decides.
+  Future<void> _reportViolation(String reason) async {
+    if (_finished || _terminated) return;
+    final outcome = await ExamRepository.reportViolation(_attemptId!);
+    if (!mounted || outcome == null) return;
+
+    if (outcome.terminated) {
+      setState(() => _terminated = true);
+      await _submit(auto: true);
+      return;
+    }
+    setState(() => _warningsLeft = outcome.warningsLeft);
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Brand.surface,
+        title: const Text('Warning', style: TextStyle(color: Brand.red, fontWeight: FontWeight.bold)),
+        content: Text(
+          '$reason.\n\nStay on this screen until you submit. '
+          '${outcome.warningsLeft == 0 ? 'One more and your exam will be submitted automatically.' : 'You have ${outcome.warningsLeft} warnings left.'}',
+          style: const TextStyle(color: Colors.white70, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('I understand', style: TextStyle(color: Brand.blue)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _load() async {
@@ -91,6 +149,7 @@ class _ExamPlayerScreenState extends State<ExamPlayerScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
   }
@@ -101,7 +160,10 @@ class _ExamPlayerScreenState extends State<ExamPlayerScreen> {
     return '$m:$s';
   }
 
-  Future<void> _submit() async {
+  Future<void> _submit({bool auto = false}) async {
+    if (_submitting) return;
+    _submitting = true;
+    _finished = true;
     _timer?.cancel();
     ExamResult result;
 
@@ -110,7 +172,10 @@ class _ExamPlayerScreenState extends State<ExamPlayerScreen> {
       final answersById = <String, int>{};
       _answers.forEach((qi, opt) => answersById[_questions[qi].id] = opt);
       try {
-        result = await ExamRepository.submit(widget.examId!, _attemptId!, answersById, _questions.length);
+        result = await ExamRepository.submit(
+          widget.examId!, _attemptId!, answersById, _questions.length,
+          isAutoSubmitted: auto,
+        );
       } catch (_) {
         result = _localScore();
       }
@@ -119,7 +184,9 @@ class _ExamPlayerScreenState extends State<ExamPlayerScreen> {
     }
 
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => _ResultScreen(result: result)));
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => _ResultScreen(result: result, terminated: _terminated)),
+    );
   }
 
   ExamResult _localScore() {
@@ -146,7 +213,15 @@ class _ExamPlayerScreenState extends State<ExamPlayerScreen> {
     final q = _questions[_current];
     final selected = _answers[_current];
 
-    return Scaffold(
+    // canPop false: leaving mid-exam is exactly what this prevents. The back
+    // gesture is reported as a violation rather than dismissing the screen.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || _finished || _terminated || _attemptId == null) return;
+        _reportViolation('Back press is not allowed during an exam');
+      },
+      child: Scaffold(
       backgroundColor: Brand.bg,
       body: SafeArea(
         child: Column(
@@ -197,6 +272,7 @@ class _ExamPlayerScreenState extends State<ExamPlayerScreen> {
           ],
         ),
       ),
+      ),
     );
   }
 
@@ -212,6 +288,25 @@ class _ExamPlayerScreenState extends State<ExamPlayerScreen> {
             TextSpan(text: ' / ${_questions.length}', style: const TextStyle(color: Colors.white38, fontSize: 15)),
           ])),
           const Spacer(),
+          // Only shown once a warning has actually been used — a counter
+          // sitting there from the start reads as a threat.
+          if (_warningsLeft < 2) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Brand.red.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Brand.red.withValues(alpha: 0.5)),
+              ),
+              child: Row(children: [
+                const Icon(Icons.warning_amber_rounded, color: Brand.red, size: 14),
+                const SizedBox(width: 4),
+                Text('$_warningsLeft left',
+                    style: const TextStyle(color: Brand.red, fontSize: 12, fontWeight: FontWeight.bold)),
+              ]),
+            ),
+            const SizedBox(width: 8),
+          ],
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
             decoration: BoxDecoration(
@@ -337,12 +432,19 @@ class _ExamPlayerScreenState extends State<ExamPlayerScreen> {
 
 class _ResultScreen extends StatelessWidget {
   final ExamResult result;
-  const _ResultScreen({required this.result});
+  /// True when the attempt was submitted because the student ran out of
+  /// warnings — they should be told why, not left guessing.
+  final bool terminated;
+  const _ResultScreen({required this.result, this.terminated = false});
 
   @override
   Widget build(BuildContext context) {
-    final pct = result.total == 0 ? 0.0 : result.correct / result.total;
-    final passed = pct >= 0.5;
+    // The server scores with the exam's own marking scheme; fall back to a
+    // plain correct/total ratio only for locally-scored demo attempts.
+    final pct = result.percentage != null
+        ? result.percentage! / 100
+        : (result.total == 0 ? 0.0 : result.correct / result.total);
+    final passed = result.passed ?? (pct >= 0.5);
 
     return Scaffold(
       backgroundColor: Brand.bg,

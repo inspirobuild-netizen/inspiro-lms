@@ -70,7 +70,22 @@ class ExamResult {
   final int attempted;
   final double score;
 
-  const ExamResult({required this.total, required this.correct, required this.attempted, required this.score});
+  // Present when the server scored the attempt; null for local demo scoring.
+  final double? maxScore;
+  final double? percentage;
+  final bool? passed;
+  final int? xpEarned;
+
+  const ExamResult({
+    required this.total,
+    required this.correct,
+    required this.attempted,
+    required this.score,
+    this.maxScore,
+    this.percentage,
+    this.passed,
+    this.xpEarned,
+  });
 }
 
 /// One row of my attempt history (GET /exams/attempts).

@@ -70,15 +70,51 @@ class ExamRepository {
     String examId,
     String attemptId,
     Map<String, int> answers,
-    int total,
-  ) async {
+    int total, {
+    bool isAutoSubmitted = false,
+  }) async {
     final res = await ApiClient.dio.post<Map<String, dynamic>>(
       '/api/v1/exams/$examId/attempts/$attemptId/submit',
-      data: {'answers': answers},
+      data: {'answers': answers, 'isAutoSubmitted': isAutoSubmitted},
     );
     final d = res.data!['data'] as Map<String, dynamic>;
     final score = (d['score'] as num?)?.toDouble() ?? 0;
     final correct = d['correctCount'] as int? ?? (d['correct'] as int? ?? 0);
-    return ExamResult(total: total, correct: correct, attempted: answers.length, score: score);
+    return ExamResult(
+      total: total,
+      correct: correct,
+      attempted: answers.length,
+      score: score,
+      maxScore: (d['maxScore'] as num?)?.toDouble(),
+      percentage: (d['percentage'] as num?)?.toDouble(),
+      passed: d['passed'] as bool?,
+      xpEarned: d['xpEarned'] as int?,
+    );
   }
+
+  /// Reports one proctoring violation. The SERVER counts them and decides
+  /// whether the attempt is over — the app only obeys the answer.
+  ///
+  /// Returns null when the report could not be delivered: a student on a
+  /// flaky connection must not lose their exam to a failed request.
+  static Future<ViolationOutcome?> reportViolation(String attemptId) async {
+    try {
+      final res = await ApiClient.dio.post<Map<String, dynamic>>(
+        '/api/v1/exams/attempts/$attemptId/violation',
+      );
+      final d = res.data!['data'] as Map<String, dynamic>;
+      return ViolationOutcome(
+        warningsLeft: d['warningsLeft'] as int? ?? 0,
+        terminated: d['terminated'] as bool? ?? false,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+class ViolationOutcome {
+  final int warningsLeft;
+  final bool terminated;
+  const ViolationOutcome({required this.warningsLeft, required this.terminated});
 }

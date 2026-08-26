@@ -4,8 +4,11 @@ import { z } from 'zod';
 export const createExamSchema = z.object({
   title: z.string().min(2).max(255),
   subject: z.string().min(1).max(100),
-  type: z.enum(['practice', 'chapter', 'mock', 'previous_year', 'topic_quiz']).default('practice'),
+  type: z
+    .enum(['practice', 'chapter', 'mock', 'previous_year', 'topic_quiz', 'monthly', 'annual'])
+    .default('practice'),
   durationMins: z.number().int().positive().max(480),
+  marksPerQuestion: z.number().min(0.25).max(20).default(1),
   negMarks: z.number().min(0).max(4).default(0.25),
   passPercent: z.number().min(0).max(100).default(40),
   maxAttempts: z.number().int().positive().max(10).default(1),
@@ -54,7 +57,9 @@ export const listExamsSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   subject: z.string().optional(),
-  type: z.enum(['practice', 'chapter', 'mock', 'previous_year', 'topic_quiz']).optional(),
+  type: z
+    .enum(['practice', 'chapter', 'mock', 'previous_year', 'topic_quiz', 'monthly', 'annual'])
+    .optional(),
   batchId: z.string().uuid().optional(),
   lessonId: z.string().uuid().optional(),
 });

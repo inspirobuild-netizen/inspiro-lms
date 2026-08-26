@@ -9,6 +9,7 @@ import {
   leaderboard,
 } from '../../../drizzle/schema.js';
 import { logger } from '../../lib/logger.js';
+import { touchStreak, recomputeLeaderboard } from '../leaderboard/leaderboard.service.js';
 import type {
   CreateExamInput,
   UpdateExamInput,
@@ -403,9 +404,10 @@ export async function submitExam(
     }
   }
 
-  const maxScore = questionList.length;
-  const rawScore = correct - wrong * exam.negMarks;
-  const score = Math.max(0, rawScore); // floor at 0
+  // Marking scheme: marksPerQuestion per correct, negMarks per wrong.
+  const maxScore = questionList.length * exam.marksPerQuestion;
+  const rawScore = correct * exam.marksPerQuestion - wrong * exam.negMarks;
+  const score = Math.max(0, rawScore); // floor at 0 — never a negative total
 
   // ── Persist result ─────────────────────────────────────────────────────────
   const [submitted] = await db
@@ -424,11 +426,25 @@ export async function submitExam(
   // Clean up Redis active state
   await redis.del(activeAttemptKey(attemptId));
 
-  // ── Compute rank (async — don't block response) ────────────────────────────
+  const percentage = maxScore > 0 ? Number(((score / maxScore) * 100).toFixed(2)) : 0;
+  const passed = percentage >= exam.passPercent;
+
+  // Ranks, streak, XP and the leaderboard all move off the response path —
+  // a student should see their result immediately, and none of this changes
+  // what that result says.
   setImmediate(() => {
-    computeRanks(examId).catch((e) =>
-      logger.error({ err: e, examId }, 'Rank computation failed'),
-    );
+    void (async () => {
+      try {
+        await computeRanks(examId);
+      } catch (e) {
+        logger.error({ err: e, examId }, 'Rank computation failed');
+      }
+      try {
+        await rewardAttempt(studentId, examId, percentage, exam.type);
+      } catch (e) {
+        logger.error({ err: e, examId, studentId }, 'Exam reward (streak/leaderboard) failed');
+      }
+    })();
   });
 
   return {
@@ -438,8 +454,9 @@ export async function submitExam(
     correct,
     wrong,
     skipped,
-    percentage: Number(((score / maxScore) * 100).toFixed(2)),
-    passed: (score / maxScore) * 100 >= exam.passPercent,
+    percentage,
+    passed,
+    xpEarned: xpFor(percentage, exam.type),
   };
 }
 
@@ -536,6 +553,84 @@ export async function getMyAttempts(studentId: string, page: number, limit: numb
 
   return { items, total };
 }
+
+/**
+ * XP for one submitted attempt.
+ *
+ * Weighted by exam type so a monthly or annual paper is worth more than a
+ * lesson quiz, and by score so guessing is not rewarded like preparation.
+ */
+function xpFor(percentage: number, type: string): number {
+  const base = type === 'annual' ? 100 : type === 'monthly' ? 50 : 20;
+  return Math.round(base * (0.4 + 0.6 * (percentage / 100)));
+}
+
+/**
+ * Applies the consequences of a submitted attempt: streak, XP, and the
+ * leaderboard for every batch the student is actively enrolled in.
+ *
+ * Runs off the response path — see submitExam. Recomputing the leaderboard
+ * here is what makes it "dynamic": previously it only moved when an admin
+ * triggered a recompute by hand.
+ */
+async function rewardAttempt(
+  studentId: string,
+  examId: string,
+  percentage: number,
+  type: string,
+): Promise<void> {
+  await touchStreak(studentId, xpFor(percentage, type));
+
+  const enrolled = await db
+    .select({ batchId: batchEnrollments.batchId })
+    .from(batchEnrollments)
+    .where(and(eq(batchEnrollments.userId, studentId), eq(batchEnrollments.status, 'active')));
+
+  for (const { batchId } of enrolled) {
+    for (const period of ['weekly', 'monthly', 'all_time'] as const) {
+      await recomputeLeaderboard(batchId, period);
+    }
+  }
+}
+
+/**
+ * Records a proctoring violation (back press or app minimise).
+ *
+ * The limit is enforced HERE, not in the app: two warnings, and the third
+ * violation terminates the attempt. A client that simply stopped reporting
+ * would be the whole defence otherwise.
+ */
+export async function flagViolation(attemptId: string, studentId: string) {
+  const [attempt] = await db
+    .select()
+    .from(examAttempts)
+    .where(
+      and(
+        eq(examAttempts.id, attemptId),
+        eq(examAttempts.studentId, studentId),
+        sql`${examAttempts.submittedAt} IS NULL`,
+      ),
+    )
+    .limit(1);
+  if (!attempt) throw err('Active attempt not found', 404, 'ATTEMPT_NOT_FOUND');
+
+  const violationCount = attempt.violationCount + 1;
+  const terminate = violationCount >= MAX_VIOLATIONS;
+
+  await db
+    .update(examAttempts)
+    .set({ violationCount, terminated: terminate })
+    .where(eq(examAttempts.id, attemptId));
+
+  return {
+    violationCount,
+    warningsLeft: Math.max(0, MAX_VIOLATIONS - 1 - violationCount),
+    terminated: terminate,
+  };
+}
+
+// Two warnings, then the attempt ends on the third violation.
+const MAX_VIOLATIONS = 3;
 
 export async function flagTabSwitch(attemptId: string, studentId: string, count: number) {
   const [updated] = await db

@@ -32,6 +32,7 @@ import {
   getExamResult,
   getMyAttempts,
   flagTabSwitch,
+  flagViolation,
 } from './exams.service.js';
 import { generateAiExamSchema, generateExamWithAi, autoTagQuestion, QuestionNotFoundError } from './exams.ai.service.js';
 import { AiUnavailableError } from '../../lib/ai-client.js';
@@ -114,6 +115,14 @@ export default async function examsRoutes(app: FastifyInstance) {
       return reply.send({ success: true, data: result });
     },
   );
+
+  // ── Report a proctoring violation (back press / app minimised) ────────────
+  // The app reports the event; the SERVER decides whether the attempt ends.
+  app.post('/exams/attempts/:attemptId/violation', { preHandler: [authenticate] }, async (req, reply) => {
+    const { attemptId } = req.params as { attemptId: string };
+    const result = await flagViolation(attemptId, req.user.sub);
+    return reply.send({ success: true, data: result });
+  });
 
   // ══ Admin routes ══════════════════════════════════════════════════════════
 

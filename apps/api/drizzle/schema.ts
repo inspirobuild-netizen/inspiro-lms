@@ -23,7 +23,11 @@ export const userRoleEnum = pgEnum('user_role', ['student', 'instructor', 'admin
 export const batchTypeEnum = pgEnum('batch_type', ['online', 'offline', 'hybrid']);
 export const batchStatusEnum = pgEnum('batch_status', ['upcoming', 'active', 'completed', 'archived']);
 export const lessonTypeEnum = pgEnum('lesson_type', ['video', 'pdf', 'audio', 'live_recording']);
-export const examTypeEnum = pgEnum('exam_type', ['practice', 'chapter', 'mock', 'previous_year', 'topic_quiz']);
+// topic_quiz: the MCQ test that follows one lesson/module.
+// monthly / annual: academy-wide papers configured by a coordinator or admin.
+export const examTypeEnum = pgEnum('exam_type', [
+  'practice', 'chapter', 'mock', 'previous_year', 'topic_quiz', 'monthly', 'annual',
+]);
 export const difficultyEnum = pgEnum('difficulty', ['easy', 'medium', 'hard']);
 export const doubtStatusEnum = pgEnum('doubt_status', ['open', 'ai_answered', 'escalated', 'resolved']);
 export const attendanceTypeEnum = pgEnum('attendance_type', ['live_class', 'offline']);
@@ -491,6 +495,8 @@ export const exams = pgTable('exams', {
   subject: varchar('subject', { length: 100 }).notNull(),
   type: examTypeEnum('type').notNull().default('practice'),
   durationMins: integer('duration_mins').notNull(),
+  // Marking scheme: marks per correct answer, minus negMarks per wrong one.
+  marksPerQuestion: real('marks_per_question').notNull().default(1),
   negMarks: real('neg_marks').notNull().default(0),
   passPercent: real('pass_percent').notNull().default(40),
   maxAttempts: integer('max_attempts').default(1),
@@ -537,6 +543,11 @@ export const examAttempts = pgTable('exam_attempts', {
   submittedAt: timestamp('submitted_at', { withTimezone: true }),
   isAutoSubmitted: boolean('is_auto_submitted').notNull().default(false),
   tabSwitchCount: integer('tab_switch_count').notNull().default(0),
+  // Back-press / app-minimise events during the attempt. Two are warnings;
+  // the third terminates and auto-submits, enforced server-side so a patched
+  // client cannot simply not report them being the whole defence.
+  violationCount: integer('violation_count').notNull().default(0),
+  terminated: boolean('terminated').notNull().default(false),
 }, (t) => ({
   examIdx: index('idx_attempts_exam').on(t.examId),
   studentIdx: index('idx_attempts_student').on(t.studentId),
