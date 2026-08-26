@@ -499,6 +499,8 @@ export const exams = pgTable('exams', {
   marksPerQuestion: real('marks_per_question').notNull().default(1),
   negMarks: real('neg_marks').notNull().default(0),
   passPercent: real('pass_percent').notNull().default(40),
+  // An exam is sat ONCE. Raising this is a deliberate per-exam decision, not
+  // something to inherit by accident.
   maxAttempts: integer('max_attempts').default(1),
   scheduleStart: timestamp('schedule_start', { withTimezone: true }),
   scheduleEnd: timestamp('schedule_end', { withTimezone: true }),

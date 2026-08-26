@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
@@ -126,15 +127,50 @@ class _ExamPlayerScreenState extends ConsumerState<ExamPlayerScreen> with Widget
         });
         _startTimer();
         return;
-      } catch (_) {
-        // fall through to sample questions
+      } on DioException catch (e) {
+        // NEVER fall through to sample questions for a real exam. Doing so
+        // turned a legitimate refusal — "attempt limit reached" — into a
+        // fake exam that opened, had no proctoring because there was no
+        // attempt id, and scored locally against answers the server never
+        // saw. A student would believe they had sat it.
+        if (!kDemoMode) {
+          setState(() {
+            _loadError = _startFailureMessage(e);
+            _loading = false;
+          });
+          return;
+        }
       }
     }
+    // Sample questions are a DEMO-ONLY path.
     setState(() {
       _questions = _sample;
       _loading = false;
     });
     _startTimer();
+  }
+
+  /// Turns a failed start into something the student can act on. The server's
+  /// own message is preferred — it knows why.
+  String _startFailureMessage(DioException e) {
+    final data = e.response?.data;
+    // Parenthesised deliberately: `as String?` directly before a ternary
+    // colon is ambiguous to the Dart parser.
+    final err = data is Map<String, dynamic> ? data['error'] : null;
+    final code = err is Map<String, dynamic> ? err['code'] as String? : null;
+    final serverMsg = err is Map<String, dynamic> ? err['message'] as String? : null;
+
+    switch (code) {
+      case 'ATTEMPT_LIMIT_REACHED':
+        return 'You have already attempted this exam. It can only be taken once.';
+      case 'EXAM_NOT_AVAILABLE':
+      case 'EXAM_NOT_PUBLISHED':
+        return 'This exam is not open right now.';
+      case 'NOT_ENROLLED':
+        return 'This exam belongs to a batch you are not enrolled in.';
+      default:
+        return serverMsg ?? 'Could not start this exam. Check your connection and try again.';
+    }
   }
 
   void _startTimer() {
