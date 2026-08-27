@@ -23,7 +23,6 @@ type Course = {
   createdAt: string;
 };
 
-const SUBJECTS = ['Polity', 'History', 'Geography', 'Economy', 'Science & Tech', 'Environment', 'Current Affairs', 'Kerala GK', 'General Studies'];
 
 export default function CoursesPage() {
   const { accessToken } = useAuthStore();
@@ -62,7 +61,9 @@ export default function CoursesPage() {
           )}
           <div className="min-w-0">
             <p className="font-medium text-slate-200 truncate">{c.title}</p>
-            <p className="text-xs text-slate-500 mt-0.5 capitalize">{c.subject}</p>
+            {c.subject && c.subject !== 'General' && (
+              <p className="text-xs text-slate-500 mt-0.5 capitalize">{c.subject}</p>
+            )}
           </div>
         </div>
       ),
@@ -136,7 +137,6 @@ function CreateCourseButton({ onCreated }: { onCreated: () => void }) {
 
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
-  const [subject, setSubject] = useState(SUBJECTS[0]);
   const [description, setDescription] = useState('');
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -145,7 +145,6 @@ function CreateCourseButton({ onCreated }: { onCreated: () => void }) {
     mutationFn: () =>
       api.post('/api/v1/admin/courses', {
         title: title.trim(),
-        subject,
         ...(description.trim() ? { description: description.trim() } : {}),
         ...(thumbnailUrl ? { thumbnailUrl } : {}),
       }),
@@ -164,11 +163,6 @@ function CreateCourseButton({ onCreated }: { onCreated: () => void }) {
         <div className="space-y-4">
           <Field label="Title">
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Indian Constitution: Comprehensive Foundation" autoFocus />
-          </Field>
-          <Field label="Subject">
-            <Select value={subject} onChange={(e) => setSubject(e.target.value)}>
-              {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </Select>
           </Field>
           <Field label="Description (shown to students & used by the AI doubt solver)">
             <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this course covers…" />

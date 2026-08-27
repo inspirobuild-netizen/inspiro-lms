@@ -176,8 +176,10 @@ class _ContinueCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                               color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold, height: 1.25)),
-                      const SizedBox(height: 2),
-                      Text(course.subject, style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                      if (course.hasSubject) ...[
+                        const SizedBox(height: 2),
+                        Text(course.subject, style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                      ],
                       if (progress != null && progress!.hasLessons) ...[
                         const SizedBox(height: 10),
                         ClipRRect(
@@ -229,8 +231,10 @@ class _CourseTile extends StatelessWidget {
                 children: [
                   Text(course.title,
                       style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 3),
-                  Text(course.subject, style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                  if (course.hasSubject) ...[
+                    const SizedBox(height: 3),
+                    Text(course.subject, style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                  ],
                   if (batchName != null) ...[
                     const SizedBox(height: 6),
                     Container(

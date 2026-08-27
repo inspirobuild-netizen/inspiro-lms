@@ -106,7 +106,8 @@ class CourseDetailScreen extends ConsumerWidget {
               children: [
                 Wrap(spacing: 8, runSpacing: 6, children: [
                   _chip('COURSE', Brand.blue),
-                  _chip(detail.course.subject.toUpperCase(), Brand.teal),
+                  if (detail.course.hasSubject)
+                    _chip(detail.course.subject.toUpperCase(), Brand.teal),
                   // Which of this course's batches the student belongs to —
                   // course is the master, batch sits under it.
                   if (batchName != null) _chip(batchName.toUpperCase(), Brand.amber),

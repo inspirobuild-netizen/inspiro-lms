@@ -241,7 +241,8 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
               Text(widget.course.title,
                   style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
-              Text(widget.course.subject,
+              if (widget.course.hasSubject)
+                Text(widget.course.subject,
                   style: const TextStyle(color: Colors.white38, fontSize: 12.5)),
             ],
           ),

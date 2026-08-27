@@ -24,6 +24,12 @@ class Course {
         thumbnailUrl: json['thumbnailUrl'] as String?,
         feeAmount: (json['feeAmount'] as num?)?.toDouble() ?? 0,
       );
+
+  /// A course spans many subjects, so one is no longer collected at creation
+  /// and new courses carry a neutral placeholder. Existing courses that DO
+  /// name a real subject keep showing it.
+  bool get hasSubject => subject.isNotEmpty && subject != 'General';
+
 }
 
 /// A student's real progress through a course, computed server-side from

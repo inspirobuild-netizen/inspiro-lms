@@ -2,7 +2,11 @@ import { z } from 'zod';
 
 export const createCourseSchema = z.object({
   title: z.string().min(2).max(255),
-  subject: z.string().min(1).max(100),
+  // A course spans many subjects and topics, so a single one carries no
+  // meaning — it is no longer asked for at creation. The column stays NOT
+  // NULL for the rows that already have a real value, so new courses get a
+  // neutral placeholder the app knows to hide.
+  subject: z.string().min(1).max(100).default('General'),
   description: z.string().max(5000).optional(),
   thumbnailUrl: z.string().url().optional(),
 });

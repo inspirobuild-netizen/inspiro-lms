@@ -159,9 +159,11 @@ class _CatalogCard extends StatelessWidget {
                     Text(course.title,
                         style: const TextStyle(
                             color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 2),
-                    Text(course.subject,
-                        style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                    if (course.hasSubject) ...[
+                      const SizedBox(height: 2),
+                      Text(course.subject,
+                          style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                    ],
                   ],
                 ),
               ),
