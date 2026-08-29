@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate.js';
+import { logAudit } from '../../lib/audit.js';
 import { resolveDoc } from '../../lib/local-storage.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import {
@@ -35,6 +36,7 @@ import {
   deleteLesson,
   reorderLessons,
 } from './courses.service.js';
+import { getBatchContent, createBatchModule, copyContentToBatch } from './batch-content.service.js';
 
 type ZodSchema<T> = { safeParse: (v: unknown) => { success: true; data: T } | { success: false; error: { flatten: () => unknown } } };
 
@@ -118,6 +120,51 @@ export default async function coursesRoutes(app: FastifyInstance) {
     const progress = await updateProgress(id, req.user.sub, input);
     return reply.send({ success: true, data: progress });
   });
+
+
+  // ══ Per-batch content management ═══════════════════════════════════════════
+  // Content lives on batches; a course's batchId-null modules are its master
+  // template. Lesson-level routes below work unchanged for batch modules,
+  // since lessons hang off modules either way.
+
+  app.get(
+    '/admin/batches/:id/content',
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const data = await getBatchContent(id);
+      return reply.send({ success: true, data });
+    },
+  );
+
+  app.post(
+    '/admin/batches/:id/modules',
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const input = validate(createModuleSchema, req.body, reply);
+      if (!input) return;
+      const mod = await createBatchModule(id, input);
+      return reply.status(201).send({ success: true, data: mod });
+    },
+  );
+
+  app.post(
+    '/admin/batches/:id/content/copy',
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const body = (req.body ?? {}) as { fromBatchId?: string; fromCourseId?: string };
+      const result = await copyContentToBatch(id, body, req.user.sub);
+      await logAudit(req, {
+        action: 'batch.content_copied',
+        entityType: 'batch',
+        entityId: id,
+        meta: { ...body, ...result },
+      });
+      return reply.status(201).send({ success: true, data: result });
+    },
+  );
 
   // ══ Admin routes ═══════════════════════════════════════════════════════════
 

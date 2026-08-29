@@ -13,6 +13,7 @@ import {
   lessons,
   lessonProgress,
   batchEnrollments,
+  exams,
   users,
 } from '../../../drizzle/schema.js';
 import type {
@@ -221,11 +222,39 @@ export async function getCourseDetail(courseId: string, userId: string, role: st
 
   if (role === 'student') await assertEnrolled(userId, courseId);
 
-  const moduleList = await db
-    .select()
-    .from(modules)
-    .where(eq(modules.courseId, courseId))
-    .orderBy(asc(modules.order));
+  // Content is managed per batch: a student sees THEIR batch's modules when
+  // that batch has any, and the course master (batchId null) otherwise —
+  // which is what keeps content published before per-batch CMS working.
+  // Admin reads here get the master; batch content has its own endpoint.
+  let moduleList: (typeof modules.$inferSelect)[] = [];
+  if (role === 'student') {
+    const [myBatch] = await db
+      .select({ batchId: batchEnrollments.batchId })
+      .from(batchEnrollments)
+      .innerJoin(batches, eq(batches.id, batchEnrollments.batchId))
+      .where(
+        and(
+          eq(batchEnrollments.userId, userId),
+          eq(batchEnrollments.status, 'active'),
+          eq(batches.courseId, courseId),
+        ),
+      )
+      .limit(1);
+    if (myBatch) {
+      moduleList = await db
+        .select()
+        .from(modules)
+        .where(eq(modules.batchId, myBatch.batchId))
+        .orderBy(asc(modules.order));
+    }
+  }
+  if (moduleList.length === 0) {
+    moduleList = await db
+      .select()
+      .from(modules)
+      .where(and(eq(modules.courseId, courseId), isNull(modules.batchId)))
+      .orderBy(asc(modules.order));
+  }
 
   const moduleIds = moduleList.map((m) => m.id);
 
@@ -257,6 +286,16 @@ export async function getCourseDetail(courseId: string, userId: string, role: st
     );
   }
 
+  // Published topic exams, so an 'exam' lesson can open its paper directly.
+  const allLessonIds = lessonList.map((l) => l.id);
+  const topicExams = allLessonIds.length
+    ? await db
+        .select({ id: exams.id, lessonId: exams.lessonId, durationMins: exams.durationMins })
+        .from(exams)
+        .where(and(inArray(exams.lessonId, allLessonIds), eq(exams.isPublished, true)))
+    : [];
+  const examByLesson = new Map(topicExams.map((e) => [e.lessonId, e]));
+
   const byModule = new Map<string, typeof lessonList>();
   for (const l of lessonList) {
     const arr = byModule.get(l.moduleId) ?? [];
@@ -280,6 +319,8 @@ export async function getCourseDetail(courseId: string, userId: string, role: st
         // A locked module's lessons are listed so the student can see what is
         // coming, but the watch-url endpoint still refuses them.
         locked: role === 'student' && !isUnlocked,
+        topicExamId: examByLesson.get(lesson.id)?.id ?? null,
+        topicExamDurationMins: examByLesson.get(lesson.id)?.durationMins ?? null,
         progress: progressMap[lesson.id] ?? { watchedSeconds: 0, isCompleted: false },
       })),
     };

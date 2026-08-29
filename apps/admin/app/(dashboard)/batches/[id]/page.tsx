@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createApiClient, ApiError } from '@/lib/api';
 import { useAuthStore, useHasPermission } from '@/lib/auth';
+import { ContentBuilder, CopyContentButton } from '@/components/shared/content-builder';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,7 +39,10 @@ export default function BatchDetailPage() {
   const api = createApiClient(accessToken);
   const qc = useQueryClient();
   // batches.view can reach this page; every write below needs batches.manage.
-  const canManage = useHasPermission()('batches.manage');
+  const has = useHasPermission();
+  const canManage = has('batches.manage');
+  const canContent = has('courses.manage');
+  const [tab, setTab] = useState<'content' | 'students' | 'instructors'>('content');
 
   const batchKey = ['admin', 'batch', id];
   const { data, isError, refetch } = useQuery({
@@ -100,7 +104,50 @@ export default function BatchDetailPage() {
         )}
       </div>
 
+      <div className="flex gap-1 border-b border-white/8">
+        {(
+          [
+            ['content', 'Content'],
+            ['students', `Students (${batch?.enrolledCount ?? 0})`],
+            ['instructors', 'Instructors'],
+          ] as const
+        ).map(([id2, label]) => (
+          <button
+            key={id2}
+            onClick={() => setTab(id2)}
+            className={`relative px-4 py-2.5 text-sm font-medium transition-colors ${
+              tab === id2 ? 'text-violet-300' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {label}
+            {tab === id2 && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-violet-400" />}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'content' && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm text-slate-500">
+              What this batch&apos;s students see in the app — videos, notes and exam papers, organised
+              in modules.
+            </p>
+            {canContent && batch && (
+              <CopyContentButton batchId={id} courseId={batch.course.id} onDone={invalidate} />
+            )}
+          </div>
+          {canContent ? (
+            <ContentBuilder scope={{ kind: 'batch', id }} />
+          ) : (
+            <p className="text-slate-500 text-sm rounded-2xl border border-white/8 bg-surface-1 p-6 text-center">
+              You need the course-content permission to manage this batch&apos;s content.
+            </p>
+          )}
+        </section>
+      )}
+
       {/* Enrolled students */}
+      {tab === 'students' && (
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="font-display font-semibold text-lg text-slate-200">
@@ -133,8 +180,10 @@ export default function BatchDetailPage() {
           </div>
         )}
       </section>
+      )}
 
       {/* Instructors */}
+      {tab === 'instructors' && (
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="font-display font-semibold text-lg text-slate-200">Instructors</h3>
@@ -162,6 +211,7 @@ export default function BatchDetailPage() {
           </div>
         )}
       </section>
+      )}
 
     </div>
   );

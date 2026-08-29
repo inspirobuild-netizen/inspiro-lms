@@ -22,7 +22,9 @@ import { relations } from 'drizzle-orm';
 export const userRoleEnum = pgEnum('user_role', ['student', 'instructor', 'admin', 'staff']);
 export const batchTypeEnum = pgEnum('batch_type', ['online', 'offline', 'hybrid']);
 export const batchStatusEnum = pgEnum('batch_status', ['upcoming', 'active', 'completed', 'archived']);
-export const lessonTypeEnum = pgEnum('lesson_type', ['video', 'pdf', 'audio', 'live_recording']);
+// 'exam': a lesson that IS an exam paper — no media, just its topic exam.
+// audio / live_recording remain for legacy rows but are no longer offered.
+export const lessonTypeEnum = pgEnum('lesson_type', ['video', 'pdf', 'audio', 'live_recording', 'exam']);
 // topic_quiz: the MCQ test that follows one lesson/module.
 // monthly / annual: academy-wide papers configured by a coordinator or admin.
 export const examTypeEnum = pgEnum('exam_type', [
@@ -453,12 +455,18 @@ export const courses = pgTable('courses', {
 export const modules = pgTable('modules', {
   id: uuid('id').primaryKey().defaultRandom(),
   courseId: uuid('course_id').notNull().references(() => courses.id, { onDelete: 'cascade' }),
+  // Content is managed PER BATCH. batchId null = the course's master content,
+  // kept as the template new batches copy from. A student sees their batch's
+  // modules when the batch has any, and falls back to the master otherwise —
+  // which is what keeps everything published before this change working.
+  batchId: uuid('batch_id').references(() => batches.id, { onDelete: 'cascade' }),
   title: varchar('title', { length: 255 }).notNull(),
   order: integer('order').notNull().default(0),
   unlockDate: timestamp('unlock_date', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   courseIdx: index('idx_modules_course').on(t.courseId),
+  batchIdx: index('idx_modules_batch').on(t.batchId),
 }));
 
 export const lessons = pgTable('lessons', {

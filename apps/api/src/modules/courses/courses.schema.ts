@@ -32,7 +32,7 @@ export const reorderModulesSchema = z.object({
 
 export const createLessonSchema = z.object({
   title: z.string().min(2).max(255),
-  type: z.enum(['video', 'pdf', 'audio', 'live_recording']),
+  type: z.enum(['video', 'pdf', 'audio', 'live_recording', 'exam']),
   order: z.number().int().nonnegative().default(0),
   duration: z.number().int().positive().optional(),
   isDownloadable: z.boolean().default(false),

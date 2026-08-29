@@ -89,16 +89,22 @@ class FeeInstallment {
 class CourseLesson {
   final String id;
   final String title;
-  final String type; // video | pdf | quiz
+  final String type; // video | pdf | exam (audio/live_recording are legacy)
   final int? duration; // seconds
   final bool isCompleted;
   final bool locked;
+  // Present when a PUBLISHED exam is attached to this lesson — what an
+  // 'exam' lesson opens.
+  final String? topicExamId;
+  final int? topicExamDurationMins;
 
   const CourseLesson({
     required this.id,
     required this.title,
     required this.type,
     this.duration,
+    this.topicExamId,
+    this.topicExamDurationMins,
     this.isCompleted = false,
     this.locked = false,
   });
@@ -114,6 +120,8 @@ class CourseLesson {
         isCompleted: (json['progress'] as Map<String, dynamic>?)?['isCompleted'] as bool? ??
             json['isCompleted'] as bool? ??
             false,
+        topicExamId: json['topicExamId'] as String?,
+        topicExamDurationMins: json['topicExamDurationMins'] as int?,
         locked: json['locked'] as bool? ?? false,
       );
 

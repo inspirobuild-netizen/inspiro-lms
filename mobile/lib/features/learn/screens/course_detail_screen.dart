@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../../courses/models/course.dart';
+import '../../exams/models/exam.dart';
 import '../../courses/providers/courses_provider.dart';
 import '../../home/providers/home_stats_provider.dart';
 import '../../home/providers/my_batch_provider.dart';
@@ -173,20 +174,45 @@ class CourseDetailScreen extends ConsumerWidget {
                 // are real destinations — a lesson type with nowhere to go
                 // just looks broken to a student.
                 final isNotes = l.type == 'pdf';
-                final openable = !l.locked && (l.type == 'video' || isNotes);
+                final isExam = l.type == 'exam';
+                // An exam lesson opens only once its paper is published.
+                final openable = !l.locked &&
+                    (l.type == 'video' || isNotes || (isExam && l.topicExamId != null));
                 return _LessonTile(
                   // Numbered within its module, matching how staff name them.
                   title: _numberedTitle(row.position!, l.title),
                   isNotes: isNotes,
+                  isExam: isExam,
                   duration: l.durationLabel.isEmpty
-                      ? (isNotes ? 'PDF notes' : l.type)
+                      ? (isExam
+                          ? (l.topicExamId == null
+                              ? 'Exam · not open yet'
+                              : 'Exam · ${l.topicExamDurationMins ?? 15} min')
+                          : isNotes
+                              ? 'PDF notes'
+                              : l.type)
                       : l.durationLabel,
                   state: state,
                   onTap: openable
-                      ? () => context.push(
-                            isNotes ? '/notes' : '/lesson-player',
-                            extra: {'lessonId': l.id, 'title': l.title},
-                          )
+                      ? () {
+                          if (isExam) {
+                            context.push(
+                              '/exam-player',
+                              extra: Exam(
+                                id: l.topicExamId!,
+                                title: l.title,
+                                subject: '',
+                                type: 'topic_quiz',
+                                durationMins: l.topicExamDurationMins ?? 15,
+                              ),
+                            );
+                          } else {
+                            context.push(
+                              isNotes ? '/notes' : '/lesson-player',
+                              extra: {'lessonId': l.id, 'title': l.title},
+                            );
+                          }
+                        }
                       : null,
                 );
               },
@@ -361,12 +387,14 @@ class _LessonTile extends StatelessWidget {
   final String duration;
   final _LessonState state;
   final bool isNotes;
+  final bool isExam;
   final VoidCallback? onTap;
   const _LessonTile({
     required this.title,
     required this.duration,
     required this.state,
     required this.isNotes,
+    this.isExam = false,
     this.onTap,
   });
 
@@ -384,10 +412,14 @@ class _LessonTile extends StatelessWidget {
         break;
       case _LessonState.watching:
         accent = Brand.blue;
-        // A play button on a set of notes tells the student the wrong thing
-        // about what happens when they tap it.
-        icon = isNotes ? Icons.description : Icons.play_circle_fill;
-        status = isNotes ? 'Read' : 'Continue';
+        // The icon tells the student what tapping does: play, read, or sit
+        // a test — a play button on notes or an exam would mislead.
+        icon = isExam
+            ? Icons.quiz
+            : isNotes
+                ? Icons.description
+                : Icons.play_circle_fill;
+        status = isExam ? 'Attempt' : (isNotes ? 'Read' : 'Continue');
         break;
       case _LessonState.locked:
         accent = Colors.white24;
@@ -396,8 +428,12 @@ class _LessonTile extends StatelessWidget {
         break;
       case _LessonState.upNext:
         accent = Colors.white54;
-        icon = isNotes ? Icons.description_outlined : Icons.play_circle_outline;
-        status = isNotes ? 'Read' : 'Up Next';
+        icon = isExam
+            ? Icons.quiz_outlined
+            : isNotes
+                ? Icons.description_outlined
+                : Icons.play_circle_outline;
+        status = isExam ? 'Attempt' : (isNotes ? 'Read' : 'Up Next');
         break;
     }
 
