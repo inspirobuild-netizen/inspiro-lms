@@ -662,21 +662,21 @@ export function CopyContentButton({ batchId, courseId, onDone }: { batchId: stri
   const [open, setOpen] = useState(false);
   const [source, setSource] = useState('');
 
-  type BatchOpt = { id: string; name: string; course?: { title?: string } };
+  type BatchOpt = { id: string; name: string; status?: string };
+  // Only batches of the SAME course are valid sources — content transfer is
+  // sibling-to-sibling, never across courses.
   const batchesQ = useQuery({
-    queryKey: ['admin', 'batches', 'copy-sources'],
-    queryFn: () => api.get<BatchOpt[]>('/api/v1/batches?limit=100'),
+    queryKey: ['admin', 'course', courseId, 'sibling-batches'],
+    queryFn: () => api.get<BatchOpt[]>(`/api/v1/courses/${courseId}/batches`),
     enabled: open,
   });
 
   const copy = useMutation({
-    mutationFn: () => {
-      const body = source === 'master' ? { fromCourseId: courseId } : { fromBatchId: source };
-      return api.post<{ copiedModules: number; copiedLessons: number; copiedExams: number; copiedQuestions: number }>(
+    mutationFn: () =>
+      api.post<{ copiedModules: number; copiedLessons: number; copiedExams: number; copiedQuestions: number }>(
         `/api/v1/admin/batches/${batchId}/content/copy`,
-        body,
-      );
-    },
+        { fromBatchId: source },
+      ),
     onSuccess: (r) => {
       const d = r.data;
       toast(
@@ -699,21 +699,25 @@ export function CopyContentButton({ batchId, courseId, onDone }: { batchId: stri
         <Modal open onClose={() => setOpen(false)} title="Copy content into this batch">
           <div className="space-y-4">
             <p className="text-sm text-slate-400">
-              Copies modules, lessons and exam papers. Videos and notes are reused, not re-uploaded.
-              Copied exams arrive as <span className="text-slate-200">drafts</span> so nothing goes
-              live by accident.
+              Copies another batch&apos;s modules, lessons and exam papers from this course into
+              this batch. Videos and notes are reused, not re-uploaded. Copied exams arrive as{' '}
+              <span className="text-slate-200">drafts</span> so nothing goes live by accident.
             </p>
-            <Field label="Copy from">
-              <Select value={source} onChange={(e) => setSource(e.target.value)}>
-                <option value="">Choose a source…</option>
-                <option value="master">This batch&apos;s course (master content)</option>
-                {options.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    Batch: {b.name}{b.course?.title ? ` — ${b.course.title}` : ''}
-                  </option>
-                ))}
-              </Select>
-            </Field>
+            {options.length === 0 ? (
+              <p className="text-sm text-amber-300/80 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3">
+                This course has no other batch to copy from yet. Build this batch&apos;s content
+                directly, and future batches can copy from it.
+              </p>
+            ) : (
+              <Field label="Copy from batch">
+                <Select value={source} onChange={(e) => setSource(e.target.value)}>
+                  <option value="">Choose a batch…</option>
+                  {options.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
               <Button loading={copy.isPending} disabled={!source} onClick={() => copy.mutate()}>

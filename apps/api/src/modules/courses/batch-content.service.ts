@@ -102,19 +102,33 @@ export async function copyContentToBatch(
     if (source.fromBatchId === targetBatchId) {
       throw bad('Source and destination are the same batch', 'SAME_BATCH');
     }
+    // Business rule: content transfers between batches OF THE SAME COURSE.
+    // A batch teaching a different syllabus is not a valid source, however
+    // convenient it might look.
+    const [src] = await db.select().from(batches).where(eq(batches.id, source.fromBatchId)).limit(1);
+    if (!src) throw notFound();
+    if (src.courseId !== target.courseId) {
+      throw bad('Content can only be copied between batches of the same course', 'DIFFERENT_COURSE');
+    }
     sourceModules = await db
       .select()
       .from(modules)
       .where(eq(modules.batchId, source.fromBatchId))
       .orderBy(asc(modules.order));
   } else if (source.fromCourseId) {
+    // Hidden escape hatch, not offered in the UI: a batch may pull in its OWN
+    // course's legacy master modules (batchId null). Exists so pre-batch-CMS
+    // content is not stranded; any other course is refused.
+    if (source.fromCourseId !== target.courseId) {
+      throw bad('A batch can only import its own course’s legacy content', 'DIFFERENT_COURSE');
+    }
     sourceModules = await db
       .select()
       .from(modules)
       .where(and(eq(modules.courseId, source.fromCourseId), isNull(modules.batchId)))
       .orderBy(asc(modules.order));
   } else {
-    throw bad('Choose a source batch or course', 'NO_SOURCE');
+    throw bad('Choose a source batch', 'NO_SOURCE');
   }
   if (sourceModules.length === 0) {
     throw bad('The chosen source has no content to copy', 'SOURCE_EMPTY');

@@ -13,7 +13,6 @@ import { Modal, Select, Field } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { ImageUpload } from '@/components/shared/image-upload';
-import { ContentBuilder } from '@/components/shared/content-builder';
 import { money } from '@/lib/utils';
 
 type CourseDetail = {
@@ -85,7 +84,7 @@ export default function CourseBuilderPage() {
     onSuccess: invalidate,
   });
 
-  const [tab, setTab] = useState<CourseTab>('details');
+  const [tab, setTab] = useState<CourseTab>('batches');
 
   if (isLoading) return <p className="text-slate-400">Loading course…</p>;
   if (isError || !data)
@@ -117,13 +116,21 @@ export default function CourseBuilderPage() {
         tab={tab}
         onChange={setTab}
         showFees={has('fees.configure')}
-        moduleCount={course.modules.length}
       />
+
+      {tab === 'batches' && (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-500">
+            Everything a batch's students see — videos, notes, exam papers — and its enrolments are
+            managed inside the batch. Open one to manage it.
+          </p>
+          <BatchesSection courseId={id} courseTitle={course.title} canManageBatches={has('batches.manage')} />
+        </div>
+      )}
 
       {tab === 'details' && (
         <div className="space-y-6">
           <ThumbnailSection courseId={id} thumbnailUrl={course.thumbnailUrl} onChanged={invalidate} />
-          <BatchesSection courseId={id} courseTitle={course.title} canManageBatches={has('batches.manage')} />
           {has('courses.manage') && <DangerZone courseId={id} courseTitle={course.title} />}
         </div>
       )}
@@ -135,16 +142,7 @@ export default function CourseBuilderPage() {
         <FeesSection courseId={id} feeAmount={course.feeAmount} onCourseFeeChanged={invalidate} />
       )}
 
-      {tab === 'content' && (
-        <div className="space-y-4">
-          <p className="text-sm text-slate-500">
-            This is the course&apos;s <span className="text-slate-300">master content</span> — the
-            template new batches copy from. Day-to-day content lives on each batch: open a batch and
-            use its Content tab, or &ldquo;Copy content from&hellip;&rdquo; to pull this master in.
-          </p>
-          <ContentBuilder scope={{ kind: 'course', id }} />
-        </div>
-      )}
+
     </div>
   );
 }
@@ -157,19 +155,20 @@ export default function CourseBuilderPage() {
 // relaying them costs nothing meaningful.
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
-type CourseTab = 'details' | 'content' | 'fees';
+type CourseTab = 'batches' | 'details' | 'fees';
 
 function CourseTabs({
-  tab, onChange, showFees, moduleCount,
+  tab, onChange, showFees,
 }: {
   tab: CourseTab;
   onChange: (t: CourseTab) => void;
   showFees: boolean;
-  moduleCount: number;
 }) {
+  // Batches lead: a course is entered to reach its batches — content and
+  // students live INSIDE each batch, not on the course.
   const tabs: { id: CourseTab; label: string; badge?: number }[] = [
+    { id: 'batches', label: 'Batches' },
     { id: 'details', label: 'Details' },
-    { id: 'content', label: 'Content', badge: moduleCount },
     ...(showFees ? [{ id: 'fees' as const, label: 'Fees & plans' }] : []),
   ];
 

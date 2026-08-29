@@ -7,7 +7,7 @@ import { useAuthStore, useHasPermission, type AdminUser } from '@/lib/auth';
 import { authApi } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 
-type Group = 'general' | 'academic' | 'admissions' | 'staffing' | 'insights';
+type Group = 'general' | 'learning' | 'students' | 'admissions' | 'team' | 'engage' | 'insights';
 
 type NavItem = {
   label: string;
@@ -19,12 +19,15 @@ type NavItem = {
 };
 
 const GROUP_LABELS: Record<Exclude<Group, 'general'>, string> = {
-  academic: 'Academic',
+  learning: 'Learning',
+  students: 'Students',
   admissions: 'Admissions CRM',
-  staffing: 'Staffing',
+  team: 'Team',
+  engage: 'Engagement',
   insights: 'Insights',
 };
-const GROUP_ORDER: Group[] = ['general', 'academic', 'admissions', 'staffing', 'insights'];
+// Learning first: courses → batches → content is the daily drill-down.
+const GROUP_ORDER: Group[] = ['general', 'learning', 'students', 'admissions', 'team', 'engage', 'insights'];
 
 const navItems: NavItem[] = [
   {
@@ -43,7 +46,7 @@ const navItems: NavItem[] = [
   {
     label: 'Academic Dashboard',
     href: '/academics',
-    group: 'academic',
+    group: 'learning',
     permission: 'batches.manage',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -54,7 +57,7 @@ const navItems: NavItem[] = [
   {
     label: 'Students',
     href: '/students',
-    group: 'academic',
+    group: 'students',
     permission: 'students.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -63,20 +66,9 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: 'Batches',
-    href: '/batches',
-    group: 'academic',
-    permission: 'batches.view',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-      </svg>
-    ),
-  },
-  {
     label: 'Courses',
     href: '/courses',
-    group: 'academic',
+    group: 'learning',
     permission: 'courses.manage',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -87,7 +79,7 @@ const navItems: NavItem[] = [
   {
     label: 'Exams',
     href: '/exams',
-    group: 'academic',
+    group: 'learning',
     permission: 'exams.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -98,7 +90,7 @@ const navItems: NavItem[] = [
   {
     label: 'Doubts',
     href: '/doubts',
-    group: 'academic',
+    group: 'engage',
     permission: 'doubts.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -109,7 +101,7 @@ const navItems: NavItem[] = [
   {
     label: 'Content',
     href: '/content',
-    group: 'academic',
+    group: 'learning',
     permission: 'content.manage',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -122,7 +114,7 @@ const navItems: NavItem[] = [
     href: '/mentors',
     // Staffing, not Academic: this is where mentors are hired, given a
     // subject and mapped to batches, so it belongs beside Staff and Roles.
-    group: 'staffing',
+    group: 'team',
     permission: 'mentors.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -169,7 +161,7 @@ const navItems: NavItem[] = [
   {
     label: 'Verification',
     href: '/students/verification',
-    group: 'admissions',
+    group: 'students',
     permission: 'students.verify',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -205,7 +197,7 @@ const navItems: NavItem[] = [
   {
     label: 'Staff',
     href: '/staff',
-    group: 'staffing',
+    group: 'team',
     permission: 'staff.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -216,7 +208,7 @@ const navItems: NavItem[] = [
   {
     label: 'Roles & Permissions',
     href: '/staff/roles',
-    group: 'staffing',
+    group: 'team',
     permission: 'roles.manage',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -227,7 +219,7 @@ const navItems: NavItem[] = [
   {
     label: 'Branches',
     href: '/branches',
-    group: 'staffing',
+    group: 'team',
     permission: 'branches.manage',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -251,7 +243,7 @@ const navItems: NavItem[] = [
   {
     label: 'Leaderboard',
     href: '/leaderboard',
-    group: 'insights',
+    group: 'learning',
     permission: 'leaderboard.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -284,7 +276,7 @@ const navItems: NavItem[] = [
   {
     label: 'Banners & Push',
     href: '/broadcast',
-    group: 'academic',
+    group: 'engage',
     permission: 'banners.manage',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -295,7 +287,7 @@ const navItems: NavItem[] = [
   {
     label: 'Activities',
     href: '/activities',
-    group: 'academic',
+    group: 'engage',
     permission: 'activities.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -306,7 +298,7 @@ const navItems: NavItem[] = [
   {
     label: 'Feedback',
     href: '/feedback',
-    group: 'academic',
+    group: 'engage',
     permission: 'feedback.view',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
