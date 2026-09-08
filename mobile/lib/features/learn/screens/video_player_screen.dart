@@ -7,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../../core/api/api_client.dart';
+import 'youtube_lesson_player.dart';
 import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../widgets/player_controls.dart';
@@ -42,6 +43,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   List<VideoQuality> _qualities = const [];
   String _currentQuality = '';
 
+  // Set when the class is hosted externally rather than uploaded. The student
+  // is shown the same controls either way; only the engine differs.
+  String? _youtubeId;
+  Duration _youtubeStartAt = Duration.zero;
+
   // Progress is reported to the server on a timer rather than per frame.
   Timer? _progressTimer;
   Duration _lastReported = Duration.zero;
@@ -65,6 +71,18 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         '/api/v1/lessons/${widget.lessonId}/watch-url',
       );
       final data = res.data!['data'] as Map<String, dynamic>;
+
+      // Externally hosted class: no signed URL to open, so hand off to the
+      // embedded player and skip the media_kit path entirely.
+      if (data['provider'] == 'youtube') {
+        if (!mounted) return;
+        setState(() {
+          _youtubeId = data['youtubeVideoId'] as String;
+          _youtubeStartAt = Duration(seconds: (data['resumeSeconds'] as num?)?.toInt() ?? 0);
+          _loading = false;
+        });
+        return;
+      }
 
       final list = (data['qualities'] as List<dynamic>? ?? const [])
           .map((q) => VideoQuality.fromJson(q as Map<String, dynamic>))
@@ -143,8 +161,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     });
   }
 
-  Future<void> _reportProgress(Duration pos) async {
-    final dur = _player.state.duration;
+  Future<void> _reportProgress(Duration pos, [Duration? total]) async {
+    final dur = total ?? _player.state.duration;
     try {
       await ApiClient.dio.post<Map<String, dynamic>>(
         '/api/v1/lessons/${widget.lessonId}/progress',
@@ -187,6 +205,31 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_youtubeId != null) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          title: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+        body: Center(
+          child: YouTubeLessonPlayer(
+            videoId: _youtubeId!,
+            title: widget.title,
+            startAt: _youtubeStartAt,
+            // Same 10-second throttle as uploaded video, so resume, completion
+            // and streaks behave identically whichever source a class uses.
+            onProgress: (pos, total) {
+              if ((pos - _lastReported).abs() < const Duration(seconds: 10)) return;
+              _lastReported = pos;
+              unawaited(_reportProgress(pos, total));
+            },
+          ),
+        ),
+      );
+    }
+
     final stage = Container(
       color: Colors.black,
       child: Stack(

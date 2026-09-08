@@ -32,7 +32,9 @@ type Lesson = {
   title: string;
   type: 'video' | 'pdf' | 'audio' | 'live_recording' | 'exam';
   duration?: number | null;
+  videoProvider?: 'bunny' | 'youtube';
   bunnyVideoId?: string | null;
+  youtubeVideoId?: string | null;
   fileUrl?: string | null;
 };
 
@@ -191,9 +193,13 @@ function ModuleCard({
                     ? 'Exam paper'
                     : l.type === 'pdf'
                       ? l.fileUrl ? 'Notes attached' : 'Notes not uploaded yet'
-                      : l.bunnyVideoId
-                        ? `Video attached${l.duration ? ` · ${Math.round(l.duration / 60)} min` : ''}`
-                        : 'Video not uploaded yet'}
+                      : l.videoProvider === 'youtube'
+                        ? l.youtubeVideoId
+                          ? `Linked video · free hosting${l.duration ? ` · ${Math.round(l.duration / 60)} min` : ''}`
+                          : 'No video linked yet'
+                        : l.bunnyVideoId
+                          ? `Secure video${l.duration ? ` · ${Math.round(l.duration / 60)} min` : ''}`
+                          : 'Video not uploaded yet'}
                 </p>
               </div>
               <button
@@ -210,7 +216,12 @@ function ModuleCard({
                 Remove
               </button>
             </div>
-            {l.type === 'video' && <VideoLessonControl lesson={l} onChanged={onChanged} />}
+            {l.type === 'video' &&
+              (l.videoProvider === 'youtube' ? (
+                <YouTubeLessonControl lesson={l} onChanged={onChanged} />
+              ) : (
+                <VideoLessonControl lesson={l} onChanged={onChanged} />
+              ))}
             {l.type === 'pdf' && <PdfLessonControl lesson={l} onChanged={onChanged} />}
             {(l.type === 'video' || l.type === 'exam') && <TopicExamControl lesson={l} emphasized={l.type === 'exam'} />}
           </div>
@@ -244,6 +255,8 @@ function AddLessonModal({
   const [kind, setKind] = useState<(typeof LESSON_KINDS)[number]['value']>('video');
   const [title, setTitle] = useState('');
   const [minutes, setMinutes] = useState('');
+  const [source, setSource] = useState<'bunny' | 'youtube'>('bunny');
+  const [ytUrl, setYtUrl] = useState('');
 
   const create = useMutation({
     mutationFn: () =>
@@ -252,6 +265,7 @@ function AddLessonModal({
         type: kind,
         order: nextOrder,
         ...(kind === 'video' && minutes && Number(minutes) > 0 ? { duration: Number(minutes) * 60 } : {}),
+        ...(kind === 'video' && source === 'youtube' && ytUrl.trim() ? { youtubeUrl: ytUrl.trim() } : {}),
       }),
     onSuccess: onAdded,
     onError: (e) => toast(e instanceof ApiError ? e.message : 'Could not add', 'error'),
@@ -291,6 +305,42 @@ function AddLessonModal({
         </Field>
 
         {kind === 'video' && (
+          <Field label="Where is this video hosted?">
+            <div className="grid grid-cols-2 gap-2">
+              <SourceCard
+                active={source === 'bunny'}
+                onClick={() => setSource('bunny')}
+                title="Secure upload"
+                sub="Paid content"
+                detail="Upload the file. Links expire in 2 hours and only enrolled students can watch. Costs per GB."
+              />
+              <SourceCard
+                active={source === 'youtube'}
+                onClick={() => setSource('youtube')}
+                title="Link a video"
+                sub="Free hosting"
+                detail="Paste an unlisted YouTube link. No hosting cost, but anyone with the link can watch it forever."
+              />
+            </div>
+          </Field>
+        )}
+
+        {kind === 'video' && source === 'youtube' && (
+          <Field label="Unlisted YouTube link">
+            <Input
+              value={ytUrl}
+              onChange={(e) => setYtUrl(e.target.value)}
+              placeholder="https://youtu.be/…  or  https://www.youtube.com/watch?v=…"
+            />
+            <p className="mt-1.5 text-xs text-amber-300/80">
+              Set the video to <span className="text-amber-200">Unlisted</span>, not Private — a private
+              video cannot play in the app. Students never see YouTube branding, but the link is not
+              access-controlled, so use this for material you would not mind being shared.
+            </p>
+          </Field>
+        )}
+
+        {kind === 'video' && (
           <Field label="Duration (minutes)">
             <Input
               value={minutes}
@@ -301,11 +351,20 @@ function AddLessonModal({
           </Field>
         )}
 
-        <p className="text-xs text-slate-500">{active.hint}</p>
+        {!(kind === 'video' && source === 'youtube') && (
+          <p className="text-xs text-slate-500">{active.hint}</p>
+        )}
 
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button loading={create.isPending} disabled={title.trim().length < 2} onClick={() => create.mutate()}>
+          <Button
+            loading={create.isPending}
+            disabled={
+              title.trim().length < 2 ||
+              (kind === 'video' && source === 'youtube' && ytUrl.trim().length === 0)
+            }
+            onClick={() => create.mutate()}
+          >
             Create
           </Button>
         </div>
@@ -730,3 +789,110 @@ export function CopyContentButton({ batchId, courseId, onDone }: { batchId: stri
     </>
   );
 }
+
+/** One of the two video-source choices in the add-lesson modal. */
+function SourceCard({
+  active, onClick, title, sub, detail,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  sub: string;
+  detail: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-xl border p-3 text-left transition-colors ${
+        active ? 'border-violet-400/60 bg-violet-400/10' : 'border-white/8 bg-surface-2 hover:border-white/20'
+      }`}
+    >
+      <div className="flex items-baseline gap-2">
+        <span className={`text-sm font-medium ${active ? 'text-violet-200' : 'text-slate-300'}`}>{title}</span>
+        <span className="text-[11px] text-slate-500">{sub}</span>
+      </div>
+      <p className="mt-1 text-[11px] leading-snug text-slate-500">{detail}</p>
+    </button>
+  );
+}
+
+/**
+ * A YouTube-backed video lesson: swap the link, or move the class onto
+ * secure hosting when it turns out to be worth protecting after all.
+ */
+function YouTubeLessonControl({ lesson, onChanged }: { lesson: Lesson; onChanged: () => void }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [url, setUrl] = useState('');
+
+  const save = useMutation({
+    mutationFn: () => api.patch(`/api/v1/admin/lessons/${lesson.id}`, { youtubeUrl: url.trim() }),
+    onSuccess: () => {
+      toast('Video linked', 'success');
+      setEditing(false);
+      setUrl('');
+      onChanged();
+    },
+    // The server checks the video really exists and allows embedding, so its
+    // message is more useful than anything generic we could write here.
+    onError: (e) => toast(e instanceof ApiError ? e.message : 'Could not link that video', 'error'),
+  });
+
+  const switchToUpload = useMutation({
+    mutationFn: () => api.patch(`/api/v1/admin/lessons/${lesson.id}`, { videoProvider: 'bunny' }),
+    onSuccess: () => { toast('Switched to secure upload — now upload the file', 'success'); onChanged(); },
+    onError: (e) => toast(e instanceof ApiError ? e.message : 'Could not switch', 'error'),
+  });
+
+  if (editing) {
+    return (
+      <div className="mt-2 space-y-2">
+        <Input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://youtu.be/…"
+          autoFocus
+        />
+        <div className="flex gap-2">
+          <Button size="sm" loading={save.isPending} disabled={!url.trim()} onClick={() => save.mutate()}>
+            Save link
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => { setEditing(false); setUrl(''); }}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+        {lesson.youtubeVideoId ? 'Change link' : '+ Add video link'}
+      </Button>
+      {lesson.youtubeVideoId && (
+        <>
+          <a
+            href={`https://www.youtube.com/watch?v=${lesson.youtubeVideoId}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-slate-500 hover:text-slate-300 underline"
+          >
+            Preview
+          </a>
+          <Button
+            variant="outline"
+            size="sm"
+            loading={switchToUpload.isPending}
+            onClick={() => switchToUpload.mutate()}
+          >
+            Move to secure hosting
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+

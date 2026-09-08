@@ -53,6 +53,7 @@ dependencies:
   jwt_decoder: ^2.0.1
   permission_handler: ^11.3.1
   wakelock_plus: ^1.2.8
+  youtube_player_iframe: ^6.0.2
 
 dev_dependencies:
   flutter_test:

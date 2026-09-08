@@ -415,6 +415,31 @@ export async function getLessonWatchUrl(lessonId: string, userId: string, role: 
     await assertEnrolled(userId, mod.courseId);
   }
 
+  // Resume position is provider-independent — read once for either branch.
+  const readResume = async () => {
+    const [seen] = await db
+      .select({ watchedSeconds: lessonProgress.watchedSeconds, isCompleted: lessonProgress.isCompleted })
+      .from(lessonProgress)
+      .where(and(eq(lessonProgress.lessonId, lessonId), eq(lessonProgress.userId, userId)))
+      .limit(1);
+    // Resuming a finished lesson would drop the student at the end credits.
+    return seen && !seen.isCompleted ? seen.watchedSeconds : 0;
+  };
+
+  if (lesson.type === 'video' && lesson.videoProvider === 'youtube' && lesson.youtubeVideoId) {
+    // Only the id crosses the wire. The app plays it through YouTube's own
+    // embedded player, which is what their terms require; we never resolve
+    // or proxy the underlying media stream.
+    return {
+      type: 'video',
+      provider: 'youtube' as const,
+      youtubeVideoId: lesson.youtubeVideoId,
+      resumeSeconds: await readResume(),
+      // The embed manages its own expiry; nothing here goes stale.
+      expiresIn: 0,
+    };
+  }
+
   if (lesson.type === 'video' && lesson.bunnyVideoId) {
     const videoId = lesson.bunnyVideoId;
     const resolutions = await getCachedResolutions(videoId);
@@ -434,18 +459,11 @@ export async function getLessonWatchUrl(lessonId: string, userId: string, role: 
     }));
 
     // Where the student stopped last time, so the player can pick up there.
-    const [seen] = await db
-      .select({ watchedSeconds: lessonProgress.watchedSeconds, isCompleted: lessonProgress.isCompleted })
-      .from(lessonProgress)
-      .where(and(eq(lessonProgress.lessonId, lessonId), eq(lessonProgress.userId, userId)))
-      .limit(1);
-
-    // Resuming a lesson already finished would drop the student at the end
-    // credits rather than letting them rewatch it.
-    const resumeSeconds = seen && !seen.isCompleted ? seen.watchedSeconds : 0;
+    const resumeSeconds = await readResume();
 
     return {
       type: 'video',
+      provider: 'bunny' as const,
       url: qualities[0]!.url,
       qualities,
       resumeSeconds,
@@ -466,6 +484,13 @@ export async function getLessonWatchUrl(lessonId: string, userId: string, role: 
     // Legacy rows still holding a full Bunny pull-zone URL.
     const path = new URL(lesson.fileUrl).pathname;
     return { type: lesson.type, url: signBunnyFileUrl(path, 3600), expiresIn: 3600 };
+  }
+
+  if (lesson.type === 'video' && lesson.videoProvider === 'youtube') {
+    throw Object.assign(new Error('This class has no video linked yet'), {
+      statusCode: 404,
+      code: 'NO_MEDIA',
+    });
   }
 
   throw Object.assign(new Error('No media attached to this lesson'), { statusCode: 404, code: 'NO_MEDIA' });
@@ -655,19 +680,33 @@ export async function deleteModule(moduleId: string) {
 }
 
 // ── Admin: create lesson ──────────────────────────────────────────────────────
-export async function createLesson(moduleId: string, data: CreateLessonInput) {
+/** Resolved by the route from the pasted URL; not part of the form schema. */
+type ResolvedVideo = { youtubeVideoId?: string; videoProvider?: 'bunny' | 'youtube' };
+type CreateLessonWrite = CreateLessonInput & ResolvedVideo;
+type UpdateLessonWrite = UpdateLessonInput & ResolvedVideo;
+
+/**
+ * youtubeUrl is what the form sends; youtubeVideoId is what we store. The
+ * route resolves one into the other, so the raw URL must not reach the query
+ * — it is not a column, and spreading it in would fail the write.
+ */
+function forStorage<T extends { youtubeUrl?: string }>({ youtubeUrl: _ignored, ...rest }: T) {
+  return rest;
+}
+
+export async function createLesson(moduleId: string, data: CreateLessonWrite) {
   const [mod] = await db.select().from(modules).where(eq(modules.id, moduleId)).limit(1);
   if (!mod) throw notFound('Module');
 
-  const [lesson] = await db.insert(lessons).values({ moduleId, ...data }).returning();
+  const [lesson] = await db.insert(lessons).values({ moduleId, ...forStorage(data) }).returning();
   return lesson!;
 }
 
 // ── Admin: update lesson ──────────────────────────────────────────────────────
-export async function updateLesson(lessonId: string, data: UpdateLessonInput) {
+export async function updateLesson(lessonId: string, data: UpdateLessonWrite) {
   const [updated] = await db
     .update(lessons)
-    .set(data)
+    .set(forStorage(data))
     .where(eq(lessons.id, lessonId))
     .returning();
   if (!updated) throw notFound('Lesson');

@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate.js';
 import { logAudit } from '../../lib/audit.js';
+import { parseYouTubeId, verifyYouTubeVideo } from '../../lib/youtube.js';
 import { resolveDoc } from '../../lib/local-storage.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import {
@@ -47,6 +48,38 @@ function validate<T>(schema: ZodSchema<T>, value: unknown, reply: FastifyReply):
     return null;
   }
   return r.data;
+}
+
+/**
+ * Turns whatever the staff member pasted into a stored video id, and refuses
+ * anything that would not actually play. Returns null when the caller sent no
+ * youtubeUrl at all, so PATCH can leave the field untouched.
+ */
+async function resolveYouTube(
+  raw: string | undefined,
+  reply: FastifyReply,
+): Promise<{ id: string } | 'invalid' | null> {
+  if (raw === undefined) return null;
+  const id = parseYouTubeId(raw);
+  if (!id) {
+    void reply.status(400).send({
+      success: false,
+      error: {
+        code: 'BAD_YOUTUBE_URL',
+        message: 'That does not look like a YouTube link. Paste the full video URL from the address bar.',
+      },
+    });
+    return 'invalid';
+  }
+  const check = await verifyYouTubeVideo(id);
+  if (!check.ok) {
+    void reply.status(400).send({
+      success: false,
+      error: { code: 'YOUTUBE_NOT_PLAYABLE', message: check.reason ?? 'That video cannot be embedded.' },
+    });
+    return 'invalid';
+  }
+  return { id };
 }
 
 export default async function coursesRoutes(app: FastifyInstance) {
@@ -261,7 +294,12 @@ export default async function coursesRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const input = validate(createLessonSchema, req.body, reply);
       if (!input) return;
-      const lesson = await createLesson(id, input);
+      const yt = await resolveYouTube(input.youtubeUrl, reply);
+      if (yt === 'invalid') return;
+      const lesson = await createLesson(id, {
+        ...input,
+        ...(yt ? { youtubeVideoId: yt.id, videoProvider: 'youtube' as const } : {}),
+      });
       return reply.status(201).send({ success: true, data: lesson });
     },
   );
@@ -274,7 +312,12 @@ export default async function coursesRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const input = validate(updateLessonSchema, req.body, reply);
       if (!input) return;
-      const lesson = await updateLesson(id, input);
+      const yt = await resolveYouTube(input.youtubeUrl, reply);
+      if (yt === 'invalid') return;
+      const lesson = await updateLesson(id, {
+        ...input,
+        ...(yt ? { youtubeVideoId: yt.id, videoProvider: 'youtube' as const } : {}),
+      });
       return reply.send({ success: true, data: lesson });
     },
   );

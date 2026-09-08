@@ -181,8 +181,12 @@ export async function copyContentToBatch(
             moduleId: newModule!.id,
             title: sl.title,
             type: sl.type,
+            // Provider travels with the lesson: a copied YouTube class must
+            // not land as an empty Bunny one.
+            videoProvider: sl.videoProvider,
             bunnyVideoId: sl.bunnyVideoId,
             bunnyLibraryId: sl.bunnyLibraryId,
+            youtubeVideoId: sl.youtubeVideoId,
             fileUrl: sl.fileUrl,
             duration: sl.duration,
             order: sl.order,

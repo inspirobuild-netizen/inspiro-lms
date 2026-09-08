@@ -24,6 +24,7 @@ export const batchTypeEnum = pgEnum('batch_type', ['online', 'offline', 'hybrid'
 export const batchStatusEnum = pgEnum('batch_status', ['upcoming', 'active', 'completed', 'archived']);
 // 'exam': a lesson that IS an exam paper — no media, just its topic exam.
 // audio / live_recording remain for legacy rows but are no longer offered.
+export const videoProviderEnum = pgEnum('video_provider', ['bunny', 'youtube']);
 export const lessonTypeEnum = pgEnum('lesson_type', ['video', 'pdf', 'audio', 'live_recording', 'exam']);
 // topic_quiz: the MCQ test that follows one lesson/module.
 // monthly / annual: academy-wide papers configured by a coordinator or admin.
@@ -474,8 +475,13 @@ export const lessons = pgTable('lessons', {
   moduleId: uuid('module_id').notNull().references(() => modules.id, { onDelete: 'cascade' }),
   title: varchar('title', { length: 255 }).notNull(),
   type: lessonTypeEnum('type').notNull(),
+  // Where the video actually lives. 'bunny' = signed, expiring, enrolment-
+  // checked delivery for paid content; 'youtube' = a free unlisted video for
+  // content whose leaking costs nothing. See lib/youtube.ts for the tradeoff.
+  videoProvider: videoProviderEnum('video_provider').notNull().default('bunny'),
   bunnyVideoId: text('bunny_video_id'),
   bunnyLibraryId: text('bunny_library_id'),
+  youtubeVideoId: varchar('youtube_video_id', { length: 20 }),
   fileUrl: text('file_url'),
   duration: integer('duration'),
   order: integer('order').notNull().default(0),

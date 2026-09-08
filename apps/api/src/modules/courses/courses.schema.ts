@@ -38,6 +38,10 @@ export const createLessonSchema = z.object({
   isDownloadable: z.boolean().default(false),
   bunnyVideoId: z.string().optional(),
   bunnyLibraryId: z.string().optional(),
+  videoProvider: z.enum(['bunny', 'youtube']).optional(),
+  // Accepts any YouTube URL form or a bare id; normalised and verified in the
+  // route so a bad link is rejected at the form, not discovered by a student.
+  youtubeUrl: z.string().max(2048).optional(),
   // Either a bare stored filename ("<uuid>.pdf") for notes uploaded through
   // the admin panel, or a full URL for legacy rows that still point at Bunny.
   // A plain .url() would reject every new upload.
