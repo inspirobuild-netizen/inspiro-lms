@@ -171,6 +171,24 @@ function DeleteBatchModal({
   });
   const enrolled = students?.meta?.total ?? 0;
 
+  // What deleting this batch does to stored media. Uploaded video is billed
+  // monthly forever, so the confirmation names the count rather than saying
+  // "this cannot be undone" and leaving the person to guess the cost.
+  const { data: impact } = useQuery({
+    queryKey: ['admin', 'batch', batch?.id, 'deletion-preview'],
+    queryFn: () =>
+      api.get<{
+        lessons: number;
+        videosToDelete: number;
+        videosKeptInUse: number;
+        notesToDelete: number;
+        notesKeptInUse: number;
+        linkedVideosUntouched: number;
+      }>(`/api/v1/admin/content/deletion-preview?scope=batch&id=${batch!.id}`),
+    enabled: !!accessToken && !!batch,
+  });
+  const m = impact?.data;
+
   const del = useMutation({
     mutationFn: () => api.delete(`/api/v1/admin/batches/${batch!.id}`),
     onSuccess: () => { setError(null); onDeleted(); onClose(); },
@@ -189,10 +207,47 @@ function DeleteBatchModal({
             deleted — unenrol them first, or archive the batch to retire it while keeping its history.
           </p>
         ) : (
-          <p className="text-sm text-slate-300">
-            No students are enrolled. This permanently removes the batch and its instructor assignments.
-            This cannot be undone.
-          </p>
+          <>
+            <p className="text-sm text-slate-300">
+              No students are enrolled. This permanently removes the batch, its content and its
+              instructor assignments. This cannot be undone.
+            </p>
+            {m && (m.lessons > 0) && (
+              <div className="rounded-xl border border-white/8 bg-surface-2 p-3 space-y-1.5">
+                <p className="text-xs text-slate-400">
+                  {m.lessons} lesson{m.lessons === 1 ? '' : 's'} in this batch:
+                </p>
+                <ul className="text-xs space-y-1">
+                  {m.videosToDelete > 0 && (
+                    <li className="text-rose-300">
+                      {m.videosToDelete} uploaded video{m.videosToDelete === 1 ? '' : 's'} deleted from storage
+                    </li>
+                  )}
+                  {m.notesToDelete > 0 && (
+                    <li className="text-rose-300">
+                      {m.notesToDelete} notes file{m.notesToDelete === 1 ? '' : 's'} deleted
+                    </li>
+                  )}
+                  {m.videosKeptInUse + m.notesKeptInUse > 0 && (
+                    <li className="text-teal-300">
+                      {m.videosKeptInUse + m.notesKeptInUse} file
+                      {m.videosKeptInUse + m.notesKeptInUse === 1 ? '' : 's'} kept — another batch still uses{' '}
+                      {m.videosKeptInUse + m.notesKeptInUse === 1 ? 'it' : 'them'}
+                    </li>
+                  )}
+                  {m.linkedVideosUntouched > 0 && (
+                    <li className="text-slate-400">
+                      {m.linkedVideosUntouched} linked video{m.linkedVideosUntouched === 1 ? '' : 's'} stay
+                      {m.linkedVideosUntouched === 1 ? 's' : ''} on your YouTube channel
+                    </li>
+                  )}
+                  {m.videosToDelete === 0 && m.notesToDelete === 0 && (
+                    <li className="text-slate-400">No stored files are affected</li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </>
         )}
         {error && <p className="text-sm text-rose-400">{error}</p>}
         <div className="flex justify-end gap-2 pt-1">

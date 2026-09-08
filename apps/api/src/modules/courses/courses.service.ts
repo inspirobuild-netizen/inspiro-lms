@@ -4,6 +4,7 @@ import { signBunnyMp4Url, signBunnyFileUrl, orderResolutions } from '../../lib/b
 import { redis } from '../../lib/redis.js';
 import { logger } from '../../lib/logger.js';
 import { getBunnyVideoStatus } from '../media/media.service.js';
+import { planMediaCleanup, purgeMedia, lessonIdsForScope } from './media-cleanup.service.js';
 import {
   admissions,
   courses,
@@ -583,7 +584,12 @@ export async function updateCourse(courseId: string, data: UpdateCourseInput) {
  * so "no students enrolled" is enforced by refusing any batch at all.
  */
 export async function deleteCourse(courseId: string) {
-  return db.transaction(async (tx) => {
+  // A course can only be deleted once its batches are gone, so this covers the
+  // master modules — but scope it by course anyway, in case anything is left.
+  const lessonIds = await lessonIdsForScope({ kind: 'course', id: courseId });
+  const plan = await planMediaCleanup(lessonIds);
+
+  const result = await db.transaction(async (tx) => {
     const [course] = await tx.select().from(courses).where(eq(courses.id, courseId)).limit(1);
     if (!course) throw notFound();
 
@@ -630,6 +636,9 @@ export async function deleteCourse(courseId: string) {
     await tx.delete(courses).where(eq(courses.id, courseId));
     return { deleted: true, id: courseId, title: course.title };
   });
+
+  const media = await purgeMedia(plan);
+  return { ...result, media };
 }
 
 // ── Admin: create module ──────────────────────────────────────────────────────
@@ -674,9 +683,15 @@ export async function reorderModules(items: { id: string; order: number }[]) {
 
 // ── Admin: delete module ──────────────────────────────────────────────────────
 export async function deleteModule(moduleId: string) {
+  const lessonIds = await lessonIdsForScope({ kind: 'module', id: moduleId });
+  const plan = await planMediaCleanup(lessonIds);
+
+  // Lessons go with the module by cascade, so this single delete removes them.
   const result = await db.delete(modules).where(eq(modules.id, moduleId)).returning();
   if (result.length === 0) throw notFound('Module');
-  return { deleted: true };
+
+  const purged = await purgeMedia(plan);
+  return { deleted: true, media: purged };
 }
 
 // ── Admin: create lesson ──────────────────────────────────────────────────────
@@ -715,9 +730,15 @@ export async function updateLesson(lessonId: string, data: UpdateLessonWrite) {
 
 // ── Admin: delete lesson ──────────────────────────────────────────────────────
 export async function deleteLesson(lessonId: string) {
+  // Work out what would be orphaned BEFORE the row disappears — afterwards
+  // there is nothing left to read the video id from.
+  const plan = await planMediaCleanup([lessonId]);
+
   const result = await db.delete(lessons).where(eq(lessons.id, lessonId)).returning();
   if (result.length === 0) throw notFound('Lesson');
-  return { deleted: true };
+
+  const purged = await purgeMedia(plan);
+  return { deleted: true, media: purged };
 }
 
 // ── Admin: reorder lessons ────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { mkdir, writeFile, stat } from 'node:fs/promises';
+import { mkdir, writeFile, stat, unlink } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import crypto from 'crypto';
@@ -116,5 +116,26 @@ export async function resolveDoc(
     return { stream: createReadStream(full), contentType: 'application/pdf', size: info.size };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Removes a stored notes file. Used when the last lesson referencing it is
+ * deleted — an unreferenced PDF is dead weight on the volume forever.
+ *
+ * Returns false when the file was already gone, which is not an error: the
+ * caller's goal is that it no longer exists.
+ */
+export async function deleteDoc(filename: string): Promise<boolean> {
+  if (!SAFE_DOC_NAME.test(filename)) return false;
+
+  const full = path.join(docsDir(), filename);
+  if (!full.startsWith(docsDir() + path.sep)) return false;
+
+  try {
+    await unlink(full);
+    return true;
+  } catch {
+    return false;
   }
 }

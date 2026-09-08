@@ -51,6 +51,58 @@ const LESSON_KINDS = [
   { value: 'exam', label: 'Exam paper', icon: '📝', hint: 'Configure the exam and add questions after creating.' },
 ] as const;
 
+
+type DeletionPreview = {
+  lessons: number;
+  videosToDelete: number;
+  videosKeptInUse: number;
+  notesToDelete: number;
+  notesKeptInUse: number;
+  linkedVideosUntouched: number;
+};
+
+/**
+ * Builds the second line of a delete confirmation from what the server says
+ * will actually happen to storage.
+ *
+ * Worth the extra request: uploaded video is billed monthly forever, so
+ * "3 videos will be permanently deleted" and "1 is kept, another batch uses
+ * it" are different decisions. A generic "this cannot be undone" tells the
+ * person nothing they can act on.
+ */
+async function describeDeletion(
+  api: ReturnType<typeof createApiClient>,
+  scope: 'lesson' | 'module' | 'batch' | 'course',
+  id: string,
+): Promise<string> {
+  let p: DeletionPreview;
+  try {
+    const r = await api.get<DeletionPreview>(`/api/v1/admin/content/deletion-preview?scope=${scope}&id=${id}`);
+    p = r.data;
+  } catch {
+    // Never block a delete because the preview failed — fall back to the
+    // honest general statement.
+    return 'Uploaded videos and notes used nowhere else are permanently deleted from storage.';
+  }
+
+  const parts: string[] = [];
+  if (p.videosToDelete > 0) {
+    parts.push(`${p.videosToDelete} uploaded video${p.videosToDelete === 1 ? '' : 's'} will be permanently deleted from storage`);
+  }
+  if (p.notesToDelete > 0) {
+    parts.push(`${p.notesToDelete} notes file${p.notesToDelete === 1 ? '' : 's'} will be deleted`);
+  }
+  const kept = p.videosKeptInUse + p.notesKeptInUse;
+  if (kept > 0) {
+    parts.push(`${kept} file${kept === 1 ? '' : 's'} will be kept because another batch still uses ${kept === 1 ? 'it' : 'them'}`);
+  }
+  if (p.linkedVideosUntouched > 0) {
+    parts.push(`${p.linkedVideosUntouched} linked video${p.linkedVideosUntouched === 1 ? '' : 's'} stay${p.linkedVideosUntouched === 1 ? 's' : ''} on your YouTube channel`);
+  }
+  if (parts.length === 0) return 'No stored files are affected.';
+  return parts.join('. ') + '.';
+}
+
 export function ContentBuilder({ scope }: { scope: ContentScope }) {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
@@ -107,9 +159,10 @@ export function ContentBuilder({ scope }: { scope: ContentScope }) {
             module={mod}
             onChanged={invalidate}
             onDelete={async () => {
+              const detail = await describeDeletion(api, 'module', mod.id);
               const ok = await confirm({
                 title: `Delete module "${mod.title}"?`,
-                message: 'All of its lessons — videos, notes and exam papers — go with it.',
+                message: `All of its lessons — videos, notes and exam papers — go with it. ${detail}`,
                 destructive: true,
               });
               if (ok) deleteModule.mutate(mod.id);
@@ -205,9 +258,10 @@ function ModuleCard({
               <button
                 className="text-xs text-slate-500 hover:text-rose-300 shrink-0"
                 onClick={async () => {
+                  const detail = await describeDeletion(api, 'lesson', l.id);
                   const ok = await confirm({
                     title: `Delete "${l.title}"?`,
-                    message: 'Students lose access to it immediately.',
+                    message: `Students lose access to it immediately. ${detail}`,
                     destructive: true,
                   });
                   if (ok) deleteLesson.mutate(l.id);

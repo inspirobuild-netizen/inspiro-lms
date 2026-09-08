@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate.js';
 import { logAudit } from '../../lib/audit.js';
 import { parseYouTubeId, verifyYouTubeVideo } from '../../lib/youtube.js';
+import { lessonIdsForScope, planMediaCleanup } from './media-cleanup.service.js';
 import { resolveDoc } from '../../lib/local-storage.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import {
@@ -154,6 +155,39 @@ export default async function coursesRoutes(app: FastifyInstance) {
     return reply.send({ success: true, data: progress });
   });
 
+
+
+  // ── What deleting this would remove from storage ───────────────────────────
+  // Read-only. The admin panel calls it to write a confirmation with real
+  // numbers — "3 videos deleted, 2 kept because another batch uses them" —
+  // rather than a warning nobody can act on.
+  app.get(
+    '/admin/content/deletion-preview',
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
+    async (req, reply) => {
+      const q = req.query as { scope?: string; id?: string };
+      const kind = q.scope;
+      if (!q.id || (kind !== 'lesson' && kind !== 'module' && kind !== 'batch' && kind !== 'course')) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'BAD_SCOPE', message: 'scope must be lesson, module, batch or course, with an id' },
+        });
+      }
+      const lessonIds = await lessonIdsForScope({ kind, id: q.id });
+      const plan = await planMediaCleanup(lessonIds);
+      return reply.send({
+        success: true,
+        data: {
+          lessons: plan.lessonCount,
+          videosToDelete: plan.orphanVideos.length,
+          videosKeptInUse: plan.sharedVideos,
+          notesToDelete: plan.orphanDocs.length,
+          notesKeptInUse: plan.sharedDocs,
+          linkedVideosUntouched: plan.youtubeCount,
+        },
+      });
+    },
+  );
 
   // ══ Per-batch content management ═══════════════════════════════════════════
   // Content lives on batches; a course's batchId-null modules are its master

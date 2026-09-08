@@ -1,5 +1,6 @@
 import { eq, and, count, sql } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
+import { planMediaCleanup, purgeMedia, lessonIdsForScope } from '../courses/media-cleanup.service.js';
 import {
   admissions,
   batches,
@@ -129,7 +130,13 @@ export async function updateBatch(batchId: string, data: UpdateBatchInput) {
  * Use archiveBatch (or PATCH status) to retire a batch that has history.
  */
 export async function deleteBatch(batchId: string) {
-  return db.transaction(async (tx) => {
+  // Read what would be orphaned before the cascade takes the lessons with it.
+  // Anything another batch still uses is excluded by the reference count, so
+  // a batch copied from this one keeps working.
+  const lessonIds = await lessonIdsForScope({ kind: 'batch', id: batchId });
+  const plan = await planMediaCleanup(lessonIds);
+
+  const result = await db.transaction(async (tx) => {
     const [batch] = await tx.select().from(batches).where(eq(batches.id, batchId)).limit(1);
     if (!batch) throw notFound();
 
@@ -172,6 +179,11 @@ export async function deleteBatch(batchId: string) {
     await tx.delete(batches).where(eq(batches.id, batchId));
     return { deleted: true, id: batchId, name: batch.name };
   });
+
+  // Storage last: an orphaned file costs money, whereas a lesson pointing at a
+  // deleted video is a dead class. Only one of those is recoverable.
+  const media = await purgeMedia(plan);
+  return { ...result, media };
 }
 
 export async function archiveBatch(batchId: string) {
