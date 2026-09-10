@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import {
   enrollmentRequests,
@@ -168,22 +168,32 @@ export async function listMyEnrollRequests(studentId: string) {
 }
 
 // ── Admin: verification queue ───────────────────────────────────────────────
-export async function listEnrollRequests(status?: string) {
+export async function listEnrollRequests(status?: string, courseId?: string) {
   const conds = [];
   if (status) conds.push(eq(enrollmentRequests.status, status as never));
+  if (courseId) conds.push(eq(enrollmentRequests.courseId, courseId));
   const where = conds.length ? and(...conds) : undefined;
-  return db
+
+  const rows = await db
     .select({
       id: enrollmentRequests.id,
       studentId: enrollmentRequests.studentId,
       studentName: users.name,
       studentPhone: users.phone,
+      studentEmail: users.email,
       courseId: enrollmentRequests.courseId,
       courseTitle: courses.title,
+      courseFee: courses.feeAmount,
       amount: enrollmentRequests.amount,
       method: enrollmentRequests.method,
+      // Where the money came from. 'gateway' is reserved for the bank
+      // integration; until then everything is a manual claim needing checking.
+      channel: enrollmentRequests.channel,
+      gatewayPaymentId: enrollmentRequests.gatewayPaymentId,
       reference: enrollmentRequests.reference,
       status: enrollmentRequests.status,
+      rejectionReason: enrollmentRequests.rejectionReason,
+      verifiedAt: enrollmentRequests.verifiedAt,
       createdAt: enrollmentRequests.createdAt,
     })
     .from(enrollmentRequests)
@@ -191,6 +201,29 @@ export async function listEnrollRequests(status?: string) {
     .innerJoin(courses, eq(courses.id, enrollmentRequests.courseId))
     .where(where)
     .orderBy(desc(enrollmentRequests.createdAt));
+
+  if (rows.length === 0) return rows.map((r) => ({ ...r, batchName: null as string | null }));
+
+  // What happened to each student since: a verified fee still grants nothing
+  // until someone places them in a batch, and that second step is exactly the
+  // one that gets forgotten. Showing it here means the queue tells the whole
+  // story rather than half of it.
+  const placements = await db
+    .select({ userId: batchEnrollments.userId, batchName: batches.name, courseId: batches.courseId })
+    .from(batchEnrollments)
+    .innerJoin(batches, eq(batches.id, batchEnrollments.batchId))
+    .where(
+      and(
+        inArray(batchEnrollments.userId, [...new Set(rows.map((r) => r.studentId))]),
+        eq(batchEnrollments.status, 'active'),
+      ),
+    );
+  const byStudentCourse = new Map(placements.map((p) => [`${p.userId}:${p.courseId}`, p.batchName]));
+
+  return rows.map((r) => ({
+    ...r,
+    batchName: byStudentCourse.get(`${r.studentId}:${r.courseId}`) ?? null,
+  }));
 }
 
 // ── Admin: verify — materialise a real admission + record the payment ──────

@@ -159,6 +159,17 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    label: 'Enrolment requests',
+    href: '/admissions/enrolment-requests',
+    group: 'students',
+    permission: 'payments.record',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 14l2 2 4-4m1 7H8a2 2 0 01-2-2V7a2 2 0 012-2h5l5 5v9a2 2 0 01-2 2z" />
+      </svg>
+    ),
+  },
+  {
     label: 'Verification',
     href: '/students/verification',
     group: 'students',

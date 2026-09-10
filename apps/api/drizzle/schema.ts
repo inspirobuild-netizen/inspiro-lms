@@ -35,6 +35,11 @@ export const difficultyEnum = pgEnum('difficulty', ['easy', 'medium', 'hard']);
 export const doubtStatusEnum = pgEnum('doubt_status', ['open', 'ai_answered', 'escalated', 'resolved']);
 export const attendanceTypeEnum = pgEnum('attendance_type', ['live_class', 'offline']);
 export const attendanceStatusEnum = pgEnum('attendance_status', ['present', 'absent', 'late']);
+export const doubtRouteEnum = pgEnum('doubt_route', ['ai', 'mentor']);
+// How the money arrived. 'gateway' is reserved for the bank integration —
+// the columns exist now so a later switch does not need a migration on live
+// financial rows.
+export const paymentChannelEnum = pgEnum('payment_channel', ['manual', 'gateway']);
 export const notificationTypeEnum = pgEnum('notification_type', ['class_reminder', 'exam_alert', 'result', 'announcement', 'doubt_reply', 'achievement', 'lead_assigned', 'verification_update', 'admission_update', 'credentials_issued']);
 export const leaderboardPeriodEnum = pgEnum('leaderboard_period', ['weekly', 'monthly', 'all_time']);
 // pending_approval: created by a counsellor and awaiting the admin
@@ -355,6 +360,12 @@ export const enrollmentRequests = pgTable('enrollment_requests', {
   // The UPI reference/UTR the student typed after paying — set when they
   // submit "I've paid"; null while still just a QR shown, unconfirmed.
   reference: varchar('reference', { length: 120 }),
+  // Where the money came from. Everything is 'manual' — a claim a human must
+  // check — until the bank gateway lands; these columns exist now so that
+  // switch needs no migration on live financial rows.
+  channel: paymentChannelEnum('channel').notNull().default('manual'),
+  gatewayOrderId: varchar('gateway_order_id', { length: 120 }),
+  gatewayPaymentId: varchar('gateway_payment_id', { length: 120 }),
   status: enrollmentRequestStatusEnum('status').notNull().default('pending'),
   rejectionReason: text('rejection_reason'),
   verifiedBy: uuid('verified_by').references(() => users.id, { onDelete: 'set null' }),
@@ -610,6 +621,9 @@ export const doubts = pgTable('doubts', {
   subject: varchar('subject', { length: 100 }).notNull(),
   body: text('body').notNull(),
   imageUrl: text('image_url'),
+  // Who the student asked for. AI answers only when they chose it AND the
+  // academy has AI doubts switched on — never as a silent default.
+  requestedRoute: doubtRouteEnum('requested_route').notNull().default('ai'),
   aiAnswer: text('ai_answer'),
   aiConfidence: real('ai_confidence'),
   humanAnswer: text('human_answer'),
@@ -794,7 +808,10 @@ export const activitySubmissions = pgTable('activity_submissions', {
   id: uuid('id').primaryKey().defaultRandom(),
   activityId: uuid('activity_id').notNull().references(() => activities.id, { onDelete: 'cascade' }),
   studentId: uuid('student_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  body: text('body').notNull(),
+  // Nullable since a file-only submission carries no text.
+  body: text('body'),
+  // Uploaded work: photos of handwritten answers, or a PDF.
+  attachments: jsonb('attachments').$type<{ name: string; file: string; kind: 'image' | 'pdf' }[]>(),
   imageUrl: text('image_url'),
   submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -841,3 +858,13 @@ export const banners = pgTable('banners', {
 }, (t) => ({
   activeIdx: index('idx_banners_active').on(t.isActive, t.sortOrder),
 }));
+
+// ── Academy settings ──────────────────────────────────────────────────────────
+// Operational switches the admin owns (e.g. whether AI may answer doubts).
+// Deliberately key/value: these are policy toggles, not a schema.
+export const appSettings = pgTable('app_settings', {
+  key: varchar('key', { length: 64 }).primaryKey(),
+  value: jsonb('value').notNull().$type<boolean>(),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

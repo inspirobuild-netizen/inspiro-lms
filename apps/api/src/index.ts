@@ -44,6 +44,7 @@ app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOStrin
 // ── API Routes ────────────────────────────────────────────────────────────────
 await app.register(import('./modules/auth/auth.routes.js'), { prefix: '/api/v1/auth' });
 await app.register(import('./modules/users/users.routes.js'), { prefix: '/api/v1' });
+await app.register(import('./modules/settings/settings.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/batches/batches.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/courses/courses.routes.js'), { prefix: '/api/v1' });
 await app.register(import('./modules/media/media.routes.js'), { prefix: '/api/v1' });

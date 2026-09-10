@@ -69,8 +69,8 @@ export default async function enrollmentRoutes(app: FastifyInstance) {
 
   // ── Staff: verification queue ───────────────────────────────────────────────
   app.get('/admin/enrollment-requests', { preHandler: [authenticate, requirePermission('payments.record')] }, async (req, reply) => {
-    const status = (req.query as { status?: string }).status;
-    return reply.send({ success: true, data: await listEnrollRequests(status) });
+    const q = req.query as { status?: string; courseId?: string };
+    return reply.send({ success: true, data: await listEnrollRequests(q.status, q.courseId) });
   });
 
   app.post('/admin/enrollment-requests/:id/verify', { preHandler: [authenticate, requirePermission('payments.record')] }, async (req, reply) => {

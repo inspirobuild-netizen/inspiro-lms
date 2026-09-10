@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, ilike, isNull, or } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
+import { getSetting } from '../settings/settings.service.js';
 import { courses, currentAffairs, doubts } from '../../../drizzle/schema.js';
 import { aiEnabled, aiResolveDoubt, AiUnavailableError } from '../../lib/ai-client.js';
 import { searchChunks } from '../rag/rag.service.js';
@@ -67,14 +68,22 @@ export async function createDoubt(studentId: string, input: CreateDoubtInput) {
       subject: input.subject,
       body: input.body,
       imageUrl: input.imageUrl,
+      requestedRoute: input.requestedRoute,
       status: 'open',
     })
     .returning();
 
   if (!doubt) throw new Error('Failed to create doubt');
 
-  if (!aiEnabled()) {
-    // No AI configured — goes straight to the mentor queue
+  // Three things must all agree before the AI answers: the student asked for
+  // it, the academy has AI doubts switched on, and an AI is actually
+  // configured. Previously only the last was checked, so every doubt went to
+  // the AI whether the student wanted it or not.
+  const wantsAi = doubt.requestedRoute === 'ai';
+  const academyAllowsAi = await getSetting('aiDoubtsEnabled');
+
+  if (!wantsAi || !academyAllowsAi || !aiEnabled()) {
+    // Straight to the mentor queue, which is what 'escalated' means here.
     const [updated] = await db
       .update(doubts)
       .set({ status: 'escalated' })

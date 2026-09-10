@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
 export const createDoubtSchema = z.object({
+  // Who the student wants: the AI now, or a mentor. Defaults to mentor so a
+  // client that does not ask never gets AI by accident.
+  requestedRoute: z.enum(['ai', 'mentor']).default('mentor'),
   subject: z.string().min(2).max(100),
   body: z.string().min(3).max(2000),
   imageUrl: z.string().url().max(500).optional(),
