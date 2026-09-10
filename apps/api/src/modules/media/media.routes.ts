@@ -143,6 +143,54 @@ export default async function mediaRoutes(app: FastifyInstance) {
     },
   );
 
+
+  // ── POST /media/submission ─────────────────────────────────────────────────
+  // A student uploading their OWN work for an activity: a photo of an answer
+  // sheet, or a typed PDF. Every other upload route is staff-only, so without
+  // this a student had no way to hand anything in.
+  //
+  // Any authenticated student may call it; the file becomes reachable only
+  // once it is attached to a submission, and the activity routes check batch
+  // membership there. Mime and size are enforced here — the client's file
+  // picker is a hint, not a control.
+  app.post(
+    '/media/submission',
+    { preHandler: [authenticate], config: { rateLimit: { max: 20, timeWindow: '5m' } } },
+    async (req, reply) => {
+      const file = await req.file({ limits: { fileSize: 15 * 1024 * 1024 } });
+      if (!file) {
+        return reply
+          .status(400)
+          .send({ success: false, error: { code: 'NO_FILE', message: 'Attach a photo or a PDF' } });
+      }
+
+      const isPdf = !!DOC_EXT_BY_MIME[file.mimetype];
+      const imageExt = EXT_BY_MIME[file.mimetype];
+      if (!isPdf && !imageExt) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_FILE_TYPE', message: 'Upload a photo (JPG or PNG) or a PDF' },
+        });
+      }
+
+      let buffer: Buffer;
+      try {
+        buffer = await file.toBuffer();
+      } catch {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'FILE_TOO_LARGE', message: 'Your file must be 15 MB or smaller' },
+        });
+      }
+
+      const filename = isPdf ? await saveDoc(buffer) : await saveImage(buffer, imageExt!);
+      return reply.status(201).send({
+        success: true,
+        data: { file: filename, kind: isPdf ? 'pdf' : 'image', name: file.filename },
+      });
+    },
+  );
+
   // ── POST /admin/media/image ────────────────────────────────────────────────
   // Course marketing thumbnails. Stored on the server's own disk (see
   // lib/local-storage.ts) — NOT Bunny: Stream hosts lesson video, and Bunny

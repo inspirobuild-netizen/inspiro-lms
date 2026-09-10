@@ -797,6 +797,11 @@ export const activities = pgTable('activities', {
   title: varchar('title', { length: 255 }).notNull(),
   description: text('description').notNull(),
   dueAt: timestamp('due_at', { withTimezone: true }),
+  // Some work is written in the app; some is a photograph of an answer sheet
+  // or a typed PDF. The activity says which it expects, and the server holds
+  // students to it rather than trusting the client.
+  requiresFile: boolean('requires_file').notNull().default(false),
+  allowedTypes: varchar('allowed_types', { length: 40 }).notNull().default('image,pdf'),
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

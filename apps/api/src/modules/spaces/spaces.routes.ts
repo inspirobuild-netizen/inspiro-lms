@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate.js';
+import { resolveDoc, resolveImage } from '../../lib/local-storage.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import { logAudit } from '../../lib/audit.js';
 import {
@@ -14,6 +15,7 @@ import {
   submitFeedback,
   listMyFeedback,
   listFeedback,
+  resolveSubmissionAttachment,
 } from './spaces.service.js';
 
 const publishSchema = z.object({
@@ -21,11 +23,29 @@ const publishSchema = z.object({
   title: z.string().min(2).max(255),
   description: z.string().min(2).max(8000),
   dueAt: z.string().datetime().optional(),
+  // Whether the student must attach their work, and what they may attach.
+  requiresFile: z.boolean().default(false),
+  allowedTypes: z.enum(['image', 'pdf', 'image,pdf']).default('image,pdf'),
 });
 
 const reviewSchema = z.object({ remarks: z.string().min(1).max(2000) });
 
-const submitSchema = z.object({ body: z.string().min(1).max(8000) });
+// Body OR attachments — a photographed answer sheet carries no text, and
+// demanding a caption for it would be busywork. The service enforces which
+// of the two this particular activity actually requires.
+const submitSchema = z.object({
+  body: z.string().max(8000).optional(),
+  attachments: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(255),
+        file: z.string().min(1).max(255),
+        kind: z.enum(['image', 'pdf']),
+      }),
+    )
+    .max(5)
+    .optional(),
+});
 
 const feedbackSchema = z.object({
   category: z.enum(['teaching', 'content', 'app', 'other']),
@@ -123,6 +143,26 @@ export default async function spacesRoutes(app: FastifyInstance) {
   );
 
   // ── Student: activity space ────────────────────────────────────────────────
+
+  // Serves a file attached to a submission, to the student who uploaded it or
+  // to staff on that batch. Streamed through the API rather than a public
+  // path so a guessable URL is worth nothing.
+  app.get('/submissions/:id/attachment/:file', { preHandler: [authenticate] }, async (req, reply) => {
+    const { id, file } = req.params as { id: string; file: string };
+    const found = await resolveSubmissionAttachment(id, file, req.user.sub, req.user.role);
+    const doc = found.kind === 'pdf' ? await resolveDoc(found.file) : await resolveImage(found.file);
+    if (!doc) {
+      return reply
+        .status(404)
+        .send({ success: false, error: { code: 'FILE_MISSING', message: 'That file is no longer available' } });
+    }
+    return reply
+      .header('Content-Type', doc.contentType)
+      .header('Content-Length', doc.size)
+      .header('Content-Disposition', 'inline')
+      .send(doc.stream);
+  });
+
   app.get('/activities/my', { preHandler: [authenticate] }, async (req, reply) => {
     const items = await listMyActivities(req.user.sub);
     return reply.send({ success: true, data: items });
@@ -135,7 +175,7 @@ export default async function spacesRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const parsed = submitSchema.safeParse(req.body);
     if (!parsed.success) return bad(reply, parsed.error.flatten());
-    const row = await submitActivity(id, req.user.sub, parsed.data.body);
+    const row = await submitActivity(id, req.user.sub, parsed.data.body, parsed.data.attachments);
     return reply.status(201).send({ success: true, data: row });
   });
 

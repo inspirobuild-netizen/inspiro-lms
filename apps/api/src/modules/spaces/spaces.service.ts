@@ -27,7 +27,14 @@ function err(message: string, statusCode: number, code: string) {
 
 // ── Staff: publish ────────────────────────────────────────────────────────────
 export async function publishActivity(
-  input: { batchIds: string[]; title: string; description: string; dueAt?: string },
+  input: {
+    batchIds: string[];
+    title: string;
+    description: string;
+    dueAt?: string;
+    requiresFile?: boolean;
+    allowedTypes?: string;
+  },
   staffId: string,
   role: string,
 ) {
@@ -44,6 +51,8 @@ export async function publishActivity(
         title: input.title,
         description: input.description,
         dueAt: input.dueAt ? new Date(input.dueAt) : null,
+        requiresFile: input.requiresFile ?? false,
+        allowedTypes: input.allowedTypes ?? 'image,pdf',
         createdBy: staffId,
       })),
     )
@@ -88,6 +97,8 @@ export async function listActivitiesForStaff(staffId: string, role: string, batc
       title: activities.title,
       description: activities.description,
       dueAt: activities.dueAt,
+      requiresFile: activities.requiresFile,
+      allowedTypes: activities.allowedTypes,
       createdAt: activities.createdAt,
       batchId: activities.batchId,
       batchName: batches.name,
@@ -117,6 +128,7 @@ export async function listSubmissions(activityId: string, staffId: string, role:
       id: activitySubmissions.id,
       body: activitySubmissions.body,
       imageUrl: activitySubmissions.imageUrl,
+      attachments: activitySubmissions.attachments,
       submittedAt: activitySubmissions.submittedAt,
       reviewedAt: activitySubmissions.reviewedAt,
       remarks: activitySubmissions.remarks,
@@ -183,6 +195,8 @@ export async function listMyActivities(studentId: string) {
       title: activities.title,
       description: activities.description,
       dueAt: activities.dueAt,
+      requiresFile: activities.requiresFile,
+      allowedTypes: activities.allowedTypes,
       createdAt: activities.createdAt,
       batchName: batches.name,
       submissionId: activitySubmissions.id,
@@ -209,7 +223,14 @@ export async function listMyActivities(studentId: string) {
 }
 
 // ── Student: submit (or revise until reviewed) ────────────────────────────────
-export async function submitActivity(activityId: string, studentId: string, body: string) {
+export type SubmissionAttachment = { name: string; file: string; kind: 'image' | 'pdf' };
+
+export async function submitActivity(
+  activityId: string,
+  studentId: string,
+  body: string | undefined,
+  attachments?: SubmissionAttachment[],
+) {
   const [activity] = await db.select().from(activities).where(eq(activities.id, activityId)).limit(1);
   if (!activity) throw err('Activity not found', 404, 'ACTIVITY_NOT_FOUND');
 
@@ -237,12 +258,23 @@ export async function submitActivity(activityId: string, studentId: string, body
     throw err('This submission has already been reviewed and can no longer be changed', 400, 'ALREADY_REVIEWED');
   }
 
+  // An activity can ask for written work, uploaded work, or both. Requiring a
+  // file when the task is "photograph your answer sheet" is the point; the
+  // check lives here so a client cannot skip it.
+  const files = attachments ?? [];
+  if (activity.requiresFile && files.length === 0) {
+    throw err('This activity needs a photo or PDF of your work', 400, 'FILE_REQUIRED');
+  }
+  if (!activity.requiresFile && files.length === 0 && !body?.trim()) {
+    throw err('Write something or attach your work', 400, 'EMPTY_SUBMISSION');
+  }
+
   const [row] = await db
     .insert(activitySubmissions)
-    .values({ activityId, studentId, body })
+    .values({ activityId, studentId, body: body ?? null, attachments: files })
     .onConflictDoUpdate({
       target: [activitySubmissions.activityId, activitySubmissions.studentId],
-      set: { body, submittedAt: new Date(), updatedAt: new Date() },
+      set: { body: body ?? null, attachments: files, submittedAt: new Date(), updatedAt: new Date() },
     })
     .returning();
   return row!;
@@ -303,4 +335,41 @@ export async function listFeedback(q: { category?: string; batchId?: string; pag
     .offset((q.page - 1) * q.limit);
 
   return { items, total: Number(total) };
+}
+
+/**
+ * Confirms someone may open a file attached to a submission, and hands back
+ * the stored filename.
+ *
+ * A student's answer sheet is not public. Two parties may see it: the student
+ * who submitted it, and staff allowed on that batch — the same batch mapping
+ * that governs who can review the work at all. Anyone else gets a 404 rather
+ * than a 403, so the endpoint does not confirm the file exists.
+ */
+export async function resolveSubmissionAttachment(
+  submissionId: string,
+  file: string,
+  viewerId: string,
+  role: string,
+): Promise<{ file: string; kind: 'image' | 'pdf' }> {
+  const [row] = await db
+    .select({
+      studentId: activitySubmissions.studentId,
+      attachments: activitySubmissions.attachments,
+      batchId: activities.batchId,
+    })
+    .from(activitySubmissions)
+    .innerJoin(activities, eq(activities.id, activitySubmissions.activityId))
+    .where(eq(activitySubmissions.id, submissionId))
+    .limit(1);
+  if (!row) throw err('Not found', 404, 'NOT_FOUND');
+
+  const match = (row.attachments ?? []).find((a) => a.file === file);
+  if (!match) throw err('Not found', 404, 'NOT_FOUND');
+
+  if (row.studentId !== viewerId) {
+    if (role === 'student') throw err('Not found', 404, 'NOT_FOUND');
+    await assertBatchAllowed(viewerId, role, row.batchId);
+  }
+  return { file: match.file, kind: match.kind };
 }
