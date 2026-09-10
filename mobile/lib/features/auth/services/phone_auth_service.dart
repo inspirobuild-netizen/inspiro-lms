@@ -94,8 +94,24 @@ class PhoneAuthService {
         return 'The code has expired. Request a new one.';
       case 'network-request-failed':
         return 'Cannot reach the network. Check your connection and try again.';
+
+      // App-verification failures. These mean this BUILD is not registered
+      // with the Firebase project (its signing fingerprint is missing), so
+      // Play Integrity and the reCAPTCHA fallback both refuse it. Nothing the
+      // student can do, and Firebase's own wording tells them to read the
+      // logcat — so say plainly that it is our problem, not theirs.
+      case 'missing-client-identifier':
+      case 'app-not-authorized':
+      case 'invalid-app-credential':
+      case 'captcha-check-failed':
+        return 'This app build is not authorised to sign in yet. '
+            'Please contact the academy — this is not a problem with your number.';
+
       default:
-        return e.message ?? 'Verification failed. Please try again.';
+        // Never surface Firebase's raw developer text: the student cannot act
+        // on it, and it names things like Play Integrity and logcat.
+        return 'Verification failed. Please try again, or contact the academy '
+            'if it keeps happening.';
     }
   }
 
