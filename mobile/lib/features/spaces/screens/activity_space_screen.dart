@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 
@@ -158,18 +160,74 @@ class _ActivitySheetState extends State<_ActivitySheet> {
   bool _busy = false;
   String? _error;
 
+  final List<PendingAttachment> _attachments = [];
+  bool _uploading = false;
+
   @override
   void dispose() {
     _ctrl.dispose();
     super.dispose();
   }
 
+  Future<void> _pickFile({required bool photo}) async {
+    setState(() => _error = null);
+    try {
+      String? path;
+      String name;
+      if (photo) {
+        final img = await ImagePicker().pickImage(
+          source: ImageSource.gallery,
+          imageQuality: 85,
+          maxWidth: 2000,
+        );
+        if (img == null) return;
+        path = img.path;
+        name = img.name;
+      } else {
+        // file_picker 12 exposes this statically and returns a single file.
+        final f = await FilePicker.pickFile(
+          type: FileType.custom,
+          allowedExtensions: const ['pdf'],
+        );
+        final picked = f?.path;
+        if (picked == null) return;
+        path = picked;
+        name = f!.name;
+      }
+
+      setState(() => _uploading = true);
+      final att = await uploadSubmissionFile(path, name);
+      if (!mounted) return;
+      setState(() {
+        _attachments.add(att);
+        _uploading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _uploading = false;
+        _error = e is DioException && e.response?.statusCode == 400
+            ? ((e.response?.data as Map<String, dynamic>?)?['error']?['message'] as String? ??
+                'That file could not be uploaded.')
+            : 'Could not upload that file. Check your connection.';
+      });
+    }
+  }
+
   Future<void> _submit() async {
     final text = _ctrl.text.trim();
-    if (text.isEmpty) {
-      setState(() => _error = 'Write your answer before submitting');
+    final item = widget.item;
+
+    // Mirrors the server so a student is told before the round trip, not after.
+    if (item.requiresFile && _attachments.isEmpty) {
+      setState(() => _error = 'Attach a photo or PDF of your work before submitting');
       return;
     }
+    if (!item.requiresFile && text.isEmpty && _attachments.isEmpty) {
+      setState(() => _error = 'Write your answer or attach your work');
+      return;
+    }
+
     setState(() {
       _busy = true;
       _error = null;
@@ -177,7 +235,11 @@ class _ActivitySheetState extends State<_ActivitySheet> {
     try {
       await ApiClient.dio.post<Map<String, dynamic>>(
         '/api/v1/activities/${widget.item.id}/submit',
-        data: {'body': text},
+        data: {
+          if (text.isNotEmpty) 'body': text,
+          if (_attachments.isNotEmpty)
+            'attachments': _attachments.map((a) => a.toJson()).toList(),
+        },
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -242,7 +304,9 @@ class _ActivitySheetState extends State<_ActivitySheet> {
                   style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.45),
                   cursorColor: Brand.blue,
                   decoration: InputDecoration(
-                    hintText: 'Type your answer here…',
+                    hintText: item.requiresFile
+                        ? 'Add a note for your mentor (optional)…'
+                        : 'Type your answer here…',
                     hintStyle: const TextStyle(color: Colors.white24),
                     filled: true,
                     fillColor: Brand.surfaceAlt,
@@ -260,6 +324,91 @@ class _ActivitySheetState extends State<_ActivitySheet> {
                     ),
                   ),
                 ),
+                if (item.requiresFile || item.allowsImage || item.allowsPdf) ...[
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Text(
+                        item.requiresFile ? 'Attach your work (required)' : 'Attach your work',
+                        style: const TextStyle(
+                            color: Colors.white60, fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
+                      if (_uploading) ...[
+                        const SizedBox(width: 10),
+                        const SizedBox(
+                          height: 13,
+                          width: 13,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Brand.blue),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      if (item.allowsImage)
+                        Expanded(
+                          child: _AttachButton(
+                            icon: Icons.photo_camera_back_outlined,
+                            label: 'Photo',
+                            onTap: _uploading || !editable ? null : () => _pickFile(photo: true),
+                          ),
+                        ),
+                      if (item.allowsImage && item.allowsPdf) const SizedBox(width: 8),
+                      if (item.allowsPdf)
+                        Expanded(
+                          child: _AttachButton(
+                            icon: Icons.picture_as_pdf_outlined,
+                            label: 'PDF',
+                            onTap: _uploading || !editable ? null : () => _pickFile(photo: false),
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (_attachments.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _attachments.map((a) {
+                        return Container(
+                          padding: const EdgeInsets.fromLTRB(10, 7, 6, 7),
+                          decoration: BoxDecoration(
+                            color: Brand.surfaceAlt,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                a.kind == 'pdf' ? Icons.picture_as_pdf : Icons.image,
+                                size: 15,
+                                color: Brand.teal,
+                              ),
+                              const SizedBox(width: 6),
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 130),
+                                child: Text(
+                                  a.name,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 15, color: Colors.white38),
+                                visualDensity: VisualDensity.compact,
+                                constraints: const BoxConstraints(),
+                                padding: const EdgeInsets.only(left: 4),
+                                onPressed: () => setState(() => _attachments.remove(a)),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ],
                 if (_error != null) ...[
                   const SizedBox(height: 10),
                   Text(_error!, style: const TextStyle(color: Brand.red, fontSize: 12.5)),
@@ -273,6 +422,42 @@ class _ActivitySheetState extends State<_ActivitySheet> {
               ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AttachButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  const _AttachButton({required this.icon, required this.label, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onTap == null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: Brand.surfaceAlt,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withValues(alpha: disabled ? 0.04 : 0.1)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 17, color: disabled ? Colors.white24 : Brand.blue),
+            const SizedBox(width: 8),
+            Text(label,
+                style: TextStyle(
+                  color: disabled ? Colors.white24 : Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                )),
+          ],
         ),
       ),
     );

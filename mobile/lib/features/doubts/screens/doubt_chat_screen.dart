@@ -28,6 +28,9 @@ class _DoubtChatScreenState extends ConsumerState<DoubtChatScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   String _subject = _subjects.first;
+  // Who the student wants. Mentor is the default: an AI answer should be a
+  // deliberate choice, not what happens when nobody chooses.
+  String _route = 'mentor';
   bool _sending = false;
 
   @override
@@ -45,7 +48,7 @@ class _DoubtChatScreenState extends ConsumerState<DoubtChatScreen> {
     _controller.clear();
 
     try {
-      await ref.read(askDoubtProvider)(subject: _subject, body: text);
+      await ref.read(askDoubtProvider)(subject: _subject, body: text, route: _route);
       _scrollToBottom();
     } catch (e) {
       if (mounted) {
@@ -110,6 +113,10 @@ class _DoubtChatScreenState extends ConsumerState<DoubtChatScreen> {
             ),
           ),
           if (_sending) const _ThinkingIndicator(),
+          _RoutePicker(
+            selected: _route,
+            onChanged: (r) => setState(() => _route = r),
+          ),
           _Composer(
             controller: _controller,
             subject: _subject,
@@ -428,6 +435,75 @@ class _Composer extends StatelessWidget {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Ask the AI, or ask a mentor.
+///
+/// Previously every doubt went to the AI with no say in it, which is wrong for
+/// anything a student wants a human to look at. The choice only appears when
+/// the academy has both AI answering and student choice switched on; otherwise
+/// everything goes to a mentor and no misleading option is shown.
+class _RoutePicker extends ConsumerWidget {
+  final String selected;
+  final ValueChanged<String> onChanged;
+  const _RoutePicker({required this.selected, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final opts = ref.watch(doubtOptionsProvider).asData?.value;
+    if (opts == null || !opts.aiEnabled || !opts.studentChoice) {
+      return const SizedBox.shrink();
+    }
+
+    Widget option(String value, IconData icon, String label, String hint) {
+      final active = selected == value;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () => onChanged(value),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+            decoration: BoxDecoration(
+              color: active ? Brand.blue.withValues(alpha: 0.14) : Colors.white10,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: active ? Brand.blue : Colors.transparent),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, size: 18, color: active ? Brand.blue : Colors.white54),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label,
+                          style: TextStyle(
+                            color: active ? Colors.white : Colors.white70,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          )),
+                      Text(hint, style: const TextStyle(color: Colors.white38, fontSize: 10.5)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: Row(
+        children: [
+          option('ai', Icons.auto_awesome, 'Ask AI', 'Answer right away'),
+          const SizedBox(width: 8),
+          option('mentor', Icons.person_outline, 'Ask a mentor', 'A teacher replies'),
         ],
       ),
     );

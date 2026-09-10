@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/modal';
 import { formatDate } from '@/lib/utils';
+import { useToast } from '@/components/ui/toast';
 
 type Doubt = {
   id: string;
@@ -92,6 +93,8 @@ export default function DoubtsPage() {
           Escalated doubts need a mentor&apos;s answer — students are notified when you reply
         </p>
       </div>
+
+      <AiDoubtModeCard />
 
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex gap-2">
@@ -269,3 +272,97 @@ function DoubtCard({ doubt, staffOptions, onChanged }: { doubt: Doubt; staffOpti
     </div>
   );
 }
+
+/**
+ * Whether the AI may answer doubts at all.
+ *
+ * A teaching-policy decision, so it belongs to the admin rather than to a
+ * deployment variable. With it off every doubt — including one where the
+ * student explicitly picked the AI — goes to the mentor queue instead.
+ * Admin-only: the API enforces that independently, and a mentor seeing a
+ * switch they cannot use would only confuse.
+ */
+function AiDoubtModeCard() {
+  const { accessToken, user } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const qc = useQueryClient();
+  const toast = useToast();
+  const isAdmin = user?.role === 'admin';
+
+  const q = useQuery({
+    queryKey: ['admin', 'settings'],
+    queryFn: () => api.get<{ aiDoubtsEnabled: boolean; aiDoubtsStudentChoice: boolean }>('/api/v1/admin/settings'),
+    enabled: !!accessToken && isAdmin,
+  });
+
+  const save = useMutation({
+    mutationFn: (vars: { key: string; value: boolean }) => api.patch('/api/v1/admin/settings', vars),
+    onSuccess: (_d, vars) => {
+      toast(
+        vars.key === 'aiDoubtsEnabled'
+          ? vars.value
+            ? 'AI answering is on — students who choose it get an instant answer'
+            : 'AI answering is off — every doubt now goes to a mentor'
+          : vars.value
+            ? 'Students can choose between AI and a mentor'
+            : 'Students no longer see the choice — everything goes to a mentor',
+        'success',
+      );
+      void qc.invalidateQueries({ queryKey: ['admin', 'settings'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'doubts'] });
+    },
+    onError: (e) => toast(e instanceof ApiError ? e.message : 'Could not change that', 'error'),
+  });
+
+  if (!isAdmin) return null;
+  const s = q.data?.data;
+
+  const Row = ({ id, label, hint, value }: { id: string; label: string; hint: string; value: boolean }) => (
+    <div className="flex items-start justify-between gap-4 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-slate-200">{label}</p>
+        <p className="text-xs text-slate-500 mt-0.5">{hint}</p>
+      </div>
+      <button
+        role="switch"
+        aria-checked={value}
+        aria-label={label}
+        disabled={save.isPending}
+        onClick={() => save.mutate({ key: id, value: !value })}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+          value ? 'bg-violet-500' : 'bg-white/15'
+        } disabled:opacity-50`}
+      >
+        <span
+          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
+            value ? 'left-[22px]' : 'left-0.5'
+          }`}
+        />
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="rounded-2xl border border-white/8 bg-surface-1 px-5 py-2">
+      {q.isLoading || !s ? (
+        <p className="text-sm text-slate-500 py-3">Loading settings…</p>
+      ) : (
+        <div className="divide-y divide-white/5">
+          <Row
+            id="aiDoubtsEnabled"
+            label="AI doubt answering"
+            hint="When off, every doubt goes straight to a mentor — even if the student picked AI."
+            value={s.aiDoubtsEnabled}
+          />
+          <Row
+            id="aiDoubtsStudentChoice"
+            label="Let students choose"
+            hint="Shows AI and mentor as options in the app. Off means mentor only, with no choice."
+            value={s.aiDoubtsStudentChoice}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+

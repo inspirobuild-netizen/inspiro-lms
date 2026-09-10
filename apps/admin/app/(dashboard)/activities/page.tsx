@@ -31,9 +31,12 @@ type Activity = {
   enrolled: number;
 };
 
+type Attachment = { name: string; file: string; kind: 'image' | 'pdf' };
+
 type Submission = {
   id: string;
-  body: string;
+  body: string | null;
+  attachments: Attachment[] | null;
   submittedAt: string;
   reviewedAt: string | null;
   remarks: string | null;
@@ -178,6 +181,8 @@ function PublishModal({
   const [description, setDescription] = useState('');
   const [due, setDue] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expects, setExpects] = useState<'text' | 'file' | 'both'>('text');
+  const [allowed, setAllowed] = useState<'image' | 'pdf' | 'image,pdf'>('image,pdf');
 
   const publish = useMutation({
     mutationFn: () =>
@@ -185,6 +190,8 @@ function PublishModal({
         batchIds: [...selected],
         title: title.trim(),
         description: description.trim(),
+        requiresFile: expects !== 'text',
+        allowedTypes: allowed,
         ...(due ? { dueAt: new Date(due).toISOString() } : {}),
       }),
     onSuccess: onDone,
@@ -205,6 +212,55 @@ function PublishModal({
             placeholder="What exactly should students do, and how will it be assessed?"
           />
         </Field>
+        <Field label="What should students hand in?">
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              ['text', 'Written answer', 'Typed in the app'],
+              ['file', 'Uploaded work', 'Photo or PDF only'],
+              ['both', 'Both', 'Writing and a file'],
+            ] as const).map(([v, label, hint]) => (
+              <button
+                key={v}
+                onClick={() => setExpects(v)}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  expects === v
+                    ? 'border-violet-400/60 bg-violet-400/10'
+                    : 'border-white/8 bg-surface-2 hover:border-white/20'
+                }`}
+              >
+                <div className={`text-sm font-medium ${expects === v ? 'text-violet-200' : 'text-slate-300'}`}>
+                  {label}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">{hint}</div>
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        {expects !== 'text' && (
+          <Field label="Accepted file types">
+            <div className="flex gap-2">
+              {([
+                ['image,pdf', 'Photo or PDF'],
+                ['image', 'Photo only'],
+                ['pdf', 'PDF only'],
+              ] as const).map(([v, label]) => (
+                <button
+                  key={v}
+                  onClick={() => setAllowed(v)}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    allowed === v
+                      ? 'border-violet-400/60 bg-violet-400/10 text-violet-200'
+                      : 'border-white/8 text-slate-400 hover:border-white/20'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
+
         <Field label="Due date (optional)">
           <Input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
         </Field>
@@ -291,7 +347,25 @@ function SubmissionsModal({
                   {new Date(s.submittedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
                 </span>
               </div>
-              <p className="text-sm text-slate-300 mt-2 whitespace-pre-wrap">{s.body}</p>
+              {s.body && (
+                <p className="text-sm text-slate-300 mt-2 whitespace-pre-wrap">{s.body}</p>
+              )}
+              {(s.attachments ?? []).length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {s.attachments!.map((a) => (
+                    <a
+                      key={a.file}
+                      href={`${process.env.NEXT_PUBLIC_API_URL}/api/v1/submissions/${s.id}/attachment/${a.file}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-lg border border-white/8 bg-surface-1 px-3 py-1.5 text-xs text-slate-300 hover:border-violet-400/40 hover:text-violet-200"
+                    >
+                      <span>{a.kind === 'pdf' ? '📄' : '🖼️'}</span>
+                      <span className="max-w-[190px] truncate">{a.name}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
               {s.reviewedAt ? (
                 <p className="text-xs text-teal-300 mt-3">Reviewed: {s.remarks}</p>
               ) : canManage && remarksFor === s.id ? (
