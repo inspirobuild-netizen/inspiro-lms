@@ -5,7 +5,11 @@ import 'package:flutter/foundation.dart' show Factory;
 import 'package:flutter/gestures.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 
+import 'package:flutter/services.dart';
+
 import '../../../core/theme/brand.dart';
+import '../widgets/player_controls.dart';
+import '../widgets/lesson_playback.dart';
 
 /// Playback for a lesson whose video is hosted on YouTube rather than uploaded.
 ///
@@ -49,14 +53,11 @@ class YouTubeLessonPlayer extends StatefulWidget {
 
 class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
   late final YoutubePlayerController _controller;
-  Timer? _ticker;
-  Timer? _hideControls;
-
+  late final YouTubePlayback _playback;
   bool _ready = false;
-  bool _playing = false;
-  bool _controlsVisible = true;
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
+  bool _fullscreen = false;
+  Timer? _progressTimer;
+  Duration _lastReported = Duration.zero;
 
   @override
   void initState() {
@@ -66,257 +67,98 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
       startSeconds: widget.startAt.inSeconds.toDouble(),
       autoPlay: false,
       params: const YoutubePlayerParams(
-        // The whole point: no native control bar, so no logo and no
-        // "Watch on YouTube" affordance. The app draws its own controls.
+        // No native control bar means no logo and no "Watch on YouTube"
+        // affordance — the app draws the same controls it uses for uploaded
+        // video, so the two are indistinguishable to a student.
         showControls: false,
         showFullscreenButton: false,
         showVideoAnnotations: false,
-        // Keeps playback inside the app rather than handing off to the
-        // YouTube app on iOS.
+        // Keeps playback in the app instead of handing off on iOS.
         playsInline: true,
         enableCaption: false,
-        // Suggested videos at the end are the loudest branding leak there is.
+        // End-screen suggestions are the loudest branding leak there is.
         strictRelatedVideos: true,
       ),
     );
+    _playback = YouTubePlayback(_controller);
 
     _controller.listen((value) {
-      if (!mounted) return;
-      final playing = value.playerState == PlayerState.playing;
-      if (playing != _playing) setState(() => _playing = playing);
-      if (!_ready && value.playerState != PlayerState.unknown) {
-        setState(() => _ready = true);
-      }
+      if (!mounted || _ready) return;
+      if (value.playerState != PlayerState.unknown) setState(() => _ready = true);
     });
 
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) async {
-      if (!mounted) return;
-      final pos = await _controller.currentTime;
-      final dur = await _controller.duration;
-      if (!mounted) return;
-      setState(() {
-        _position = Duration(seconds: pos.toInt());
-        if (dur > 0) _duration = Duration(seconds: dur.toInt());
-      });
-      if (_playing) widget.onProgress?.call(_position, _duration);
+    _progressTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      final pos = _playback.position;
+      if (!_playback.playing) return;
+      if ((pos - _lastReported).abs() < const Duration(seconds: 5)) return;
+      _lastReported = pos;
+      widget.onProgress?.call(pos, _playback.duration);
     });
-
-    _scheduleHide();
   }
 
   @override
   void dispose() {
-    _ticker?.cancel();
-    _hideControls?.cancel();
+    _progressTimer?.cancel();
+    _playback.dispose();
     _controller.close();
+    if (_fullscreen) {
+      SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
     super.dispose();
   }
 
-  void _scheduleHide() {
-    _hideControls?.cancel();
-    _hideControls = Timer(const Duration(seconds: 3), () {
-      if (mounted && _playing) setState(() => _controlsVisible = false);
-    });
-  }
-
-  void _showControls() {
-    setState(() => _controlsVisible = true);
-    _scheduleHide();
-  }
-
-  void _togglePlay() {
-    if (_playing) {
-      _controller.pauseVideo();
+  void _toggleFullscreen() {
+    setState(() => _fullscreen = !_fullscreen);
+    if (_fullscreen) {
+      SystemChrome.setPreferredOrientations(
+        [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
+      );
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     } else {
-      _controller.playVideo();
+      SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
-    _showControls();
-  }
-
-  void _skip(int seconds) {
-    final target = _position + Duration(seconds: seconds);
-    final clamped = target < Duration.zero
-        ? Duration.zero
-        : (_duration > Duration.zero && target > _duration ? _duration : target);
-    _controller.seekTo(seconds: clamped.inSeconds.toDouble(), allowSeekAhead: true);
-    setState(() => _position = clamped);
-    _showControls();
-  }
-
-  static String _fmt(Duration d) {
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return d.inHours > 0 ? '${d.inHours}:$m:$s' : '$m:$s';
   }
 
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
       color: Colors.black,
-      child: AspectRatio(
-        aspectRatio: 16 / 9,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // The player itself is never touched directly: an absorber sits
-            // over it so taps reach our controls, and a long-press cannot
-            // raise the webview's own menu.
-            YoutubePlayer(
-              controller: _controller,
-              aspectRatio: 16 / 9,
-              gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
-            ),
-
-            Positioned.fill(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => _controlsVisible ? setState(() => _controlsVisible = false) : _showControls(),
-                onDoubleTap: _togglePlay,
-                onLongPress: () {}, // swallow, so no context menu appears
-                child: const SizedBox.expand(),
-              ),
-            ),
-
-            if (!_ready)
-              const Center(
-                child: SizedBox(
-                  height: 28,
-                  width: 28,
-                  child: CircularProgressIndicator(strokeWidth: 2.4, color: Brand.blue),
-                ),
-              ),
-
-            AnimatedOpacity(
-              opacity: _controlsVisible ? 1 : 0,
-              duration: const Duration(milliseconds: 180),
-              child: IgnorePointer(
-                ignoring: !_controlsVisible,
-                child: _Controls(
-                  playing: _playing,
-                  position: _position,
-                  duration: _duration,
-                  onTogglePlay: _togglePlay,
-                  onSkip: _skip,
-                  onSeek: (v) {
-                    _controller.seekTo(seconds: v, allowSeekAhead: true);
-                    setState(() => _position = Duration(seconds: v.toInt()));
-                    _showControls();
-                  },
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Controls extends StatelessWidget {
-  final bool playing;
-  final Duration position;
-  final Duration duration;
-  final VoidCallback onTogglePlay;
-  final void Function(int) onSkip;
-  final void Function(double) onSeek;
-
-  const _Controls({
-    required this.playing,
-    required this.position,
-    required this.duration,
-    required this.onTogglePlay,
-    required this.onSkip,
-    required this.onSeek,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final total = duration.inSeconds.toDouble();
-    final at = position.inSeconds.toDouble().clamp(0, total <= 0 ? 0 : total).toDouble();
-
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0x66000000), Colors.transparent, Color(0xAA000000)],
-          stops: [0, 0.45, 1],
-        ),
-      ),
       child: Stack(
+        fit: StackFit.expand,
         children: [
-          Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _RoundButton(icon: Icons.replay_10, onTap: () => onSkip(-10)),
-                const SizedBox(width: 26),
-                _RoundButton(
-                  icon: playing ? Icons.pause : Icons.play_arrow,
-                  large: true,
-                  onTap: onTogglePlay,
-                ),
-                const SizedBox(width: 26),
-                _RoundButton(icon: Icons.forward_10, onTap: () => onSkip(10)),
-              ],
-            ),
+          // The embedded player takes no gestures of its own, so taps reach
+          // our controls and a long-press cannot raise its context menu.
+          YoutubePlayer(
+            controller: _controller,
+            aspectRatio: 16 / 9,
+            gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
           ),
-          Positioned(
-            left: 8,
-            right: 8,
-            bottom: 4,
-            child: Row(
-              children: [
-                Text(_YouTubeLessonPlayerState._fmt(position),
-                    style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                Expanded(
-                  child: SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 2.5,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                      activeTrackColor: Brand.blue,
-                      inactiveTrackColor: Colors.white24,
-                      thumbColor: Brand.blue,
-                    ),
-                    child: Slider(
-                      value: at,
-                      max: total <= 0 ? 1 : total,
-                      onChanged: total <= 0 ? null : onSeek,
-                    ),
-                  ),
-                ),
-                Text(_YouTubeLessonPlayerState._fmt(duration),
-                    style: const TextStyle(color: Colors.white70, fontSize: 11)),
-              ],
+
+          if (!_ready)
+            const Center(
+              child: SizedBox(
+                height: 30,
+                width: 30,
+                child: CircularProgressIndicator(strokeWidth: 2.4, color: Brand.blue),
+              ),
             ),
-          ),
+
+          if (_ready)
+            PlayerControls(
+              player: _playback,
+              title: widget.title,
+              // No rendition list: the embedded player picks quality itself,
+              // so offering a menu that changes nothing would be a lie.
+              qualities: const [],
+              currentQuality: '',
+              onQualityChanged: (_) {},
+              onToggleFullscreen: _toggleFullscreen,
+              isFullscreen: _fullscreen,
+              onBack: () => Navigator.of(context).maybePop(),
+            ),
         ],
-      ),
-    );
-  }
-}
-
-class _RoundButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final bool large;
-  const _RoundButton({required this.icon, required this.onTap, this.large = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final size = large ? 58.0 : 42.0;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: size,
-        width: size,
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.42),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white24),
-        ),
-        child: Icon(icon, color: Colors.white, size: large ? 32 : 22),
       ),
     );
   }

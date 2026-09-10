@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -11,6 +12,7 @@ import 'youtube_lesson_player.dart';
 import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../widgets/player_controls.dart';
+import '../widgets/lesson_playback.dart';
 
 /// Plays a lesson video from a short-lived signed Bunny URL, fetched fresh on
 /// open — the signature expires, so it is never cached.
@@ -105,14 +107,55 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         _loading = false;
       });
       _startProgressReporting();
-    } catch (_) {
+    } on DioException catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Could not load this video. Check your connection and try again.';
+          _error = _loadFailureMessage(e);
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          // Naming the failure beats a blanket "check your connection", which
+          // sent staff hunting a network fault when the real answer was that
+          // the video had not finished encoding yet.
+          _error = 'This class could not be opened. $e';
           _loading = false;
         });
       }
     }
+  }
+
+  /// Turns the server's refusal into something the student can act on.
+  ///
+  /// The old catch-all blamed the connection for everything, including a video
+  /// still being processed — which reads as a bug in the app when it is simply
+  /// a video that is not ready yet.
+  String _loadFailureMessage(DioException e) {
+    final data = e.response?.data;
+    final err = data is Map ? data['error'] : null;
+    final code = err is Map ? err['code'] as String? : null;
+    final serverMessage = err is Map ? err['message'] as String? : null;
+
+    switch (code) {
+      case 'VIDEO_NOT_READY':
+        return 'This class is still being prepared. It is usually ready within a few '
+            'minutes of upload — tap retry shortly.';
+      case 'NO_MEDIA':
+        return 'No video has been added to this class yet. Your coordinator has been '
+            'able to see this too.';
+      case 'FORBIDDEN':
+      case 'NOT_ENROLLED':
+        return serverMessage ?? 'You do not have access to this class yet.';
+    }
+
+    if (e.type == DioExceptionType.connectionError ||
+        e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.receiveTimeout) {
+      return 'Could not reach the server. Check your connection and try again.';
+    }
+    return serverMessage ?? 'This class could not be opened. Please try again.';
   }
 
   /// Seeks to [to] and keeps trying until the position actually reflects it.
@@ -250,7 +293,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
             PlayerControls(
               // Forces a fresh subscription when the player is replaced.
               key: ValueKey(_player),
-              player: _player,
+              player: MediaKitPlayback(_player),
               title: widget.title,
               qualities: _qualities,
               currentQuality: _currentQuality,

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:media_kit/media_kit.dart';
+import 'lesson_playback.dart';
 
 import '../../../core/theme/brand.dart';
 
@@ -22,7 +22,7 @@ class VideoQuality {
 /// touch, so it gets gesture seeking, a scrub bar that shows buffering, speed
 /// and quality pickers, and controls that get out of the way on their own.
 class PlayerControls extends StatefulWidget {
-  final Player player;
+  final LessonPlayback player;
   final String title;
   final List<VideoQuality> qualities;
   final String currentQuality;
@@ -74,19 +74,19 @@ class _PlayerControlsState extends State<PlayerControls> with TickerProviderStat
   void initState() {
     super.initState();
     final p = widget.player;
-    _position = p.state.position;
-    _duration = p.state.duration;
-    _playing = p.state.playing;
+    _position = p.position;
+    _duration = p.duration;
+    _playing = p.playing;
     _subs.addAll([
-      p.stream.position.listen((v) => mounted ? setState(() => _position = v) : null),
-      p.stream.duration.listen((v) => mounted ? setState(() => _duration = v) : null),
-      p.stream.buffer.listen((v) => mounted ? setState(() => _buffer = v) : null),
-      p.stream.playing.listen((v) {
+      p.positionStream.listen((v) => mounted ? setState(() => _position = v) : null),
+      p.durationStream.listen((v) => mounted ? setState(() => _duration = v) : null),
+      p.bufferStream.listen((v) => mounted ? setState(() => _buffer = v) : null),
+      p.playingStream.listen((v) {
         if (!mounted) return;
         setState(() => _playing = v);
         if (v) _scheduleHide();
       }),
-      p.stream.buffering.listen((v) => mounted ? setState(() => _buffering = v) : null),
+      p.bufferingStream.listen((v) => mounted ? setState(() => _buffering = v) : null),
     ]);
     _scheduleHide();
   }
