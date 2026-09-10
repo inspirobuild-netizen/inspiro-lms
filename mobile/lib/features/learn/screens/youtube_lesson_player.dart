@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart' show Factory;
 import 'package:flutter/gestures.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 
-import 'package:flutter/services.dart';
 
 import '../../../core/theme/brand.dart';
 import '../widgets/player_controls.dart';
@@ -61,7 +60,6 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
   late final YoutubePlayerController _controller;
   late final YouTubePlayback _playback;
   bool _ready = false;
-  bool _fullscreen = false;
   // Until the video is actually rolling, the embed shows ITS OWN poster and a
   // branded play button. Nothing we pass can suppress that, so the app covers
   // it with its own start screen and lifts the cover once playback begins.
@@ -132,114 +130,88 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
     _progressTimer?.cancel();
     _playback.dispose();
     _controller.close();
-    if (_fullscreen) {
-      SystemChrome.setPreferredOrientations(DeviceOrientation.values);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    }
     super.dispose();
-  }
-
-  void _toggleFullscreen() {
-    setState(() => _fullscreen = !_fullscreen);
-    widget.onFullscreenChanged?.call(_fullscreen);
-    if (_fullscreen) {
-      SystemChrome.setPreferredOrientations(
-        [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
-      );
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    } else {
-      SystemChrome.setPreferredOrientations(DeviceOrientation.values);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final stage = ColoredBox(
-      color: Colors.black,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Takes no gestures of its own, so taps reach our controls and a
-          // long-press cannot raise the webview's context menu.
-          YoutubePlayer(
-            controller: _controller,
-            aspectRatio: 16 / 9,
-            gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
-          ),
-
-          // Paused: hide the embed's own overlay behind the academy's panel.
-          // IgnorePointer so the controls above still receive every tap.
-          if (_hasStarted && _showPausePanel)
-            const IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFF10162B), Color(0xFF05070F)],
+    // Everything the student sees over the video goes through controlsBuilder.
+    // On mobile the package renders that inside an overlay portal; anything
+    // placed as a plain Stack sibling is composited BEHIND the player surface
+    // instead, which is why the covers and controls were invisible and the
+    // embed's own paused panel showed through.
+    return YoutubePlayer(
+      controller: _controller,
+      aspectRatio: 16 / 9,
+      gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+      controlsBuilder: (context, isFullscreen) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // Paused, ended or cued: the embed draws its own panel with the
+            // channel, a copy-link and a grid of other videos. Opaque cover,
+            // with taps passing through to the controls above.
+            if (_hasStarted && _showPausePanel)
+              const IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF10162B), Color(0xFF05070F)],
+                    ),
                   ),
+                  child: SizedBox.expand(),
                 ),
-                child: SizedBox.expand(),
               ),
-            ),
 
-          // Opaque until the first frame plays — this is what keeps the
-          // embed's own branded start screen off the student's display.
-          if (!_hasStarted)
-            _StartCover(
-              title: widget.title,
-              loading: !_ready,
-              onPlay: () {
-                _controller.playVideo();
-                setState(() => _hasStarted = true);
-              },
-            ),
+            if (!_hasStarted)
+              _StartCover(
+                title: widget.title,
+                loading: !_ready,
+                onPlay: () {
+                  _controller.playVideo();
+                  setState(() => _hasStarted = true);
+                },
+              ),
 
-          if (_hasStarted)
-            PlayerControls(
-              player: _playback,
-              title: widget.title,
-              // No rendition list: the embedded player picks quality itself,
-              // so a menu that changed nothing would be a lie.
-              qualities: const [],
-              currentQuality: '',
-              onQualityChanged: (_) {},
-              onToggleFullscreen: _toggleFullscreen,
-              isFullscreen: _fullscreen,
-              onBack: () {
-                if (_fullscreen) {
-                  _toggleFullscreen();
-                } else {
-                  Navigator.of(context).maybePop();
-                }
-              },
-            ),
-        ],
-      ),
+            if (_hasStarted)
+              PlayerControls(
+                player: _playback,
+                title: widget.title,
+                // The embed picks its own rendition, so a quality menu that
+                // changed nothing would be a lie.
+                qualities: const [],
+                currentQuality: '',
+                onQualityChanged: (_) {},
+                onToggleFullscreen: () {
+                  // The package owns fullscreen here, so it can keep the
+                  // overlay portal aligned with the player surface.
+                  _controller.toggleFullScreen();
+                  widget.onFullscreenChanged?.call(!isFullscreen);
+                },
+                isFullscreen: isFullscreen,
+                onBack: () {
+                  if (isFullscreen) {
+                    _controller.exitFullScreen();
+                    widget.onFullscreenChanged?.call(false);
+                  } else {
+                    Navigator.of(context).maybePop();
+                  }
+                },
+              ),
+          ],
+        );
+      },
     );
-
-    // Fullscreen owns the whole screen and the back button collapses it
-    // rather than leaving the lesson — same behaviour as an uploaded video.
-    if (_fullscreen) {
-      return PopScope(
-        canPop: false,
-        onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) _toggleFullscreen();
-        },
-        child: SizedBox.expand(child: stage),
-      );
-    }
-
-    return AspectRatio(aspectRatio: 16 / 9, child: stage);
   }
 }
 
-/// The app's own start screen, sitting over the embed until playback begins.
+/// The app's own start screen, over the embed until playback begins.
 ///
 /// Without it a student sees the source's poster art and branded play button
-/// for as long as the video is unstarted — which is the one moment the origin
-/// is most obvious.
+/// for as long as the video is unstarted — the moment the origin is most
+/// obvious.
 class _StartCover extends StatelessWidget {
   final String title;
   final bool loading;
