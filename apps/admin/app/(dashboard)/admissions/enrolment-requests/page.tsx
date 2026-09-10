@@ -82,8 +82,8 @@ export default function EnrolmentRequestsPage() {
         <div>
           <h2 className="font-display font-bold text-2xl text-slate-100">Enrolment requests</h2>
           <p className="text-sm text-slate-500 mt-1">
-            Students who signed up in the app and paid. Check the money arrived, then verify — that
-            creates their admission. Placing them in a batch is the step after.
+            Students who signed up in the app and paid. Check the money arrived, then verify —
+            that records the payment, admits them and places them in a batch in one step.
           </p>
         </div>
         <Select
@@ -196,8 +196,8 @@ export default function EnrolmentRequestsPage() {
                         )}
                         {r.status === 'verified' && !r.batchName && (
                           <p className="text-xs text-amber-300/80 mt-2">
-                            Fee verified, but this student is in no batch yet — they still cannot
-                            open the course.
+                            Verified by a counsellor — the enrolment is awaiting an admin&apos;s
+                            approval under Finance approvals before the course opens.
                           </p>
                         )}
                       </div>
@@ -254,6 +254,14 @@ export default function EnrolmentRequestsPage() {
   );
 }
 
+type BatchOption = {
+  id: string;
+  name: string;
+  status: string;
+  capacity: number;
+  enrolledCount?: number;
+};
+
 function ActionModal({
   api,
   request,
@@ -268,35 +276,50 @@ function ActionModal({
   onDone: () => void;
 }) {
   const toast = useToast();
-  const [reference, setReference] = useState(request.reference ?? '');
+  const [batchId, setBatchId] = useState('');
   const [reason, setReason] = useState('');
+
+  // Verifying admits the student AND places them, in one transaction, so the
+  // batch is chosen here rather than in a later step. Only batches of THIS
+  // request's course are valid — the server refuses others outright.
+  const batchesQ = useQuery({
+    queryKey: ['admin', 'course', request.courseId, 'batches'],
+    queryFn: () => api.get<BatchOption[]>(`/api/v1/courses/${request.courseId}/batches`),
+    enabled: mode === 'verify',
+  });
+  const batches = batchesQ.data?.data ?? [];
 
   const act = useMutation({
     mutationFn: () =>
       mode === 'verify'
-        ? api.post(`/api/v1/admin/enrollment-requests/${request.id}/verify`, {
-            ...(reference.trim() ? { reference: reference.trim() } : {}),
-          })
+        ? api.post(`/api/v1/admin/enrollment-requests/${request.id}/verify`, { batchId })
         : api.post(`/api/v1/admin/enrollment-requests/${request.id}/reject`, {
             reason: reason.trim(),
           }),
     onSuccess: () => {
+      const batch = batches.find((b) => b.id === batchId);
       toast(
         mode === 'verify'
-          ? `Fee verified — ${request.studentName} now has an admission. Place them in a batch to open the course.`
+          ? `Fee verified — ${request.studentName} is admitted${
+              batch ? ` into ${batch.name}` : ''
+            } and can open the course now.`
           : `Request rejected. ${request.studentName} has been told why.`,
         mode === 'verify' ? 'success' : 'info',
       );
       onDone();
     },
+    // The server names the real problem — no payment reference, batch full,
+    // already processed — so its message beats anything generic here.
     onError: (e) => toast(e instanceof ApiError ? e.message : 'Could not complete that', 'error'),
   });
+
+  const noReference = !request.reference && !request.gatewayPaymentId;
 
   return (
     <Modal
       open
       onClose={onClose}
-      title={mode === 'verify' ? 'Verify fee received' : 'Reject this request'}
+      title={mode === 'verify' ? 'Verify fee and admit' : 'Reject this request'}
       description={`${request.studentName} · ${request.courseTitle}`}
     >
       <div className="space-y-4">
@@ -315,30 +338,56 @@ function ActionModal({
           </div>
           <div className="flex justify-between">
             <span className="text-slate-400">Student reference</span>
-            <span className="text-slate-300 font-mono text-xs">
-              {request.gatewayPaymentId ?? request.reference ?? 'not given'}
+            <span
+              className={`font-mono text-xs ${noReference ? 'text-amber-300' : 'text-slate-300'}`}
+            >
+              {request.gatewayPaymentId ?? request.reference ?? 'not submitted'}
             </span>
           </div>
         </div>
 
         {mode === 'verify' ? (
           <>
+            {noReference && (
+              <p className="text-xs text-amber-300/90">
+                This student has not submitted a payment reference yet, so the fee cannot be
+                verified. Ask them to enter it in the app first.
+              </p>
+            )}
             {request.amount !== request.courseFee && (
               <p className="text-xs text-amber-300/90">
                 This is {request.amount < request.courseFee ? 'less' : 'more'} than the course fee.
                 Verify only if that is expected.
               </p>
             )}
-            <Field label="Bank / UPI reference (optional — recorded against the payment)">
-              <Input
-                value={reference}
-                onChange={(e) => setReference(e.target.value)}
-                placeholder="UTR or transaction id"
-              />
+
+            <Field label="Place them in which batch?">
+              {batchesQ.isLoading ? (
+                <p className="text-sm text-slate-500">Loading batches…</p>
+              ) : batches.length === 0 ? (
+                <p className="text-sm text-amber-300">
+                  This course has no batches yet. Create one on the course page first — verifying
+                  admits the student into a batch, so there has to be one.
+                </p>
+              ) : (
+                <Select value={batchId} onChange={(e) => setBatchId(e.target.value)}>
+                  <option value="">Choose a batch…</option>
+                  {batches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} · {b.status}
+                      {typeof b.enrolledCount === 'number'
+                        ? ` · ${b.enrolledCount}/${b.capacity} enrolled`
+                        : ` · capacity ${b.capacity}`}
+                    </option>
+                  ))}
+                </Select>
+              )}
             </Field>
+
             <p className="text-xs text-slate-500">
-              Confirm against the bank statement first. Verifying creates the admission and records
-              the payment; it does not place the student in a batch.
+              Check the payment against the bank statement first. This records the payment, creates
+              the admission and enrols the student in one step — they can open the course
+              immediately afterwards.
             </p>
           </>
         ) : (
@@ -359,10 +408,10 @@ function ActionModal({
           </Button>
           <Button
             loading={act.isPending}
-            disabled={mode === 'reject' && reason.trim().length < 3}
+            disabled={mode === 'verify' ? !batchId || noReference : reason.trim().length < 3}
             onClick={() => act.mutate()}
           >
-            {mode === 'verify' ? 'Verify fee' : 'Reject request'}
+            {mode === 'verify' ? 'Verify and admit' : 'Reject request'}
           </Button>
         </div>
       </div>
