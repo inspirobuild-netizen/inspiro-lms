@@ -39,12 +39,18 @@ class YouTubeLessonPlayer extends StatefulWidget {
   /// completion or streak behaviour.
   final void Function(Duration position, Duration total)? onProgress;
 
+  /// Fired when the student enters or leaves fullscreen, so the screen around
+  /// this player can hide its chrome instead of a second Scaffold appearing
+  /// inside the first.
+  final ValueChanged<bool>? onFullscreenChanged;
+
   const YouTubeLessonPlayer({
     super.key,
     required this.videoId,
     required this.title,
     this.startAt = Duration.zero,
     this.onProgress,
+    this.onFullscreenChanged,
   });
 
   @override
@@ -56,6 +62,10 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
   late final YouTubePlayback _playback;
   bool _ready = false;
   bool _fullscreen = false;
+  // Until the video is actually rolling, the embed shows ITS OWN poster and a
+  // branded play button. Nothing we pass can suppress that, so the app covers
+  // it with its own start screen and lifts the cover once playback begins.
+  bool _hasStarted = false;
   Timer? _progressTimer;
   Duration _lastReported = Duration.zero;
 
@@ -83,8 +93,13 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
     _playback = YouTubePlayback(_controller);
 
     _controller.listen((value) {
-      if (!mounted || _ready) return;
-      if (value.playerState != PlayerState.unknown) setState(() => _ready = true);
+      if (!mounted) return;
+      if (!_ready && value.playerState != PlayerState.unknown) {
+        setState(() => _ready = true);
+      }
+      if (!_hasStarted && value.playerState == PlayerState.playing) {
+        setState(() => _hasStarted = true);
+      }
     });
 
     _progressTimer = Timer.periodic(const Duration(seconds: 5), (_) {
@@ -110,6 +125,7 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
 
   void _toggleFullscreen() {
     setState(() => _fullscreen = !_fullscreen);
+    widget.onFullscreenChanged?.call(_fullscreen);
     if (_fullscreen) {
       SystemChrome.setPreferredOrientations(
         [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
@@ -123,42 +139,137 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
+    final stage = ColoredBox(
       color: Colors.black,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // The embedded player takes no gestures of its own, so taps reach
-          // our controls and a long-press cannot raise its context menu.
+          // Takes no gestures of its own, so taps reach our controls and a
+          // long-press cannot raise the webview's context menu.
           YoutubePlayer(
             controller: _controller,
             aspectRatio: 16 / 9,
             gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
           ),
 
-          if (!_ready)
-            const Center(
-              child: SizedBox(
-                height: 30,
-                width: 30,
-                child: CircularProgressIndicator(strokeWidth: 2.4, color: Brand.blue),
-              ),
+          // Opaque until the first frame plays — this is what keeps the
+          // embed's own branded start screen off the student's display.
+          if (!_hasStarted)
+            _StartCover(
+              title: widget.title,
+              loading: !_ready,
+              onPlay: () {
+                _controller.playVideo();
+                setState(() => _hasStarted = true);
+              },
             ),
 
-          if (_ready)
+          if (_hasStarted)
             PlayerControls(
               player: _playback,
               title: widget.title,
               // No rendition list: the embedded player picks quality itself,
-              // so offering a menu that changes nothing would be a lie.
+              // so a menu that changed nothing would be a lie.
               qualities: const [],
               currentQuality: '',
               onQualityChanged: (_) {},
               onToggleFullscreen: _toggleFullscreen,
               isFullscreen: _fullscreen,
-              onBack: () => Navigator.of(context).maybePop(),
+              onBack: () {
+                if (_fullscreen) {
+                  _toggleFullscreen();
+                } else {
+                  Navigator.of(context).maybePop();
+                }
+              },
             ),
         ],
+      ),
+    );
+
+    // Fullscreen owns the whole screen and the back button collapses it
+    // rather than leaving the lesson — same behaviour as an uploaded video.
+    if (_fullscreen) {
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _toggleFullscreen();
+        },
+        child: SizedBox.expand(child: stage),
+      );
+    }
+
+    return AspectRatio(aspectRatio: 16 / 9, child: stage);
+  }
+}
+
+/// The app's own start screen, sitting over the embed until playback begins.
+///
+/// Without it a student sees the source's poster art and branded play button
+/// for as long as the video is unstarted — which is the one moment the origin
+/// is most obvious.
+class _StartCover extends StatelessWidget {
+  final String title;
+  final bool loading;
+  final VoidCallback onPlay;
+  const _StartCover({required this.title, required this.loading, required this.onPlay});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: loading ? null : onPlay,
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF10162B), Color(0xFF05070F)],
+          ),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Center(
+              child: loading
+                  ? const SizedBox(
+                      height: 30,
+                      width: 30,
+                      child: CircularProgressIndicator(strokeWidth: 2.4, color: Brand.blue),
+                    )
+                  : Container(
+                      height: 64,
+                      width: 64,
+                      decoration: BoxDecoration(
+                        color: Brand.blue,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Brand.blue.withValues(alpha: 0.35),
+                            blurRadius: 24,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 40),
+                    ),
+            ),
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 14,
+              child: Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -49,6 +49,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   // is shown the same controls either way; only the engine differs.
   String? _youtubeId;
   Duration _youtubeStartAt = Duration.zero;
+  // Mirrors the embedded player's own fullscreen state, so the app bar can get
+  // out of the way rather than framing a fullscreen video.
+  bool _ytFullscreen = false;
 
   // Progress is reported to the server on a timer rather than per frame.
   Timer? _progressTimer;
@@ -251,16 +254,19 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     if (_youtubeId != null) {
       return Scaffold(
         backgroundColor: Colors.black,
-        appBar: AppBar(
-          backgroundColor: Colors.black,
-          foregroundColor: Colors.white,
-          title: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-        ),
+        appBar: _ytFullscreen
+            ? null
+            : AppBar(
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
+                title: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
         body: Center(
           child: YouTubeLessonPlayer(
             videoId: _youtubeId!,
             title: widget.title,
             startAt: _youtubeStartAt,
+            onFullscreenChanged: (v) => setState(() => _ytFullscreen = v),
             // Same 10-second throttle as uploaded video, so resume, completion
             // and streaks behave identically whichever source a class uses.
             onProgress: (pos, total) {
