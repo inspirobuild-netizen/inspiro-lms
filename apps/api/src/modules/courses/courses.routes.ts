@@ -39,6 +39,7 @@ import {
   reorderLessons,
 } from './courses.service.js';
 import { getBatchContent, createBatchModule, copyContentToBatch } from './batch-content.service.js';
+import { getLessonPreview } from './preview.service.js';
 
 type ZodSchema<T> = { safeParse: (v: unknown) => { success: true; data: T } | { success: false; error: { flatten: () => unknown } } };
 
@@ -186,6 +187,22 @@ export default async function coursesRoutes(app: FastifyInstance) {
           linkedVideosUntouched: plan.youtubeCount,
         },
       });
+    },
+  );
+
+
+  // ── Staff preview of a lesson's media ──────────────────────────────────────
+  // Content is uploaded and then published to students sight-unseen, which is
+  // how a broken or wrong-file upload reaches a class. This returns the same
+  // signed URL a student would get, without the enrolment and drip checks that
+  // would (correctly) refuse a staff member who is not enrolled.
+  app.get(
+    '/admin/lessons/:id/preview',
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'courses.manage')] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const data = await getLessonPreview(id);
+      return reply.send({ success: true, data });
     },
   );
 

@@ -141,6 +141,10 @@ export async function getBunnyVideoStatus(videoGuid: string): Promise<{
   statusText: string;
   storageSize: number;
   availableResolutions: string;
+  // Surfaced so a staff preview can show real progress rather than a spinner
+  // that never explains itself.
+  encodeProgress: number;
+  length: number;
 }> {
   const apiKey = requireEnv('BUNNY_STREAM_API_KEY');
   const libraryId = requireEnv('BUNNY_STREAM_LIBRARY_ID');
@@ -157,6 +161,8 @@ export async function getBunnyVideoStatus(videoGuid: string): Promise<{
     status: number;
     storageSize: number;
     availableResolutions: string;
+    encodeProgress?: number;
+    length?: number;
   };
 
   const statusText: Record<number, string> = {
@@ -175,6 +181,8 @@ export async function getBunnyVideoStatus(videoGuid: string): Promise<{
     statusText: statusText[data.status] ?? 'unknown',
     storageSize: data.storageSize,
     availableResolutions: data.availableResolutions,
+    encodeProgress: data.encodeProgress ?? 0,
+    length: data.length ?? 0,
   };
 }
 

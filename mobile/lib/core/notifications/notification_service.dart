@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -16,6 +17,14 @@ class NotificationService {
   NotificationService._();
 
   static final _messaging = FirebaseMessaging.instance;
+
+  /// Pushes that arrived while the app was open.
+  ///
+  /// The FCM callback is static and sits outside the widget tree, so it cannot
+  /// touch providers directly. The root listens here and refreshes, which is
+  /// what stops a student having to force-quit the app to see a new class.
+  static final _inbound = StreamController<RemoteMessage>.broadcast();
+  static Stream<RemoteMessage> get inboundStream => _inbound.stream;
   static final _localNotifications = FlutterLocalNotificationsPlugin();
 
   static const _androidChannel = AndroidNotificationChannel(
@@ -53,6 +62,7 @@ class NotificationService {
     // Foreground message handler
     FirebaseMessaging.onMessage.listen((message) async {
       await _showLocalNotification(message);
+      _inbound.add(message);
     });
 
     // Register FCM token with our API

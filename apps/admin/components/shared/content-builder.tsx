@@ -202,6 +202,7 @@ function ModuleCard({
   onDelete: () => void;
 }) {
   const [openAdd, setOpenAdd] = useState(false);
+  const [previewing, setPreviewing] = useState<Lesson | null>(null);
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
   const toast = useToast();
@@ -255,8 +256,15 @@ function ModuleCard({
                           : 'Video not uploaded yet'}
                 </p>
               </div>
+              <div className="flex items-center gap-3 shrink-0">
               <button
-                className="text-xs text-slate-500 hover:text-rose-300 shrink-0"
+                className="text-xs text-violet-300/90 hover:text-violet-200"
+                onClick={() => setPreviewing(l)}
+              >
+                Preview
+              </button>
+              <button
+                className="text-xs text-slate-500 hover:text-rose-300"
                 onClick={async () => {
                   const detail = await describeDeletion(api, 'lesson', l.id);
                   const ok = await confirm({
@@ -269,6 +277,7 @@ function ModuleCard({
               >
                 Remove
               </button>
+              </div>
             </div>
             {l.type === 'video' &&
               (l.videoProvider === 'youtube' ? (
@@ -281,6 +290,10 @@ function ModuleCard({
           </div>
         ))}
       </div>
+
+      {previewing && (
+        <PreviewModal lesson={previewing} onClose={() => setPreviewing(null)} />
+      )}
 
       {openAdd && (
         <AddLessonModal
@@ -947,6 +960,168 @@ function YouTubeLessonControl({ lesson, onChanged }: { lesson: Lesson; onChanged
         </>
       )}
     </div>
+  );
+}
+
+type PreviewData = {
+  lessonId: string;
+  title: string;
+  kind: 'video' | 'pdf' | 'youtube' | 'exam';
+  ready?: boolean;
+  state?: 'ready' | 'encoding' | 'failed' | 'no_upload';
+  encodeProgress?: number;
+  durationSeconds?: number | null;
+  qualities?: { label: string; url: string }[];
+  url?: string | null;
+  youtubeVideoId?: string | null;
+  examId?: string | null;
+  isPublished?: boolean;
+};
+
+/**
+ * Play the actual file before students do.
+ *
+ * Content was uploaded and published sight-unseen, so a wrong or broken file
+ * only surfaced when a class hit it. This plays the same signed URL a student
+ * gets — and when a video is not ready it says whether it is still encoding
+ * (with real progress) or genuinely failed, which are very different problems
+ * and previously looked identical.
+ */
+function PreviewModal({ lesson, onClose }: { lesson: Lesson; onClose: () => void }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const [quality, setQuality] = useState<string | null>(null);
+
+  const q = useQuery({
+    queryKey: ['admin', 'lesson', lesson.id, 'preview'],
+    queryFn: () => api.get<PreviewData>(`/api/v1/admin/lessons/${lesson.id}/preview`),
+    enabled: !!accessToken,
+    // While encoding, keep polling so the modal turns into a player on its own.
+    refetchInterval: (query) => {
+      const st = query.state.data?.data?.state;
+      return st === 'encoding' ? 5000 : false;
+    },
+  });
+
+  const d = q.data?.data;
+  const current = d?.qualities?.find((x) => x.label === quality) ?? d?.qualities?.[0];
+
+  return (
+    <Modal open onClose={onClose} title="Preview" description={lesson.title}>
+      <div className="space-y-4">
+        {q.isLoading ? (
+          <p className="text-sm text-slate-500">Loading…</p>
+        ) : !d ? (
+          <p className="text-sm text-rose-400">Could not load this lesson.</p>
+        ) : d.kind === 'exam' ? (
+          <div className="rounded-xl border border-white/8 bg-surface-2 p-5 text-center">
+            <p className="text-slate-200 text-sm">
+              {d.examId ? 'Exam paper attached' : 'No exam configured on this lesson yet'}
+            </p>
+            {d.examId && (
+              <>
+                <Badge variant={d.isPublished ? 'success' : 'slate'}>
+                  {d.isPublished ? 'Published' : 'Draft'}
+                </Badge>
+                <Link href={`/exams/${d.examId}`} className="block mt-3">
+                  <Button variant="outline" size="sm">Open the questions</Button>
+                </Link>
+              </>
+            )}
+          </div>
+        ) : d.kind === 'pdf' ? (
+          d.url ? (
+            <>
+              <iframe
+                src={d.url.startsWith('http') ? d.url : `${process.env.NEXT_PUBLIC_API_URL}${d.url}`}
+                className="w-full h-[60vh] rounded-xl border border-white/8 bg-surface-2"
+                title={lesson.title}
+              />
+              <p className="text-xs text-slate-500">
+                This is the file students open. If it is blank or the wrong document, replace it.
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-amber-300">No notes uploaded on this lesson yet.</p>
+          )
+        ) : d.kind === 'youtube' ? (
+          d.youtubeVideoId ? (
+            <>
+              <div className="aspect-video rounded-xl overflow-hidden border border-white/8">
+                <iframe
+                  src={`https://www.youtube-nocookie.com/embed/${d.youtubeVideoId}?rel=0`}
+                  className="w-full h-full"
+                  allow="accelerometer; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  title={lesson.title}
+                />
+              </div>
+              <p className="text-xs text-slate-500">
+                Students see this without any YouTube controls or branding — this preview shows the
+                standard player so you can confirm the right video is linked.
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-amber-300">No video linked on this lesson yet.</p>
+          )
+        ) : d.state === 'ready' && current ? (
+          <>
+            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+            <video
+              key={current.url}
+              src={current.url}
+              controls
+              className="w-full rounded-xl border border-white/8 bg-black aspect-video"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-500">Quality:</span>
+              {d.qualities!.map((qq) => (
+                <button
+                  key={qq.label}
+                  onClick={() => setQuality(qq.label)}
+                  className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${
+                    current.label === qq.label
+                      ? 'border-violet-400/60 bg-violet-400/10 text-violet-200'
+                      : 'border-white/8 text-slate-400 hover:border-white/20'
+                  }`}
+                >
+                  {qq.label}
+                </button>
+              ))}
+              {d.durationSeconds ? (
+                <span className="text-xs text-slate-500 ml-auto">
+                  {Math.floor(d.durationSeconds / 60)} min
+                </span>
+              ) : null}
+            </div>
+          </>
+        ) : d.state === 'encoding' ? (
+          <div className="rounded-xl border border-white/8 bg-surface-2 p-6 space-y-3">
+            <p className="text-sm text-slate-200">Still processing — {d.encodeProgress ?? 0}% done</p>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/8">
+              <div
+                className="h-full rounded-full bg-violet-400 transition-all"
+                style={{ width: `${Math.max(d.encodeProgress ?? 0, 3)}%` }}
+              />
+            </div>
+            <p className="text-xs text-slate-500">
+              This updates on its own. Students opening it now are told the class is being prepared,
+              not that something is broken.
+            </p>
+          </div>
+        ) : d.state === 'failed' ? (
+          <p className="text-sm text-rose-400">
+            This upload failed to process. Upload the file again — students cannot play it.
+          </p>
+        ) : (
+          <p className="text-sm text-amber-300">No video uploaded on this lesson yet.</p>
+        )}
+
+        <div className="flex justify-end pt-1">
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
