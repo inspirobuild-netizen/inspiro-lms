@@ -66,6 +66,13 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
   // branded play button. Nothing we pass can suppress that, so the app covers
   // it with its own start screen and lifts the cover once playback begins.
   bool _hasStarted = false;
+  // Paused is the other moment the embed advertises itself: it draws a panel
+  // with the channel, a share/copy link, a related-video thumbnail and the
+  // wordmark. No supported parameter turns that off, so the app covers it.
+  bool _playing = false;
+  // Buffering is NOT one of these: it is not playing either, and covering
+  // during a mid-stream stall would flash a panel over a working video.
+  bool _showPausePanel = false;
   Timer? _progressTimer;
   Duration _lastReported = Duration.zero;
 
@@ -97,9 +104,18 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
       if (!_ready && value.playerState != PlayerState.unknown) {
         setState(() => _ready = true);
       }
-      if (!_hasStarted && value.playerState == PlayerState.playing) {
-        setState(() => _hasStarted = true);
-      }
+      final st = value.playerState;
+      final playing = st == PlayerState.playing;
+      // The embed draws its branded panel when paused, ended or cued — the
+      // end screen is the worst of them, being a grid of other people's
+      // videos. Buffering is deliberately excluded.
+      final covered = st == PlayerState.paused ||
+          st == PlayerState.ended ||
+          st == PlayerState.cued ||
+          st == PlayerState.unStarted;
+      if (playing != _playing) setState(() => _playing = playing);
+      if (covered != _showPausePanel) setState(() => _showPausePanel = covered);
+      if (!_hasStarted && playing) setState(() => _hasStarted = true);
     });
 
     _progressTimer = Timer.periodic(const Duration(seconds: 5), (_) {
@@ -151,6 +167,22 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
             aspectRatio: 16 / 9,
             gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
           ),
+
+          // Paused: hide the embed's own overlay behind the academy's panel.
+          // IgnorePointer so the controls above still receive every tap.
+          if (_hasStarted && _showPausePanel)
+            const IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF10162B), Color(0xFF05070F)],
+                  ),
+                ),
+                child: SizedBox.expand(),
+              ),
+            ),
 
           // Opaque until the first frame plays — this is what keeps the
           // embed's own branded start screen off the student's display.
