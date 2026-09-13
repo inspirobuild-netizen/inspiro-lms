@@ -33,6 +33,16 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
+    // Compress native libraries inside the APK. AGP 8.x stores them
+    // uncompressed by default, which suits Play's split delivery but more than
+    // doubles a sideloaded APK. Trade-off: Android extracts them at install, so
+    // the installed footprint is larger than the download.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     defaultConfig {
         // Must match the Firebase Android app and the Play Console listing.
         applicationId = "com.bizence.inspiro"
