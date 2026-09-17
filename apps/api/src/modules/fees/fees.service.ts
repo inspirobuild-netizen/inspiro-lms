@@ -131,12 +131,14 @@ export async function listInstallments(admissionId: string) {
 export async function recordPayment(
   admissionId: string,
   input: RecordPaymentInput,
-  collectedBy: string,
+  collectedBy: string | null,
   collectorRole = 'admin',
 ) {
   // Maker-checker: only an admin's own entries are trusted on sight. A
   // counsellor's entry is a CLAIM until an admin verifies it against the bank.
-  const autoVerified = collectorRole === 'admin';
+  // A gateway settlement IS the bank's word, so it is verified on arrival and
+  // has no collector.
+  const autoVerified = collectorRole === 'admin' || collectorRole === 'gateway';
   return db.transaction(async (tx) => {
     const [adm] = await tx.select().from(admissions).where(eq(admissions.id, admissionId)).limit(1);
     if (!adm) throw err('Admission not found', 404, 'ADMISSION_NOT_FOUND');

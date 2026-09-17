@@ -14,6 +14,7 @@ export const createBatchSchema = z.object({
 
 export const updateBatchSchema = createBatchSchema.partial().extend({
   status: z.enum(['upcoming', 'active', 'completed', 'archived']).optional(),
+  enrolling: z.boolean().optional(),
 });
 
 // feePlanId is optional; when omitted the admission's fee falls back to the

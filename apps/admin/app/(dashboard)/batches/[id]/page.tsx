@@ -21,6 +21,7 @@ type BatchDetail = {
   type: string;
   targetExam: string;
   status: string;
+  enrolling: boolean;
   enrolledCount: number;
   instructors: { id: string; name: string }[];
   course: { id: string; title: string; subject: string };
@@ -68,6 +69,14 @@ export default function BatchDetailPage() {
     onSuccess: invalidate,
   });
 
+  const setEnrolling = useMutation({
+    mutationFn: (enrolling: boolean) => api.patch(`/api/v1/admin/batches/${id}`, { enrolling }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: batchKey });
+      void qc.invalidateQueries({ queryKey: ['admin', 'course'] });
+    },
+  });
+
   const removeInstructor = useMutation({
     mutationFn: (instructorId: string) => api.delete(`/api/v1/admin/batches/${id}/instructors/${instructorId}`),
     onSuccess: invalidate,
@@ -95,11 +104,32 @@ export default function BatchDetailPage() {
               <Link href={`/courses/${batch.course.id}`} className="text-violet-300 hover:underline">{batch.course.title}</Link>
               {' · '}{batch.course.subject}
             </p>
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               <Badge variant="slate" className="capitalize">{batch.type}</Badge>
               <Badge variant="default" className="uppercase">{batch.targetExam.replace('_', ' ')}</Badge>
               <Badge variant={batch.status === 'active' ? 'success' : 'amber'} className="capitalize">{batch.status}</Badge>
+              {batch.enrolling && <Badge variant="teal">accepting online enrolment</Badge>}
             </div>
+            {canManage && (
+              <label className="mt-3 flex items-start gap-3 rounded-xl border border-white/8 bg-surface-1 p-3 cursor-pointer max-w-xl">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={batch.enrolling}
+                  disabled={setEnrolling.isPending}
+                  onChange={(e) => setEnrolling.mutate(e.target.checked)}
+                />
+                <span>
+                  <span className="block text-sm text-slate-200">Accepting online enrolment</span>
+                  <span className="block text-xs text-slate-500 mt-0.5">
+                    Students who pay for <span className="text-slate-300">{batch.course.title}</span> in
+                    the app land in this batch. Only one batch per course can be switched on — turning
+                    this on turns the others off. With none on, the app shows &ldquo;enrolment opens
+                    soon&rdquo; instead of a pay button.
+                  </span>
+                </span>
+              </label>
+            )}
           </>
         )}
       </div>

@@ -26,6 +26,9 @@ import '../../features/enroll/screens/catalog_screen.dart';
 import '../../features/notifications/screens/notifications_screen.dart';
 import '../../features/profile/screens/subscription_screen.dart';
 import '../../features/enroll/screens/enroll_screen.dart';
+import '../../features/enroll/screens/payment_pending_screen.dart';
+import '../../features/enroll/screens/enrolled_screen.dart';
+import '../../features/enroll/models/enroll_request.dart';
 import '../../features/courses/models/course.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/shell/main_shell.dart';
@@ -86,6 +89,21 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/enroll',
         builder: (context, state) => EnrollScreen(course: state.extra as Course),
+      ),
+      GoRoute(
+        path: '/pay-pending',
+        builder: (context, state) => PaymentPendingScreen(session: state.extra as CheckoutSession),
+      ),
+      GoRoute(
+        path: '/enrolled',
+        builder: (context, state) {
+          final m = state.extra as Map<String, dynamic>;
+          return EnrolledScreen(
+            courseId: m['courseId'] as String,
+            courseTitle: m['courseTitle'] as String,
+            batchName: m['batchName'] as String,
+          );
+        },
       ),
       GoRoute(
         path: '/course',

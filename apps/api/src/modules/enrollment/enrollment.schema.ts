@@ -10,6 +10,14 @@ export const createEnrollRequestSchema = z.object({
   accountId: z.string().uuid().optional(),
 });
 
+export const checkoutSchema = z.object({
+  courseId: z.string().uuid(),
+  // Preset plan (optional) — installmentIndex picks which installment to
+  // collect first, never a typed amount.
+  feePlanId: z.string().uuid().optional(),
+  installmentIndex: z.number().int().min(0).default(0),
+});
+
 export const confirmEnrollRequestSchema = z.object({
   reference: z.string().min(3).max(120),
 });

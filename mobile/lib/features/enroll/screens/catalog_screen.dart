@@ -6,6 +6,7 @@ import '../../../core/widgets/app_ui.dart';
 import '../../courses/models/course.dart';
 import '../../courses/providers/courses_provider.dart';
 import '../../courses/widgets/course_thumb.dart';
+import '../models/enroll_request.dart';
 import '../providers/enroll_provider.dart';
 
 String rupees(num n) {
@@ -65,13 +66,16 @@ class CatalogScreen extends ConsumerWidget {
           // not verified, or a counsellor admission the admin has not yet
           // approved. Either way the student must not be asked to pay.
           // Access wins over a pending row, never the other way round.
-          final pending = ((pendingAsync.asData?.value
-                          .where((r) => r.status == 'pending')
-                          .map((r) => r.courseId)
-                          .toSet() ??
-                      const <String>{})
-                  .union(pendingAccessAsync.asData?.value ?? const <String>{}))
-              .difference(enrolledIds);
+          final requests = pendingAsync.asData?.value ?? const <EnrollRequest>[];
+          // Awaiting the office: a counsellor admission not yet approved, or a
+          // legacy manual request. A gateway payment mid-flight is different —
+          // that student should be able to continue, not be locked out.
+          final pending = requests
+              .where((r) => r.isOfficePending)
+              .map((r) => r.courseId)
+              .toSet()
+              .union(pendingAccessAsync.asData?.value ?? const <String>{});
+          final paying = requests.where((r) => r.isPayingOnline).map((r) => r.courseId).toSet();
 
           return RefreshIndicator(
             color: Brand.blue,
@@ -86,7 +90,7 @@ class CatalogScreen extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
               children: [
                 const Text(
-                  'Pick a course, pay securely by UPI, and start learning once our team confirms your payment.',
+                  'Pick a course, pay securely in the app, and start learning the moment your payment clears.',
                   style: TextStyle(color: Colors.white38, fontSize: 13, height: 1.5),
                 ),
                 const SizedBox(height: 20),
@@ -95,6 +99,7 @@ class CatalogScreen extends ConsumerWidget {
                       child: _CatalogCard(
                         course: c,
                         awaitingVerification: pending.contains(c.id),
+                        paymentInProgress: paying.contains(c.id),
                         isEnrolled: enrolledIds.contains(c.id),
                         onTap: () => enrolledIds.contains(c.id)
                             ? context.push('/course', extra: c.id)
@@ -113,12 +118,14 @@ class CatalogScreen extends ConsumerWidget {
 class _CatalogCard extends StatelessWidget {
   final Course course;
   final bool awaitingVerification;
+  final bool paymentInProgress;
   final bool isEnrolled;
   final VoidCallback onTap;
 
   const _CatalogCard({
     required this.course,
     required this.awaitingVerification,
+    required this.paymentInProgress,
     required this.isEnrolled,
     required this.onTap,
   });
@@ -209,8 +216,21 @@ class _CatalogCard extends StatelessWidget {
                     color: Brand.amber.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: const Text('Awaiting verification',
+                  child: const Text('Awaiting confirmation',
                       style: TextStyle(color: Brand.amber, fontSize: 12, fontWeight: FontWeight.w600)),
+                )
+              else if (paymentInProgress)
+                ElevatedButton(
+                  onPressed: onTap,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Brand.amber,
+                    foregroundColor: Colors.black,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Continue payment',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                 )
               else
                 ElevatedButton(

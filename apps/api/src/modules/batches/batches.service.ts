@@ -108,13 +108,24 @@ export async function createBatch(data: CreateBatchInput) {
 
 // ── Update batch ──────────────────────────────────────────────────────────────
 export async function updateBatch(batchId: string, data: UpdateBatchInput) {
-  const [updated] = await db
-    .update(batches)
-    .set({ ...data, updatedAt: new Date() })
-    .where(eq(batches.id, batchId))
-    .returning();
-  if (!updated) throw notFound();
-  return updated;
+  return db.transaction(async (tx) => {
+    const [current] = await tx.select().from(batches).where(eq(batches.id, batchId)).limit(1);
+    if (!current) throw notFound();
+    // Switching a batch on as the online-enrolment target switches its
+    // siblings off: a payment can only land in one place.
+    if (data.enrolling === true) {
+      await tx
+        .update(batches)
+        .set({ enrolling: false, updatedAt: new Date() })
+        .where(and(eq(batches.courseId, current.courseId), sql`${batches.id} <> ${batchId}`));
+    }
+    const [updated] = await tx
+      .update(batches)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(batches.id, batchId))
+      .returning();
+    return updated!;
+  });
 }
 
 // ── Archive batch ─────────────────────────────────────────────────────────────

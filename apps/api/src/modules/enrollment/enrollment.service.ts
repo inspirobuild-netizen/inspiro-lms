@@ -160,11 +160,13 @@ export async function listCatalogFeePlans(courseId: string) {
 
 // ── Student: my requests ────────────────────────────────────────────────────
 export async function listMyEnrollRequests(studentId: string) {
-  return db
-    .select()
+  const rows = await db
+    .select({ request: enrollmentRequests, batchName: batches.name })
     .from(enrollmentRequests)
+    .leftJoin(batches, eq(batches.id, enrollmentRequests.intendedBatchId))
     .where(eq(enrollmentRequests.studentId, studentId))
     .orderBy(desc(enrollmentRequests.createdAt));
+  return rows.map((r) => ({ ...r.request, batchName: r.batchName }));
 }
 
 // ── Admin: verification queue ───────────────────────────────────────────────

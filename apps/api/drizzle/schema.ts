@@ -46,6 +46,7 @@ export const leaderboardPeriodEnum = pgEnum('leaderboard_period', ['weekly', 'mo
 // maker-checker step. assertEnrolled and every student-facing list require
 // 'active', so a pending enrolment grants nothing until approved.
 export const enrollmentStatusEnum = pgEnum('enrollment_status', ['active', 'expired', 'suspended', 'pending_approval']);
+// 'online' = paid through the in-app bank gateway; no staff member collected it.
 export const targetExamEnum = pgEnum('target_exam', ['upsc', 'kerala_psc', 'other_psc']);
 // Admission CRM (Phase 2)
 export const leadSourceEnum = pgEnum('lead_source', ['facebook', 'instagram', 'google', 'website', 'walk_in', 'referral', 'seminar', 'campaign', 'mobile_app', 'other']);
@@ -56,7 +57,7 @@ export const paymentStatusEnum = pgEnum('payment_status', ['pending', 'partial',
 export const verificationStatusEnum = pgEnum('verification_status', ['pending', 'verified', 'rejected']);
 // Fee management
 export const installmentStatusEnum = pgEnum('installment_status', ['pending', 'paid', 'waived']);
-export const paymentMethodEnum = pgEnum('payment_method', ['upi', 'cash', 'card', 'bank_transfer', 'other']);
+export const paymentMethodEnum = pgEnum('payment_method', ['upi', 'cash', 'card', 'bank_transfer', 'other', 'online']);
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 export const users = pgTable('users', {
@@ -345,7 +346,9 @@ export const payments = pgTable('payments', {
 // different concern, different lifecycle. Staff verifies the claim, which
 // materialises a real admission (see fees/enroll service) — never trusted
 // or auto-admitted.
-export const enrollmentRequestStatusEnum = pgEnum('enrollment_request_status', ['pending', 'verified', 'rejected']);
+// 'failed' is the bank declining or the student abandoning — retry makes a new
+// order and returns it to pending. Distinct from a staff rejection.
+export const enrollmentRequestStatusEnum = pgEnum('enrollment_request_status', ['pending', 'verified', 'rejected', 'failed']);
 
 export const enrollmentRequests = pgTable('enrollment_requests', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -366,6 +369,9 @@ export const enrollmentRequests = pgTable('enrollment_requests', {
   channel: paymentChannelEnum('channel').notNull().default('manual'),
   gatewayOrderId: varchar('gateway_order_id', { length: 120 }),
   gatewayPaymentId: varchar('gateway_payment_id', { length: 120 }),
+  // The batch shown to the student at checkout — settlement places them there,
+  // not in whatever is flagged by the time the bank calls back.
+  intendedBatchId: uuid('intended_batch_id').references((): AnyPgColumn => batches.id, { onDelete: 'set null' }),
   status: enrollmentRequestStatusEnum('status').notNull().default('pending'),
   rejectionReason: text('rejection_reason'),
   verifiedBy: uuid('verified_by').references(() => users.id, { onDelete: 'set null' }),
@@ -420,6 +426,10 @@ export const batches = pgTable('batches', {
   endDate: date('end_date').notNull(),
   capacity: integer('capacity').notNull().default(100),
   status: batchStatusEnum('status').notNull().default('upcoming'),
+  // The batch an in-app payment for this course lands in. Content lives on
+  // batches, so "paid → course opens" only means something once the student
+  // is in one. The service keeps at most one per course switched on.
+  enrolling: boolean('enrolling').notNull().default(false),
   description: text('description'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

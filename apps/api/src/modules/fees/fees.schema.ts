@@ -43,7 +43,7 @@ export const setCourseFeeSchema = z.object({
 
 export const recordPaymentSchema = z.object({
   amount: z.number().positive(),
-  method: z.enum(['upi', 'cash', 'card', 'bank_transfer', 'other']).default('upi'),
+  method: z.enum(['upi', 'cash', 'card', 'bank_transfer', 'other', 'online']).default('upi'),
   installmentId: z.string().uuid().optional(),
   reference: z.string().max(120).optional(),
   note: z.string().max(500).optional(),

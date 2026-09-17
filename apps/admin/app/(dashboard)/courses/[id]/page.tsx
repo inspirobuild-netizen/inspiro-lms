@@ -27,6 +27,7 @@ type CourseDetail = {
 };
 
 type CourseBatch = {
+  enrolling?: boolean;
   id: string;
   name: string;
   type: string;
@@ -375,6 +376,7 @@ function BatchesSection({
                 : `capacity ${b.capacity}`}
             </span>
             <Badge variant={b.status === 'active' ? 'teal' : 'amber'}>{b.status}</Badge>
+            {b.enrolling && <Badge variant="success">online enrolment</Badge>}
           </Link>
         ))}
       </div>
