@@ -170,6 +170,12 @@ My Apps → ➕ → New App: iOS, name **Inspiro IAS Academy**, bundle
   functionality. **Not** used for tracking.
 - **Screenshots:** 6.7" (iPhone 15 Pro Max) and 6.5" sets are enough
   today; Apple scales down. See §4.
+- **iPhone-only.** `TARGETED_DEVICE_FAMILY = 1` in the Xcode project. A
+  universal build makes App Store Connect demand 13" iPad screenshots and
+  makes Apple review the phone-designed layouts on an iPad. Apple allows
+  *adding* iPad support in a later version but never *removing* it, so v1
+  must ship iPhone-only if iPad is ever to be optional. The app still
+  installs on iPad in the scaled iPhone window.
 - **Description:** same text as Play. **Keywords:** IAS, UPSC, Kerala PSC,
   civil service, coaching, Inspiro.
 - **Support URL:** https://inspiroiasacademy.in. **Marketing URL:** same.
