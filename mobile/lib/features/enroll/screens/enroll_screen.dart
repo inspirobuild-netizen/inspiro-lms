@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -143,7 +145,7 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         const SizedBox(height: 16),
 
         // ── Price ──
-        if (o.plans.isNotEmpty) ...[
+        if (kInAppPayments && o.plans.isNotEmpty) ...[
           const SectionHeader(title: 'Choose a fee plan'),
           const SizedBox(height: 8),
           _PlanTile(
@@ -167,6 +169,7 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
           const SizedBox(height: 16),
         ],
 
+        if (kInAppPayments || !Platform.isIOS)
         GlassCard(
           child: Column(
             children: [
@@ -201,7 +204,21 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
           const SizedBox(height: 12),
         ],
 
-        if (o.canPayOnline) ...[
+        // v1: the app never takes money. Apple permits no external purchase
+        // for course content on the India storefront and Google requires its
+        // own billing for it, so until the bank gateway ships (v2) the fee is
+        // shown and enrolment is arranged by the academy. On iOS even the
+        // wording avoids promising a non-Apple payment method.
+        if (!kInAppPayments)
+          _panel(
+            icon: Icons.school_rounded, color: Brand.teal,
+            title: Platform.isIOS ? 'Enrolment through the academy' : 'Online payment coming soon',
+            body: Platform.isIOS
+                ? 'Enrolment for this course is arranged by Inspiro IAS Academy. Once you are enrolled, your classes, notes and tests appear here.'
+                : 'Paying inside the app is on its way. For now, enrol through Inspiro IAS Academy — once the academy enrols you, your classes, notes and tests appear here.',
+            flat: true,
+          )
+        else if (o.canPayOnline) ...[
           BrandButton(
             label: _busy ? 'Opening the bank…' : 'Pay ${rupees(amount)} securely',
             onTap: _busy ? null : () => _pay(o),

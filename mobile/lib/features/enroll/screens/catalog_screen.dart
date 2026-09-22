@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -90,7 +92,9 @@ class CatalogScreen extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
               children: [
                 const Text(
-                  'Pick a course, pay securely in the app, and start learning the moment your payment clears.',
+                  kInAppPayments
+                      ? 'Pick a course, pay securely in the app, and start learning the moment your payment clears.'
+                      : 'Browse the courses. Enrolment is arranged by the academy — your classes appear here as soon as you are enrolled.',
                   style: TextStyle(color: Colors.white38, fontSize: 13, height: 1.5),
                 ),
                 const SizedBox(height: 20),
@@ -187,7 +191,10 @@ class _CatalogCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: course.feeAmount > 0
+                // iOS: no price for content the app cannot sell (review flag).
+                child: (Platform.isIOS && !kInAppPayments)
+                    ? const SizedBox.shrink()
+                    : course.feeAmount > 0
                     ? Text(rupees(course.feeAmount),
                         style: const TextStyle(
                             color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold))
@@ -242,8 +249,8 @@ class _CatalogCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text('Enrol',
-                      style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold)),
+                  child: Text(kInAppPayments ? 'Enrol' : 'Details',
+                      style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold)),
                 ),
             ],
           ),

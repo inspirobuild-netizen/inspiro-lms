@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/theme/brand.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../delete_account.dart';
+
 import '../../../core/widgets/app_ui.dart';
 import '../../home/providers/home_stats_provider.dart';
 import '../providers/my_batch_provider.dart';
@@ -94,6 +97,16 @@ class MeScreen extends ConsumerWidget {
           const SectionHeader(title: 'Support'),
           _MenuGroup(items: [
             _MenuItem(Icons.info_outline_rounded, 'About Inspiro', () => _showAbout(context)),
+            _MenuItem(Icons.privacy_tip_outlined, 'Privacy policy',
+                () => launchUrl(Uri.parse(kPrivacyUrl), mode: LaunchMode.externalApplication)),
+            _MenuItem(Icons.description_outlined, 'Terms of use',
+                () => launchUrl(Uri.parse(kTermsUrl), mode: LaunchMode.externalApplication)),
+          ]),
+          const SizedBox(height: 16),
+          // Both stores require self-service deletion. Kept away from the
+          // sign-out button so a slip does not delete a year of progress.
+          _MenuGroup(items: [
+            _MenuItem(Icons.person_off_outlined, 'Delete my account', () => _confirmDelete(context, ref)),
           ]),
           const SizedBox(height: 24),
           OutlinedButton.icon(
@@ -109,7 +122,7 @@ class MeScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
           Center(
-            child: Text('Inspiro IAS Academy · v1.0.0',
+            child: Text('Inspiro IAS Academy · v$kAppVersion',
                 style: TextStyle(color: Colors.white.withValues(alpha: 0.25), fontSize: 11)),
           ),
         ],
@@ -183,7 +196,7 @@ class _MenuGroup extends StatelessWidget {
 
 // Keep in sync with `version:` in pubspec.yaml — shown to students and useful
 // when they report a problem.
-const String _kAppVersion = '1.0.0';
+const String _kAppVersion = kAppVersion;
 
 void _showAbout(BuildContext context) {
   showModalBottomSheet<void>(
@@ -231,4 +244,67 @@ void _showAbout(BuildContext context) {
       ),
     ),
   );
+}
+
+/// Two confirmations, the second by typing, because this is the one action
+/// in the app that cannot be undone and looks like a routine menu item.
+Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+  final first = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: Brand.surface,
+      title: const Text('Delete your account?', style: TextStyle(color: Colors.white)),
+      content: const Text(
+        'This permanently removes your profile, progress, test attempts, doubts and enrolments. '
+        'It cannot be undone. '
+        'Fee and admission records are kept by the academy as required by law, without your name.',
+        style: TextStyle(color: Colors.white70, height: 1.45),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep my account')),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          style: TextButton.styleFrom(foregroundColor: Brand.red),
+          child: const Text('Continue'),
+        ),
+      ],
+    ),
+  );
+  if (first != true || !context.mounted) return;
+
+  final typed = TextEditingController();
+  final second = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: Brand.surface,
+      title: const Text('Type DELETE to confirm', style: TextStyle(color: Colors.white)),
+      content: TextField(
+        controller: typed,
+        autofocus: true,
+        textCapitalization: TextCapitalization.characters,
+        style: const TextStyle(color: Colors.white),
+        decoration: const InputDecoration(hintText: 'DELETE'),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, typed.text.trim().toUpperCase() == 'DELETE'),
+          style: TextButton.styleFrom(foregroundColor: Brand.red),
+          child: const Text('Delete account'),
+        ),
+      ],
+    ),
+  );
+  typed.dispose();
+  if (second != true || !context.mounted) return;
+
+  final messenger = ScaffoldMessenger.of(context);
+  final result = await deleteOwnAccount();
+  if (!context.mounted) return;
+  if (result != null) {
+    messenger.showSnackBar(SnackBar(backgroundColor: Brand.surface, content: Text(result, style: const TextStyle(color: Colors.white))));
+    return;
+  }
+  // Server confirmed. Clearing local auth sends the router to the login screen.
+  await ref.read(authProvider.notifier).clearAuth();
 }

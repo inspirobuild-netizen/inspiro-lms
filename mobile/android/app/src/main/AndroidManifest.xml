@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- INTERNET must be declared here: Flutter only auto-adds it to debug/profile
          manifests, so a release build without this line has no network access. -->
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -7,6 +8,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Keep screen awake during live classes / video -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Agora merges in screen-share permissions the app never uses. Play
+         demands a demo video justifying every foreground-service type it
+         sees, so the unused one is removed at merge time. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" tools:node="remove"/>
 
     <application
         android:label="Inspiro"

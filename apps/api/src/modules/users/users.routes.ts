@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../../middleware/authenticate.js';
+import { deleteOwnAccount } from './account-deletion.service.js';
+import { logAudit } from '../../lib/audit.js';
 import { requireRole } from '../../middleware/require-role.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import {
@@ -20,6 +22,22 @@ import {
 } from './users.service.js';
 
 export default async function usersRoutes(app: FastifyInstance) {
+  // ── Self-service account deletion (App Store 5.1.1(v), Play user-data policy) ──
+  // The client confirms twice before calling this; the server does not ask
+  // again, because "are you sure" over an API is theatre. It is irreversible.
+  app.delete('/me', { preHandler: [authenticate] }, async (req, reply) => {
+    const result = await deleteOwnAccount(req.user.sub);
+    await logAudit(req, {
+      action: 'account.deleted_by_owner',
+      entityType: 'user',
+      entityId: req.user.sub,
+      // The number is logged so an appeal ("I did not do this") can be
+      // investigated; it is the only place it now exists.
+      meta: { formerPhone: result.formerPhone },
+    });
+    return reply.send({ success: true, data: { deleted: true } });
+  });
+
   // ── Student: own profile ──────────────────────────────────────────────────
   app.get('/profile/me', { preHandler: [authenticate] }, async (req, reply) => {
     const profile = await getMyProfile(req.user.sub);

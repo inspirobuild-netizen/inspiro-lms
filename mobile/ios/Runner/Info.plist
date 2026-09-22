@@ -71,9 +71,22 @@
 	     join as viewers — only the microphone is actually requested at runtime. -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Inspiro needs the microphone so you can ask questions during a live class.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Inspiro needs photo access so you can attach a photo of your work to an activity.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Inspiro needs camera access if you turn on video during a live class.</string>
 	<!-- FCM delivers class and result alerts while the app is backgrounded. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>app-1-933452768549-ios-8468043918dbaddaaca6cc</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

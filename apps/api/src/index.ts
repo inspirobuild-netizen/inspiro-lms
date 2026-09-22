@@ -40,6 +40,8 @@ app.setErrorHandler(errorHandler);
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
+// Public legal pages at the root: the store listings link to them.
+await app.register(import('./modules/legal/legal.routes.js'));
 
 // ── API Routes ────────────────────────────────────────────────────────────────
 await app.register(import('./modules/auth/auth.routes.js'), { prefix: '/api/v1/auth' });

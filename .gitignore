@@ -19,7 +19,6 @@ mobile/.flutter-plugins
 mobile/.flutter-plugins-dependencies
 mobile/build/
 mobile/.packages
-mobile/pubspec.lock
 mobile/android/local.properties
 mobile/android/.gradle/
 mobile/android/app/.cxx/
@@ -55,3 +54,4 @@ key.properties
 google-services.json
 firebase-service-account*.json
 
+backups/

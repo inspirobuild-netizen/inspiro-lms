@@ -48,8 +48,8 @@ android {
         applicationId = "com.bizence.inspiro"
         // Firebase Messaging + Agora require 23+.
         minSdk = flutter.minSdkVersion
-        // Play requires new apps to target API 35 (Android 15).
-        targetSdk = 35
+        // Play requires new apps to target API 36 (Android 16) since 31 Aug 2026.
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }

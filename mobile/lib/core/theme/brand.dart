@@ -5,6 +5,21 @@ import 'package:flutter/material.dart';
 /// Leave OFF (default) for production / Play Store builds.
 const bool kDemoMode = bool.fromEnvironment('DEMO_MODE', defaultValue: false);
 
+/// Whether the app itself takes payment. OFF for the first store release:
+/// both stores restrict in-app purchase of course content to their own
+/// billing, so v1 shows the fee and says online payment is coming, and the
+/// academy enrols students after taking the fee. The checkout code stays and
+/// is switched on for the bank integration with:
+///   --dart-define=IN_APP_PAYMENTS=true
+const bool kInAppPayments = bool.fromEnvironment('IN_APP_PAYMENTS', defaultValue: false);
+
+/// Shown on the profile screen. Keep in step with `version:` in pubspec.yaml.
+const String kAppVersion = '1.1.1';
+
+/// Public pages the stores require; served by the API so they exist today.
+const String kPrivacyUrl = 'https://api.inspiroiasacademy.in/legal/privacy';
+const String kTermsUrl = 'https://api.inspiroiasacademy.in/legal/terms';
+
 /// Inspiro IAS Academy brand palette (from the logo).
 class Brand {
   Brand._();

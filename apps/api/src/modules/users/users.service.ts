@@ -1,5 +1,6 @@
 import { eq, ilike, and, count, sql } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
+import { revokeUserSessions } from '../../middleware/authenticate.js';
 import { users, batchEnrollments, batches, streaks } from '../../../drizzle/schema.js';
 import type { UpdateProfileInput, CreateUserInput, ListUsersInput } from './users.schema.js';
 
@@ -124,6 +125,9 @@ export async function updateUserRole(userId: string, role: 'student' | 'instruct
 
 // ── Admin: suspend / reactivate ───────────────────────────────────────────────
 export async function setUserStatus(userId: string, isActive: boolean) {
+  // Disabling must take effect now, not when the access token happens to
+  // expire — the same revocation deletion uses.
+  if (!isActive) await revokeUserSessions(userId);
   const [updated] = await db
     .update(users)
     .set({ isActive, updatedAt: new Date() })
