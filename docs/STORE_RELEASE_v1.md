@@ -235,19 +235,42 @@ with only the debug and upload fingerprints registered the Play build fails
 with `app-not-authorized` — shown in the app as "This app build is not
 authorised to sign in yet".
 
-One-time fix, no rebuild:
+One-time fix, no rebuild — done 2026-09-24, all five certificates below are
+registered. Repeat only if Google rotates the signing key.
 
-1. Play Console → app → Test and release → Setup → **App signing** → *App
-   signing key certificate* → copy **SHA-1** and **SHA-256** (not the upload
-   key certificate below it).
-2. Register both on the Android app in Firebase (`inspiro-b394e`) — console
-   Project settings → Your apps → Android → Add fingerprint, or:
-   `firebase apps:android:sha:create 1:933452768549:android:4ea571b1667d1826aca6cc <SHA>`
+**Do not trust the fingerprints shown in Play Console.** Its Play app signing
+page (Protected with Play → Play Store protection → Manage Play app signing)
+shows a "Classical key" and a "Post-quantum cryptography key"; those are the
+**v3.2 hybrid signers, which only Android 17+ (API 37) verifies**. Today's
+phones verify the v2/v3 signer, whose certificate is a different key that
+the page does not show. Read the certificates out of the shipped APK instead:
+
+```
+adb pull "$(adb shell pm path com.bizence.inspiro | sed 's/^package://' | grep base.apk)" play-base.apk
+python mobile/tool/apk_signers.py play-base.apk
+```
+
+(`apksigner` cannot do this — it aborts on the ML-DSA signer.) Register every
+SHA-256 and SHA-1 it prints on the Android app in Firebase (`inspiro-b394e`):
+console Project settings → Your apps → Android → Add fingerprint, or
+`firebase apps:android:sha:create 1:933452768549:android:4ea571b1667d1826aca6cc <SHA>`.
+Takes effect at the next sign-in attempt (force-close the app first).
+
+| Signer | SHA-256 |
+|---|---|
+| v2/v3 (all current Android) | `7D:AD:C2:3C:4C:2B:8D:A0:22:F4:46:F0:49:11:F2:FE:84:C1:E3:60:ED:F0:A0:C9:A6:55:39:F2:43:5B:88:3F` |
+| v3.2 classical (Android 17+) | `A3:74:CB:44:00:9B:D6:90:3A:0F:CB:A6:C9:87:9C:97:6C:ED:61:38:23:D9:69:4A:A8:4F:2A:43:A8:78:45:41` |
+| v3.2 post-quantum (Android 17+) | `2A:83:C9:19:7D:D4:0E:AF:C1:96:BC:D7:B2:D0:8A:C5:BB:9D:41:5C:04:A1:2E:56:7B:18:0D:38:D2:B8:F4:33` |
+
+The exact failure to look for in `adb logcat`:
+`E/FirebaseAuth … 17028 A play_integrity_token was passed, but no matching
+SHA-256 was registered`. The integrity request goes to Google's own project
+(`cloudProjectNumber=551503664846`), so **no Play Integrity API enablement or
+Cloud-project link is needed** for phone sign-in — that is App Check's
+requirement, not Auth's.
 
 The reCAPTCHA browser page during OTP is the fallback when Play Integrity
 cannot vouch for the build. It is **always** shown for a sideloaded APK
-(adb / shared file) and cannot be removed there. For the Play build it goes
-away once the SHA-256 above is registered, the **Google Play Integrity API**
-is enabled on the Cloud project behind `inspiro-b394e`, and the app is linked
-to that project in Play Console (Test and release → App integrity → Play
-Integrity API → Link Cloud project).
+(adb / shared file) and cannot be removed there. On the Play build it is gone
+once the fingerprints above are registered — verified on a POCO M2 Pro
+installed from the alpha track: integrity token, SMS, OTP accepted, no page.
