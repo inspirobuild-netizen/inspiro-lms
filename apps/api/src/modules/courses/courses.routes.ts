@@ -4,6 +4,7 @@ import { authenticate } from '../../middleware/authenticate.js';
 import { logAudit } from '../../lib/audit.js';
 import { parseYouTubeId, verifyYouTubeVideo } from '../../lib/youtube.js';
 import { lessonIdsForScope, planMediaCleanup } from './media-cleanup.service.js';
+import { batchDeletionImpact } from '../batches/batches.service.js';
 import { resolveDoc } from '../../lib/local-storage.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import {
@@ -19,6 +20,7 @@ import {
 } from './courses.schema.js';
 import {
   listCourses,
+  courseDeletionImpact,
   listCourseBatches,
   getMyCourseProgress,
   getCourseDetail,
@@ -176,6 +178,13 @@ export default async function coursesRoutes(app: FastifyInstance) {
       }
       const lessonIds = await lessonIdsForScope({ kind, id: q.id });
       const plan = await planMediaCleanup(lessonIds);
+      // Batches and courses also carry people and money. The dialog shows the
+      // same numbers the delete will judge by, so it never says "no students"
+      // about something the server is about to refuse.
+      const records =
+        kind === 'batch' ? await batchDeletionImpact(q.id)
+        : kind === 'course' ? await courseDeletionImpact(q.id)
+        : undefined;
       return reply.send({
         success: true,
         data: {
@@ -185,6 +194,7 @@ export default async function coursesRoutes(app: FastifyInstance) {
           notesToDelete: plan.orphanDocs.length,
           notesKeptInUse: plan.sharedDocs,
           linkedVideosUntouched: plan.youtubeCount,
+          records,
         },
       });
     },
@@ -284,6 +294,12 @@ export default async function coursesRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const result = await deleteCourse(id);
+      await logAudit(req, {
+        action: 'course.deleted',
+        entityType: 'course',
+        entityId: id,
+        meta: { title: result.title, ...result.removed },
+      });
       return reply.send({ success: true, data: result });
     },
   );

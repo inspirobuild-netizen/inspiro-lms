@@ -3,6 +3,7 @@ import { authenticate } from '../../middleware/authenticate.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
 import { sendNotificationToUser } from '../notifications/notifications.service.js';
 import { logger } from '../../lib/logger.js';
+import { logAudit } from '../../lib/audit.js';
 import {
   createBatchSchema,
   updateBatchSchema,
@@ -138,6 +139,12 @@ export default async function batchesRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const result = await deleteBatch(id);
+      await logAudit(req, {
+        action: 'batch.deleted',
+        entityType: 'batch',
+        entityId: id,
+        meta: { name: result.name, ...result.removed },
+      });
       return reply.send({ success: true, data: result });
     },
   );

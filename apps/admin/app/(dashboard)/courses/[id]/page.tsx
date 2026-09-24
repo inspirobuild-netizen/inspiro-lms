@@ -249,13 +249,36 @@ function DangerZone({ courseId, courseTitle }: { courseId: string; courseTitle: 
   });
   const batchCount = batchesData?.data?.length ?? 0;
 
+  // The same counts the server's delete guard uses, fetched only once the
+  // dialog is open. Paid admissions and requests awaiting verification block;
+  // unpaid admissions and settled requests go with the course.
+  const { data: impact } = useQuery({
+    queryKey: ['admin', 'course', courseId, 'deletion-preview'],
+    queryFn: () =>
+      api.get<{
+        records?: {
+          batches: number;
+          paidAdmissions: number;
+          unpaidAdmissions: number;
+          pendingRequests: number;
+          settledRequests: number;
+        };
+      }>(`/api/v1/admin/content/deletion-preview?scope=course&id=${courseId}`),
+    enabled: !!accessToken && open,
+  });
+  const r = impact?.data?.records;
+  const paidAdmissions = r?.paidAdmissions ?? 0;
+  const pendingRequests = r?.pendingRequests ?? 0;
+  const unpaidAdmissions = r?.unpaidAdmissions ?? 0;
+  const settledRequests = r?.settledRequests ?? 0;
+
   const del = useMutation({
     mutationFn: () => api.delete(`/api/v1/admin/courses/${courseId}`),
     onSuccess: () => { setError(null); setOpen(false); router.push('/courses'); },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to delete course'),
   });
 
-  const blocked = batchCount > 0;
+  const blocked = batchCount > 0 || paidAdmissions > 0 || pendingRequests > 0;
   // Typing the title is deliberate friction: deleting a course cascades its
   // modules, lessons and fee plans.
   const confirmed = confirmText.trim() === courseTitle.trim();
@@ -264,8 +287,9 @@ function DangerZone({ courseId, courseTitle }: { courseId: string; courseTitle: 
     <section className="rounded-2xl border border-rose-500/20 bg-rose-500/[0.03] p-5">
       <h3 className="font-display font-semibold text-lg text-rose-300">Danger zone</h3>
       <p className="text-sm text-slate-400 mt-1">
-        Deleting a course also removes its modules, lessons and fee plans. Only possible while no
-        batches, admissions or enrolment requests reference it.
+        Deleting a course also removes its modules, lessons and fee plans. Only possible once its
+        batches are deleted, while no fee payment is recorded for it and no enrolment request is
+        waiting for verification.
       </p>
       <Button
         size="sm"
@@ -279,8 +303,23 @@ function DangerZone({ courseId, courseTitle }: { courseId: string; courseTitle: 
         <div className="space-y-3">
           {blocked ? (
             <p className="text-sm text-amber-300">
-              This course has <strong>{batchCount}</strong> batch{batchCount === 1 ? '' : 'es'} under it.
-              Delete those first — students enrol in batches, so the batches carry the enrolments.
+              {batchCount > 0 ? (
+                <>
+                  This course has <strong>{batchCount}</strong> batch{batchCount === 1 ? '' : 'es'} under it.
+                  Delete those first — students enrol in batches, so the batches carry the enrolments.
+                </>
+              ) : paidAdmissions > 0 ? (
+                <>
+                  <strong>{paidAdmissions}</strong> student{paidAdmissions === 1 ? ' has' : 's have'} fee payments
+                  recorded for this course. Payment history is never deleted — unpublish the course instead.
+                </>
+              ) : (
+                <>
+                  <strong>{pendingRequests}</strong> enrolment request{pendingRequests === 1 ? '' : 's'} from the
+                  app {pendingRequests === 1 ? 'is' : 'are'} waiting for fee verification. Verify or reject{' '}
+                  {pendingRequests === 1 ? 'it' : 'them'} under Students → Verification first.
+                </>
+              )}
             </p>
           ) : (
             <>
@@ -288,6 +327,25 @@ function DangerZone({ courseId, courseTitle }: { courseId: string; courseTitle: 
                 This permanently removes the course along with its modules, lessons and fee plans.
                 This cannot be undone.
               </p>
+              {(unpaidAdmissions > 0 || settledRequests > 0) && (
+                <div className="rounded-xl border border-white/8 bg-surface-2 p-3">
+                  <p className="text-xs text-slate-400">Also removed with the course:</p>
+                  <ul className="text-xs space-y-1 mt-1.5">
+                    {unpaidAdmissions > 0 && (
+                      <li className="text-rose-300">
+                        {unpaidAdmissions} unpaid admission{unpaidAdmissions === 1 ? '' : 's'} —{' '}
+                        {unpaidAdmissions === 1 ? 'that student stops' : 'those students stop'} showing in Fees as owing
+                      </li>
+                    )}
+                    {settledRequests > 0 && (
+                      <li className="text-rose-300">
+                        {settledRequests} settled enrolment request{settledRequests === 1 ? '' : 's'} (verified,
+                        rejected, failed or abandoned online)
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              )}
               <Field label={`Type the course name to confirm`}>
                 <Input
                   value={confirmText}

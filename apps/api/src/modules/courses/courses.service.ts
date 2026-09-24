@@ -1,4 +1,4 @@
-import { eq, and, count, asc, inArray, gt, isNull, or, sql } from 'drizzle-orm';
+import { eq, and, count, asc, inArray, gt, isNull, or, sql, ne, exists } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { signBunnyMp4Url, signBunnyFileUrl, orderResolutions } from '../../lib/bunny.js';
 import { redis } from '../../lib/redis.js';
@@ -7,6 +7,7 @@ import { getBunnyVideoStatus } from '../media/media.service.js';
 import { planMediaCleanup, purgeMedia, lessonIdsForScope } from './media-cleanup.service.js';
 import {
   admissions,
+  payments,
   courses,
   batches,
   enrollmentRequests,
@@ -571,18 +572,84 @@ export async function updateCourse(courseId: string, data: UpdateCourseInput) {
 
 // ── Admin: delete course ──────────────────────────────────────────────────────
 /**
- * Permanently delete a course, but only when nothing depends on it.
- *
- * Course is the master of the batch → enrolment chain, so this is the most
- * destructive delete in the system: modules, lessons and fee plans all CASCADE.
- * `batches.courseId` and `enrollmentRequests.courseId` are ON DELETE RESTRICT
- * (Postgres would reject with a raw FK error), and `admissions.courseId` is
- * SET NULL (which would silently orphan the admission's course). Each is
- * checked explicitly so the caller gets a sentence, not a constraint name.
+ * What deleting a course takes with it, and what stops it. Same rule of money
+ * and presence as batchDeletionImpact, and likewise shared with the admin's
+ * confirmation dialog.
  *
  * Students are never enrolled in a course directly — they enrol in a batch —
- * so "no students enrolled" is enforced by refusing any batch at all.
+ * so "no students" is enforced by refusing while any batch exists. Beyond
+ * that, `admissions.courseId` is ON DELETE SET NULL and
+ * `enrollmentRequests.courseId` is RESTRICT, so both are handled here rather
+ * than left to Postgres: an admission with a payment blocks (unpublish
+ * instead); a request the office still has to act on blocks; unpaid admissions
+ * and settled requests (verified, rejected, failed, or an online checkout the
+ * student abandoned) go with the course.
  */
+export interface CourseDeletionImpact {
+  /** Batches under the course — blocks; they carry the enrolments. */
+  batches: number;
+  /** Admissions with a payment recorded or awaiting verification — blocks. */
+  paidAdmissions: number;
+  /** Fee obligations with nothing paid — deleted with the course. */
+  unpaidAdmissions: number;
+  /** Manual requests awaiting fee verification — blocks. */
+  pendingRequests: number;
+  /** Verified, rejected, failed or abandoned online requests — deleted with the course. */
+  settledRequests: number;
+}
+
+type Reader = Pick<typeof db, 'select'>;
+
+export async function courseDeletionImpact(courseId: string, reader: Reader = db): Promise<CourseDeletionImpact> {
+  const [{ batchCount }] = await reader
+    .select({ batchCount: count() })
+    .from(batches)
+    .where(eq(batches.courseId, courseId));
+
+  // amountPaid is the verified rollup; the EXISTS catches a payment that is
+  // still awaiting verification, which must count as money too.
+  const moneyRecorded = or(
+    gt(admissions.amountPaid, 0),
+    exists(
+      reader
+        .select({ one: sql`1` })
+        .from(payments)
+        .where(and(eq(payments.admissionId, admissions.id), ne(payments.status, 'rejected'))),
+    ),
+  );
+  const [{ paid }] = await reader
+    .select({ paid: count() })
+    .from(admissions)
+    .where(and(eq(admissions.courseId, courseId), moneyRecorded));
+  const [{ admitted }] = await reader
+    .select({ admitted: count() })
+    .from(admissions)
+    .where(eq(admissions.courseId, courseId));
+
+  const [{ pending }] = await reader
+    .select({ pending: count() })
+    .from(enrollmentRequests)
+    .where(
+      and(
+        eq(enrollmentRequests.courseId, courseId),
+        eq(enrollmentRequests.status, 'pending'),
+        eq(enrollmentRequests.channel, 'manual'),
+      ),
+    );
+  const [{ requests }] = await reader
+    .select({ requests: count() })
+    .from(enrollmentRequests)
+    .where(eq(enrollmentRequests.courseId, courseId));
+
+  return {
+    batches: batchCount,
+    paidAdmissions: paid,
+    unpaidAdmissions: admitted - paid,
+    pendingRequests: pending,
+    settledRequests: requests - pending,
+  };
+}
+
 export async function deleteCourse(courseId: string) {
   // A course can only be deleted once its batches are gone, so this covers the
   // master modules — but scope it by course anyway, in case anything is left.
@@ -593,48 +660,48 @@ export async function deleteCourse(courseId: string) {
     const [course] = await tx.select().from(courses).where(eq(courses.id, courseId)).limit(1);
     if (!course) throw notFound();
 
-    const [{ batchCount }] = await tx
-      .select({ batchCount: count() })
-      .from(batches)
-      .where(eq(batches.courseId, courseId));
-    if (batchCount > 0) {
-      throw Object.assign(
-        new Error(
-          `This course has ${batchCount} batch${batchCount === 1 ? '' : 'es'} under it. Delete those first — students enrol in batches, so the batches carry the enrolments.`,
-        ),
-        { statusCode: 409, code: 'COURSE_HAS_BATCHES' },
+    const impact = await courseDeletionImpact(courseId, tx);
+    const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+    const refuse = (message: string, code: string) =>
+      Object.assign(new Error(message), { statusCode: 409, code });
+
+    if (impact.batches > 0) {
+      throw refuse(
+        `This course has ${impact.batches} ${plural(impact.batches, 'batch', 'batches')} under it. Delete those first — students enrol in batches, so the batches carry the enrolments.`,
+        'COURSE_HAS_BATCHES',
+      );
+    }
+    if (impact.paidAdmissions > 0) {
+      throw refuse(
+        `${impact.paidAdmissions} ${plural(impact.paidAdmissions, 'student has', 'students have')} fee payments recorded for this course. Payment history is never deleted — unpublish the course instead.`,
+        'COURSE_HAS_PAID_ADMISSIONS',
+      );
+    }
+    if (impact.pendingRequests > 0) {
+      throw refuse(
+        `${impact.pendingRequests} enrolment ${plural(impact.pendingRequests, 'request', 'requests')} from the app ${plural(impact.pendingRequests, 'is', 'are')} waiting for fee verification. Verify or reject ${plural(impact.pendingRequests, 'it', 'them')} under Students → Verification first.`,
+        'COURSE_HAS_ENROLLMENT_REQUESTS',
       );
     }
 
-    const [{ admitted }] = await tx
-      .select({ admitted: count() })
-      .from(admissions)
-      .where(eq(admissions.courseId, courseId));
-    if (admitted > 0) {
-      throw Object.assign(
-        new Error(
-          `This course is referenced by ${admitted} admission record${admitted === 1 ? '' : 's'}. Unpublish it instead so the admission history stays intact.`,
-        ),
-        { statusCode: 409, code: 'COURSE_HAS_ADMISSIONS' },
-      );
-    }
-
-    const [{ requests }] = await tx
-      .select({ requests: count() })
-      .from(enrollmentRequests)
-      .where(eq(enrollmentRequests.courseId, courseId));
-    if (requests > 0) {
-      throw Object.assign(
-        new Error(
-          `This course has ${requests} enrolment request${requests === 1 ? '' : 's'} from the app. Resolve or reject them first.`,
-        ),
-        { statusCode: 409, code: 'COURSE_HAS_ENROLLMENT_REQUESTS' },
-      );
-    }
-
-    // Modules → lessons and fee plans cascade from here.
+    // Requests first — their FK to the course is RESTRICT — then the fee
+    // obligations nobody paid, then the course itself. Modules, lessons and
+    // fee plans cascade from there.
+    const goneRequests = await tx
+      .delete(enrollmentRequests)
+      .where(eq(enrollmentRequests.courseId, courseId))
+      .returning({ id: enrollmentRequests.id });
+    const goneAdmissions = await tx
+      .delete(admissions)
+      .where(eq(admissions.courseId, courseId))
+      .returning({ id: admissions.id });
     await tx.delete(courses).where(eq(courses.id, courseId));
-    return { deleted: true, id: courseId, title: course.title };
+    return {
+      deleted: true,
+      id: courseId,
+      title: course.title,
+      removed: { unpaidAdmissions: goneAdmissions.length, settledRequests: goneRequests.length },
+    };
   });
 
   const media = await purgeMedia(plan);

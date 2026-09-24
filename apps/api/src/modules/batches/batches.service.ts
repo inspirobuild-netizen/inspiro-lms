@@ -1,4 +1,4 @@
-import { eq, and, count, sql } from 'drizzle-orm';
+import { eq, and, count, sql, or, gt, ne, exists, inArray } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { planMediaCleanup, purgeMedia, lessonIdsForScope } from '../courses/media-cleanup.service.js';
 import {
@@ -8,6 +8,7 @@ import {
   batchInstructors,
   feePlans,
   liveClasses,
+  payments,
   users,
   courses,
   enrollmentRequests,
@@ -128,18 +129,117 @@ export async function updateBatch(batchId: string, data: UpdateBatchInput) {
   });
 }
 
-// ── Archive batch ─────────────────────────────────────────────────────────────
+// ── Delete batch ──────────────────────────────────────────────────────────────
 /**
- * Permanently delete a batch, but only when nothing of record hangs off it.
+ * What deleting a batch takes with it, and what stops it.
  *
- * The FKs make an unguarded delete quietly destructive: enrollments,
- * instructors, live classes and attendance all CASCADE, and `admissions.batchId`
- * is ON DELETE SET NULL — so deleting a batch with a paid admission would
- * detach that admission from its batch instead of failing. Each blocker gets
- * its own code so the UI can say what is in the way rather than "cannot delete".
+ * Shared by the delete itself and the admin's confirmation dialog so the two
+ * cannot disagree. They used to: the Students tab counted only `active`
+ * enrolments while the delete guard counted every row, so a batch whose
+ * students had all been removed showed "no students enrolled" and then refused
+ * to delete for having students — and would have refused again for the unpaid
+ * admissions those same enrolments had created.
  *
- * Use archiveBatch (or PATCH status) to retire a batch that has history.
+ * The rule is money and presence. A student still in the batch, an admission
+ * awaiting approval, and any admission with a payment against it block the
+ * delete (archive instead). The rows "Remove student" leaves behind
+ * (`suspended`), lapsed seats (`expired`) and the fee obligations of students
+ * who are no longer here carry neither, and go with the batch.
  */
+export interface BatchDeletionImpact {
+  /** Students in the Students tab — blocks. */
+  activeStudents: number;
+  /** Counsellor admissions not yet approved — blocks. */
+  pendingApprovals: number;
+  /** Suspended or expired rows nobody can see — deleted with the batch. */
+  removedStudents: number;
+  /** Admissions with a payment recorded or awaiting verification — blocks. */
+  paidAdmissions: number;
+  /** Fee obligations with nothing paid — deleted with the batch. */
+  unpaidAdmissions: number;
+  /** Scheduled or recorded live classes — blocks. */
+  liveClasses: number;
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type Reader = Pick<typeof db, 'select'>;
+
+/** An admission that has money against it, verified or still awaiting it. */
+function moneyRecorded(reader: Reader) {
+  // amountPaid is the verified rollup; the EXISTS catches a payment that is
+  // still awaiting verification, which must count as money too.
+  return or(
+    gt(admissions.amountPaid, 0),
+    exists(
+      reader
+        .select({ one: sql`1` })
+        .from(payments)
+        .where(and(eq(payments.admissionId, admissions.id), ne(payments.status, 'rejected'))),
+    ),
+  );
+}
+
+export async function batchDeletionImpact(batchId: string, reader: Reader = db): Promise<BatchDeletionImpact> {
+  const byStatus = await reader
+    .select({ status: batchEnrollments.status, n: count() })
+    .from(batchEnrollments)
+    .where(eq(batchEnrollments.batchId, batchId))
+    .groupBy(batchEnrollments.status);
+  const enrolled = (s: (typeof byStatus)[number]['status']) => byStatus.find((r) => r.status === s)?.n ?? 0;
+
+  const [{ paid }] = await reader
+    .select({ paid: count() })
+    .from(admissions)
+    .where(and(eq(admissions.batchId, batchId), moneyRecorded(reader)));
+  const [{ total }] = await reader
+    .select({ total: count() })
+    .from(admissions)
+    .where(eq(admissions.batchId, batchId));
+  const [{ classes }] = await reader
+    .select({ classes: count() })
+    .from(liveClasses)
+    .where(eq(liveClasses.batchId, batchId));
+
+  return {
+    activeStudents: enrolled('active'),
+    pendingApprovals: enrolled('pending_approval'),
+    removedStudents: enrolled('suspended') + enrolled('expired'),
+    paidAdmissions: paid,
+    unpaidAdmissions: total - paid,
+    liveClasses: classes,
+  };
+}
+
+/**
+ * An admission is one per student and course, and it keeps pointing at the
+ * batch the student first joined even after staff move them to a sibling
+ * batch. Before judging a batch by its admissions, point those at the batch
+ * the student is in now, so deleting the old one neither deletes nor orphans
+ * a live student's fee record.
+ */
+async function repointMovedAdmissions(tx: Tx, batch: { id: string; courseId: string }) {
+  const moved = await tx
+    .select({ admissionId: admissions.id, batchId: batchEnrollments.batchId })
+    .from(admissions)
+    .innerJoin(
+      batchEnrollments,
+      and(
+        eq(batchEnrollments.userId, admissions.studentId),
+        inArray(batchEnrollments.status, ['active', 'pending_approval']),
+        ne(batchEnrollments.batchId, batch.id),
+      ),
+    )
+    .innerJoin(batches, and(eq(batches.id, batchEnrollments.batchId), eq(batches.courseId, batch.courseId)))
+    .where(eq(admissions.batchId, batch.id));
+  for (const m of moved) {
+    await tx
+      .update(admissions)
+      .set({ batchId: m.batchId, updatedAt: new Date() })
+      .where(eq(admissions.id, m.admissionId));
+  }
+  return moved.length;
+}
+
 export async function deleteBatch(batchId: string) {
   // Read what would be orphaned before the cascade takes the lessons with it.
   // Anything another batch still uses is excluded by the reference count, so
@@ -151,44 +251,55 @@ export async function deleteBatch(batchId: string) {
     const [batch] = await tx.select().from(batches).where(eq(batches.id, batchId)).limit(1);
     if (!batch) throw notFound();
 
-    // Every enrollment counts, not just active ones: a suspended row is still a
-    // record that a student sat in this batch.
-    const [{ enrolled }] = await tx
-      .select({ enrolled: count() })
-      .from(batchEnrollments)
-      .where(eq(batchEnrollments.batchId, batchId));
-    if (enrolled > 0) {
+    await repointMovedAdmissions(tx, batch);
+    const impact = await batchDeletionImpact(batchId, tx);
+    const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+
+    if (impact.activeStudents > 0) {
       throw conflict(
-        `This batch has ${enrolled} enrolled student${enrolled === 1 ? '' : 's'}. Remove them or archive the batch instead.`,
+        `This batch has ${impact.activeStudents} enrolled ${plural(impact.activeStudents, 'student', 'students')}. Remove them from the Students tab, or archive the batch instead.`,
         'BATCH_HAS_ENROLLMENTS',
       );
     }
-
-    const [{ admitted }] = await tx
-      .select({ admitted: count() })
-      .from(admissions)
-      .where(eq(admissions.batchId, batchId));
-    if (admitted > 0) {
+    if (impact.pendingApprovals > 0) {
       throw conflict(
-        `This batch is referenced by ${admitted} admission record${admitted === 1 ? '' : 's'}. Archive it instead so the admission history stays intact.`,
-        'BATCH_HAS_ADMISSIONS',
+        `${impact.pendingApprovals} ${plural(impact.pendingApprovals, 'admission into this batch is', 'admissions into this batch are')} still awaiting approval. Approve or reject ${plural(impact.pendingApprovals, 'it', 'them')} first.`,
+        'BATCH_HAS_PENDING_ADMISSIONS',
       );
     }
-
-    const [{ classes }] = await tx
-      .select({ classes: count() })
-      .from(liveClasses)
-      .where(eq(liveClasses.batchId, batchId));
-    if (classes > 0) {
+    if (impact.paidAdmissions > 0) {
       throw conflict(
-        `This batch has ${classes} live class${classes === 1 ? '' : 'es'} scheduled or recorded. Delete those first, or archive the batch.`,
+        `${impact.paidAdmissions} ${plural(impact.paidAdmissions, 'student has', 'students have')} fee payments recorded against this batch. Payment history is never deleted — archive the batch instead.`,
+        'BATCH_HAS_PAID_ADMISSIONS',
+      );
+    }
+    if (impact.liveClasses > 0) {
+      throw conflict(
+        `This batch has ${impact.liveClasses} live ${plural(impact.liveClasses, 'class', 'classes')} scheduled or recorded. Delete those first, or archive the batch.`,
         'BATCH_HAS_LIVE_CLASSES',
       );
     }
 
+    // Nothing left here carries money or a current student. The admissions
+    // were raised by manual enrolments that staff have since reversed; taking
+    // them too keeps removed students from sitting in Fees as owing for a
+    // batch that no longer exists. Their installments cascade.
+    const goneAdmissions = await tx
+      .delete(admissions)
+      .where(eq(admissions.batchId, batchId))
+      .returning({ id: admissions.id });
+    const goneEnrolments = await tx
+      .delete(batchEnrollments)
+      .where(eq(batchEnrollments.batchId, batchId))
+      .returning({ id: batchEnrollments.id });
     await tx.delete(batchInstructors).where(eq(batchInstructors.batchId, batchId));
     await tx.delete(batches).where(eq(batches.id, batchId));
-    return { deleted: true, id: batchId, name: batch.name };
+    return {
+      deleted: true,
+      id: batchId,
+      name: batch.name,
+      removed: { removedStudents: goneEnrolments.length, unpaidAdmissions: goneAdmissions.length },
+    };
   });
 
   // Storage last: an orphaned file costs money, whereas a lesson pointing at a

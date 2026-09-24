@@ -184,10 +184,26 @@ function DeleteBatchModal({
         notesToDelete: number;
         notesKeptInUse: number;
         linkedVideosUntouched: number;
+        // The same counts the server's delete guard uses, so this dialog can
+        // never say "no students" about a batch the server will then refuse.
+        records?: {
+          activeStudents: number;
+          pendingApprovals: number;
+          removedStudents: number;
+          paidAdmissions: number;
+          unpaidAdmissions: number;
+          liveClasses: number;
+        };
       }>(`/api/v1/admin/content/deletion-preview?scope=batch&id=${batch!.id}`),
     enabled: !!accessToken && !!batch,
   });
   const m = impact?.data;
+  const r = m?.records;
+  const pendingApprovals = r?.pendingApprovals ?? 0;
+  const paidAdmissions = r?.paidAdmissions ?? 0;
+  const liveClasses = r?.liveClasses ?? 0;
+  const removedStudents = r?.removedStudents ?? 0;
+  const unpaidAdmissions = r?.unpaidAdmissions ?? 0;
 
   const del = useMutation({
     mutationFn: () => api.delete(`/api/v1/admin/batches/${batch!.id}`),
@@ -196,15 +212,35 @@ function DeleteBatchModal({
   });
 
   if (!batch) return null;
-  const blocked = enrolled > 0;
+  const blocked = enrolled > 0 || pendingApprovals > 0 || paidAdmissions > 0 || liveClasses > 0;
 
   return (
     <Modal open onClose={onClose} title="Delete batch" description={batch.name}>
       <div className="space-y-3">
         {blocked ? (
           <p className="text-sm text-amber-300">
-            This batch has <strong>{enrolled}</strong> enrolled student{enrolled === 1 ? '' : 's'}. It can’t be
-            deleted — unenrol them first, or archive the batch to retire it while keeping its history.
+            {enrolled > 0 ? (
+              <>
+                This batch has <strong>{enrolled}</strong> enrolled student{enrolled === 1 ? '' : 's'}. It can’t be
+                deleted — unenrol them first, or archive the batch to retire it while keeping its history.
+              </>
+            ) : pendingApprovals > 0 ? (
+              <>
+                <strong>{pendingApprovals}</strong> admission{pendingApprovals === 1 ? '' : 's'} into this batch{' '}
+                {pendingApprovals === 1 ? 'is' : 'are'} still awaiting approval. Approve or reject{' '}
+                {pendingApprovals === 1 ? 'it' : 'them'} first.
+              </>
+            ) : paidAdmissions > 0 ? (
+              <>
+                <strong>{paidAdmissions}</strong> student{paidAdmissions === 1 ? ' has' : 's have'} fee payments
+                recorded against this batch. Payment history is never deleted — archive the batch instead.
+              </>
+            ) : (
+              <>
+                This batch has <strong>{liveClasses}</strong> live class{liveClasses === 1 ? '' : 'es'} scheduled
+                or recorded. Delete those first, or archive the batch.
+              </>
+            )}
           </p>
         ) : (
           <>
@@ -212,6 +248,25 @@ function DeleteBatchModal({
               No students are enrolled. This permanently removes the batch, its content and its
               instructor assignments. This cannot be undone.
             </p>
+            {(removedStudents > 0 || unpaidAdmissions > 0) && (
+              <div className="rounded-xl border border-white/8 bg-surface-2 p-3">
+                <p className="text-xs text-slate-400">Also removed with the batch:</p>
+                <ul className="text-xs space-y-1 mt-1.5">
+                  {removedStudents > 0 && (
+                    <li className="text-rose-300">
+                      {removedStudents} record{removedStudents === 1 ? '' : 's'} of student
+                      {removedStudents === 1 ? '' : 's'} already removed from this batch
+                    </li>
+                  )}
+                  {unpaidAdmissions > 0 && (
+                    <li className="text-rose-300">
+                      {unpaidAdmissions} unpaid admission{unpaidAdmissions === 1 ? '' : 's'} —{' '}
+                      {unpaidAdmissions === 1 ? 'that student stops' : 'those students stop'} showing in Fees as owing
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
             {m && (m.lessons > 0) && (
               <div className="rounded-xl border border-white/8 bg-surface-2 p-3 space-y-1.5">
                 <p className="text-xs text-slate-400">
