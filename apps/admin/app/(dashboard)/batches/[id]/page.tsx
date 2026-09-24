@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, Select, Field } from '@/components/ui/modal';
+import { useToast } from '@/components/ui/toast';
 import { formatPhone, money } from '@/lib/utils';
 
 type FeePlanRow = { id: string; name: string; totalAmount: number; isActive: boolean };
@@ -183,7 +184,7 @@ export default function BatchDetailPage() {
           <h3 className="font-display font-semibold text-lg text-slate-200">
             Students <span className="text-slate-500 text-sm font-normal">({batch?.enrolledCount ?? 0} enrolled)</span>
           </h3>
-          {canManage && <EnrollStudentButton batchId={id} courseId={batch?.course.id} onEnrolled={invalidate} />}
+          {canManage && <EnrollStudentButton batchId={id} courseId={batch?.course.id} enrolledIds={students.map((s) => s.user.id)} onEnrolled={invalidate} />}
         </div>
         {students.length === 0 ? (
           <p className="text-slate-500 text-sm rounded-2xl border border-white/8 bg-surface-1 p-6 text-center">
@@ -248,18 +249,28 @@ export default function BatchDetailPage() {
 }
 
 // ── Enroll student picker ──────────────────────────────────────────────────────
+// Multi-select: staff tick as many students as they like across several
+// searches, then enrol them in one request. One request, one admission each,
+// one success toast — then the modal closes; the list behind it refreshes.
 function EnrollStudentButton({
-  batchId, courseId, onEnrolled,
+  batchId, courseId, enrolledIds, onEnrolled,
 }: {
-  batchId: string; courseId?: string; onEnrolled: () => void;
+  batchId: string; courseId?: string; enrolledIds: string[]; onEnrolled: () => void;
 }) {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
+  const toast = useToast();
 
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [feePlanId, setFeePlanId] = useState('');
+  // Keyed by id so a student ticked under one search stays ticked when the
+  // search changes and they drop out of the visible results.
+  const [selected, setSelected] = useState<Map<string, UserRow>>(new Map());
   const [error, setError] = useState<string | null>(null);
+
+  const reset = () => { setSelected(new Map()); setSearch(''); setError(null); };
+  const close = () => { setOpen(false); reset(); };
 
   const { data } = useQuery({
     queryKey: ['admin', 'users', 'picker', search],
@@ -288,20 +299,36 @@ function EnrollStudentButton({
   const selectedPlan = plans.find((p) => p.id === feePlanId);
   const dueAmount = selectedPlan ? selectedPlan.totalAmount : courseFee;
 
+  const toggle = (u: UserRow) =>
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(u.id)) next.delete(u.id); else next.set(u.id, u);
+      return next;
+    });
+
   const enroll = useMutation({
-    mutationFn: (userId: string) =>
-      api.post(`/api/v1/admin/batches/${batchId}/enroll`, {
-        userId,
+    mutationFn: () =>
+      api.post<{ enrolled: number; batchName: string }>(`/api/v1/admin/batches/${batchId}/enroll/bulk`, {
+        userIds: [...selected.keys()],
         ...(feePlanId ? { feePlanId } : {}),
       }),
-    onSuccess: () => { setError(null); onEnrolled(); },
+    onSuccess: (res) => {
+      const n = res.data?.enrolled ?? selected.size;
+      toast(`Enrolled ${n} student${n === 1 ? '' : 's'} into ${res.data?.batchName ?? 'the batch'}`, 'success');
+      onEnrolled();
+      close();
+    },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to enroll'),
   });
+
+  const results = data?.data ?? [];
+  const already = new Set(enrolledIds);
+  const count = selected.size;
 
   return (
     <>
       <Button size="sm" onClick={() => setOpen(true)}>+ Enroll student</Button>
-      <Modal open={open} onClose={() => setOpen(false)} title="Enroll student" description="Search registered students and click to enroll">
+      <Modal open={open} onClose={close} title="Enroll students" description="Tick the students to enrol, then confirm">
         <div className="space-y-3">
           <Field label="Fee plan">
             <Select value={feePlanId} onChange={(e) => setFeePlanId(e.target.value)}>
@@ -312,29 +339,75 @@ function EnrollStudentButton({
             </Select>
           </Field>
           <p className="text-xs text-slate-500 -mt-1">
-            Enrolling creates an admission with {typeof dueAmount === 'number' ? money(dueAmount) : 'the course fee'} due.
+            Each enrolment creates an admission with {typeof dueAmount === 'number' ? money(dueAmount) : 'the course fee'} due.
             No payment is recorded — collect it from the Fees page.
           </p>
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or phone…" autoFocus />
-          {error && <p className="text-sm text-rose-400">{error}</p>}
-          <div className="space-y-2 max-h-72 overflow-y-auto">
-            {(data?.data ?? []).map((u) => (
-              <button
-                key={u.id}
-                className="w-full flex items-center justify-between rounded-xl bg-surface-2 border border-white/5 px-4 py-3 hover:bg-surface-high transition-colors text-left"
-                onClick={() => enroll.mutate(u.id)}
-                disabled={enroll.isPending}
-              >
-                <div>
-                  <p className="text-sm text-slate-200">{u.name}</p>
-                  <p className="text-xs text-slate-500">{formatPhone(u.phone)}</p>
-                </div>
-                <span className="text-xs text-teal-300">Enroll →</span>
-              </button>
-            ))}
-            {(data?.data ?? []).length === 0 && (
+
+          {count > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {[...selected.values()].map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  onClick={() => toggle(u)}
+                  className="inline-flex items-center gap-1 rounded-full bg-teal-500/15 border border-teal-500/30 px-2.5 py-1 text-xs text-teal-200 hover:bg-teal-500/25"
+                  title="Remove from selection"
+                >
+                  {u.name || formatPhone(u.phone)}
+                  <span aria-hidden className="text-teal-300/70">×</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {results.map((u) => {
+              const isEnrolled = already.has(u.id);
+              const isSelected = selected.has(u.id);
+              return (
+                <button
+                  key={u.id}
+                  type="button"
+                  className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
+                    isEnrolled
+                      ? 'bg-surface-2/50 border-white/5 opacity-60 cursor-not-allowed'
+                      : isSelected
+                        ? 'bg-teal-500/10 border-teal-500/30'
+                        : 'bg-surface-2 border-white/5 hover:bg-surface-high'
+                  }`}
+                  onClick={() => !isEnrolled && toggle(u)}
+                  disabled={isEnrolled || enroll.isPending}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    readOnly
+                    tabIndex={-1}
+                    className="pointer-events-none h-4 w-4 accent-teal-500"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-slate-200 truncate">{u.name}</p>
+                    <p className="text-xs text-slate-500">{formatPhone(u.phone)}</p>
+                  </div>
+                  {isEnrolled && <span className="text-xs text-slate-500">Already enrolled</span>}
+                </button>
+              );
+            })}
+            {results.length === 0 && (
               <p className="text-sm text-slate-500 text-center py-6">No students found — add them from the Students page first.</p>
             )}
+          </div>
+
+          {error && <p className="text-sm text-rose-400">{error}</p>}
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <span className="text-xs text-slate-500">{count === 0 ? 'Nobody selected yet' : `${count} selected`}</span>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={close}>Cancel</Button>
+              <Button disabled={count === 0 || enroll.isPending} onClick={() => enroll.mutate()}>
+                {enroll.isPending ? 'Enrolling…' : count > 1 ? `Enrol ${count} students` : 'Enrol student'}
+              </Button>
+            </div>
           </div>
         </div>
       </Modal>

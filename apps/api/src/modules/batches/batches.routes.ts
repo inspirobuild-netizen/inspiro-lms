@@ -224,8 +224,17 @@ export default async function batchesRoutes(app: FastifyInstance) {
         staffRole: req.user.role,
       });
 
-      for (const userId of result.notifyStudents) {
-        await notifyEnrolled(userId, result.batchName, true, req.user.role === 'admin');
+      // Every student hears about it, exactly as with a single enrolment; the
+      // ones who had asked from the app get the "approved" wording. The admin
+      // panel now enrols through this route even for one student, so leaving
+      // the others silent would be a regression.
+      for (const userId of parsed.data.userIds) {
+        await notifyEnrolled(
+          userId,
+          result.batchName,
+          result.notifyStudents.includes(userId),
+          req.user.role === 'admin',
+        );
       }
 
       return reply.send({ success: true, data: result });
