@@ -6,7 +6,7 @@ import '../../../core/api/api_fallback.dart';
 const _demoExams = [
   Exam(id: 'demo-e1', title: 'UPSC Prelims Mock #12', subject: 'General Studies', type: 'mock', durationMins: 120),
   Exam(id: 'demo-e2', title: 'Polity Sectional Test', subject: 'Indian Polity', type: 'sectional', durationMins: 30),
-  Exam(id: 'demo-e3', title: 'Kerala PSC Full Test', subject: 'General Knowledge', type: 'mock', durationMins: 90),
+  Exam(id: 'demo-e3', title: 'UPSC CSAT Full Test', subject: 'General Knowledge', type: 'mock', durationMins: 90),
   Exam(id: 'demo-e4', title: 'Current Affairs Weekly', subject: 'July Week 1', type: 'practice', durationMins: 20),
 ];
 

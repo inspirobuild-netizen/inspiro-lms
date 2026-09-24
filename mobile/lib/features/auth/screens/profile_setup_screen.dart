@@ -21,7 +21,7 @@ class ProfileSetupScreen extends ConsumerStatefulWidget {
 
 class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   final _nameCtrl = TextEditingController();
-  String _targetExam = 'kerala_psc';
+  String _targetExam = 'upsc';
   bool _loading = false;
   String? _error;
 
@@ -109,7 +109,6 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                     spacing: 10,
                     runSpacing: 10,
                     children: [
-                      _ExamChip(label: 'Kerala PSC', value: 'kerala_psc', selected: _targetExam == 'kerala_psc', onTap: () => setState(() => _targetExam = 'kerala_psc')),
                       _ExamChip(label: 'UPSC', value: 'upsc', selected: _targetExam == 'upsc', onTap: () => setState(() => _targetExam = 'upsc')),
                       _ExamChip(label: 'Other PSC', value: 'other_psc', selected: _targetExam == 'other_psc', onTap: () => setState(() => _targetExam = 'other_psc')),
                     ],

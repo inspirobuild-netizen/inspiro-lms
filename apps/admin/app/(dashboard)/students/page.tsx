@@ -161,7 +161,7 @@ function AddStudentButton({ onCreated }: { onCreated: () => void }) {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('student');
-  const [targetExam, setTargetExam] = useState('kerala_psc');
+  const [targetExam, setTargetExam] = useState('upsc');
   const [error, setError] = useState<string | null>(null);
 
   const create = useMutation({
@@ -220,7 +220,6 @@ function AddStudentButton({ onCreated }: { onCreated: () => void }) {
             </Field>
             <Field label="Target exam">
               <Select value={targetExam} onChange={(e) => setTargetExam(e.target.value)}>
-                <option value="kerala_psc">Kerala PSC</option>
                 <option value="upsc">UPSC</option>
                 <option value="other_psc">Other PSC</option>
               </Select>

@@ -276,7 +276,7 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
         phone,
         email: lead.email ?? null,
         role: 'student',
-        targetExam: input.targetExam ?? 'kerala_psc',
+        targetExam: input.targetExam ?? 'upsc',
         branchId: lead.branchId ?? null,
         passwordHash,
       })

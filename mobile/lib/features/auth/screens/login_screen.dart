@@ -249,7 +249,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     runSpacing: 8,
                     children: [
                       _FeatureChip(icon: Icons.workspace_premium_outlined, label: 'UPSC'),
-                      _FeatureChip(icon: Icons.account_balance_outlined, label: 'Kerala PSC'),
                       _FeatureChip(icon: Icons.auto_awesome, label: 'AI Powered'),
                     ],
                   ),

@@ -484,7 +484,7 @@ function CreateBatchModal({
     <Modal open={open} onClose={onClose} title="Create batch" description={`Under ${courseTitle}`}>
       <div className="space-y-3">
         <Field label="Batch name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Kerala PSC 2026 - Batch B" />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. UPSC 2027 - Batch B" />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Mode">
@@ -497,7 +497,6 @@ function CreateBatchModal({
           <Field label="Target exam">
             <Select value={targetExam} onChange={(e) => setTargetExam(e.target.value)}>
               <option value="upsc">UPSC</option>
-              <option value="kerala_psc">Kerala PSC</option>
               <option value="other_psc">Other PSC</option>
             </Select>
           </Field>

@@ -176,7 +176,7 @@ My Apps → ➕ → New App: iOS, name **Inspiro IAS Academy**, bundle
   *adding* iPad support in a later version but never *removing* it, so v1
   must ship iPhone-only if iPad is ever to be optional. The app still
   installs on iPad in the scaled iPhone window.
-- **Description:** same text as Play. **Keywords:** IAS, UPSC, Kerala PSC,
+- **Description:** same text as Play. **Keywords:** IAS, UPSC,
   civil service, coaching, Inspiro.
 - **Support URL:** https://inspiroiasacademy.in. **Marketing URL:** same.
 - **App Review Information:** sign-in required → the account in §1, plus
@@ -225,3 +225,29 @@ The same frames work for iOS; Apple accepts Android-proportioned images at
   reset; if not, a lost key means a new app listing.
 - Every future Play upload must be built with `flutter build appbundle`
   (version code from `pubspec.yaml`) and a higher `+N` than 2010.
+
+## 7. Sign-in on the Play-distributed build (the "not authorised" error)
+
+Play App Signing re-signs every AAB with **Google's** key, so the build
+testers install from Play carries a different certificate from the upload
+keystore. Firebase phone auth checks the *installed* build's certificate, so
+with only the debug and upload fingerprints registered the Play build fails
+with `app-not-authorized` — shown in the app as "This app build is not
+authorised to sign in yet".
+
+One-time fix, no rebuild:
+
+1. Play Console → app → Test and release → Setup → **App signing** → *App
+   signing key certificate* → copy **SHA-1** and **SHA-256** (not the upload
+   key certificate below it).
+2. Register both on the Android app in Firebase (`inspiro-b394e`) — console
+   Project settings → Your apps → Android → Add fingerprint, or:
+   `firebase apps:android:sha:create 1:933452768549:android:4ea571b1667d1826aca6cc <SHA>`
+
+The reCAPTCHA browser page during OTP is the fallback when Play Integrity
+cannot vouch for the build. It is **always** shown for a sideloaded APK
+(adb / shared file) and cannot be removed there. For the Play build it goes
+away once the SHA-256 above is registered, the **Google Play Integrity API**
+is enabled on the Cloud project behind `inspiro-b394e`, and the app is linked
+to that project in Play Console (Test and release → App integrity → Play
+Integrity API → Link Cloud project).

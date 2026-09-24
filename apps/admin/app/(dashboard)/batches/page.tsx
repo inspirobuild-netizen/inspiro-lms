@@ -329,7 +329,7 @@ function NewBatchButton({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState('');
   const [courseId, setCourseId] = useState('');
   const [type, setType] = useState('hybrid');
-  const [targetExam, setTargetExam] = useState('kerala_psc');
+  const [targetExam, setTargetExam] = useState('upsc');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [capacity, setCapacity] = useState('100');
@@ -370,7 +370,7 @@ function NewBatchButton({ onCreated }: { onCreated: () => void }) {
       <Modal open={open} onClose={() => setOpen(false)} title="Create batch" description="A batch belongs to one course — students enrol in a batch, and get access to its course">
         <div className="space-y-4">
           <Field label="Name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`Kerala PSC ${currentYear + 1} — Batch A`} autoFocus />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`UPSC ${currentYear + 1} — Batch A`} autoFocus />
           </Field>
           <Field label="Course">
             <Select value={courseId} onChange={(e) => setCourseId(e.target.value)}>
@@ -388,7 +388,6 @@ function NewBatchButton({ onCreated }: { onCreated: () => void }) {
             </Field>
             <Field label="Target exam">
               <Select value={targetExam} onChange={(e) => setTargetExam(e.target.value)}>
-                <option value="kerala_psc">Kerala PSC</option>
                 <option value="upsc">UPSC</option>
                 <option value="other_psc">Other PSC</option>
               </Select>

@@ -14,7 +14,7 @@ const bool kDemoMode = bool.fromEnvironment('DEMO_MODE', defaultValue: false);
 const bool kInAppPayments = bool.fromEnvironment('IN_APP_PAYMENTS', defaultValue: false);
 
 /// Shown on the profile screen. Keep in step with `version:` in pubspec.yaml.
-const String kAppVersion = '1.1.1';
+const String kAppVersion = '1.1.2';
 
 /// Public pages the stores require; served by the API so they exist today.
 const String kPrivacyUrl = 'https://api.inspiroiasacademy.in/legal/privacy';

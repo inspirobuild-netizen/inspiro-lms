@@ -118,7 +118,6 @@ export default function GenerateExamPage() {
               <select className={selectClass} value={examStyle} onChange={(e) => setExamStyle(e.target.value)}>
                 <option value="generic">Generic practice</option>
                 <option value="upsc_prelims">UPSC Prelims</option>
-                <option value="kerala_psc">Kerala PSC</option>
               </select>
             </div>
 

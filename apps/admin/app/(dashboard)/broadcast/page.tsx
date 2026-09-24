@@ -270,7 +270,7 @@ function BannerModal({
     <Modal open onClose={onClose} title={banner ? 'Edit banner' : 'New banner'}>
       <div className="space-y-4">
         <Field label="Title (shown over the image)">
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Kerala PSC 2026 — admissions open" autoFocus />
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="UPSC 2027 — admissions open" autoFocus />
         </Field>
 
         <Field label="Image">

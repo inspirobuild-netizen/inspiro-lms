@@ -255,7 +255,7 @@ function NewExamButton({
             <p className="text-xs text-teal-300 -mb-2">This quiz will be linked to the lesson it was created from.</p>
           )}
           <Field label="Title">
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Kerala PSC Mock Test #1" autoFocus />
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="UPSC Prelims Mock Test #1" autoFocus />
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Subject">
