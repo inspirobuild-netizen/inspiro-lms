@@ -1,7 +1,7 @@
 name: inspiro_mobile
 description: Civil Connect LMS — Inspiro student app
 publish_to: 'none'
-version: 1.1.2+2020
+version: 1.1.3+2030
 
 environment:
   sdk: '>=3.3.0 <4.0.0'

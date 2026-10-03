@@ -21,6 +21,22 @@ class PhoneAuthService {
 
   static FirebaseAuth get _auth => FirebaseAuth.instance;
 
+  /// Numbers registered in the Firebase console as fictional test numbers
+  /// (Authentication → Sign-in method → Phone → Phone numbers for testing).
+  /// They never receive an SMS and always accept their fixed code.
+  ///
+  /// The store reviewers sign in with these. Firebase still runs *app*
+  /// verification for a fictional number — a silent push on iOS, Play
+  /// Integrity on Android, a reCAPTCHA web sheet when either is unavailable —
+  /// and a review device is exactly where those fail: Apple rejected 1.1.1
+  /// because the reviewer got "Verification failed" before any code was asked
+  /// for. Firebase honours the bypass below for fictional numbers only, so it
+  /// is switched on per request and off again for everyone else.
+  ///
+  /// Keep in step with the console: a number listed here but NOT registered
+  /// there would be unable to sign in at all.
+  static const _fictionalNumbers = {'+917000000001', '+917000000002'};
+
   /// Sends the verification SMS.
   ///
   /// [onCodeSent] fires once the SMS is on its way; the returned resend token
@@ -37,6 +53,17 @@ class PhoneAuthService {
     required void Function(String message, String? code) onFailed,
     int? resendToken,
   }) async {
+    // Set on every request, not once: the flag lives on the Auth instance, and
+    // leaving it on would break the next real number typed on this device.
+    try {
+      await _auth.setSettings(
+        appVerificationDisabledForTesting: _fictionalNumbers.contains(phoneE164),
+      );
+    } catch (_) {
+      // A settings failure must never stand between a student and the normal
+      // verification path.
+    }
+
     await _auth.verifyPhoneNumber(
       phoneNumber: phoneE164,
       forceResendingToken: resendToken,
@@ -107,11 +134,19 @@ class PhoneAuthService {
         return 'This app build is not authorised to sign in yet. '
             'Please contact the academy — this is not a problem with your number.';
 
+      // iOS opens a web sheet when it cannot verify the app silently. Closing
+      // it is a choice, not a failure — say so, and say what to do next.
+      case 'web-context-cancelled':
+      case 'web-context-canceled':
+        return 'Verification was cancelled. Tap Send OTP to try again.';
+
       default:
         // Never surface Firebase's raw developer text: the student cannot act
-        // on it, and it names things like Play Integrity and logcat.
+        // on it, and it names things like Play Integrity and logcat. The short
+        // code is kept, though — without it a report of "verification failed"
+        // from a phone we cannot plug in (every iPhone) tells us nothing.
         return 'Verification failed. Please try again, or contact the academy '
-            'if it keeps happening.';
+            'if it keeps happening. (${e.code})';
     }
   }
 
