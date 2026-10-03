@@ -71,6 +71,11 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
   // Buffering is NOT one of these: it is not playing either, and covering
   // during a mid-stream stall would flash a panel over a working video.
   bool _showPausePanel = false;
+  // The source video was made private, removed, or had embedding switched
+  // off. The embed then shows its own "Video unavailable — watch on …" panel,
+  // which is both a dead end and the loudest branding leak of all, so the app
+  // says it in its own words instead.
+  bool _unavailable = false;
   Timer? _progressTimer;
   Duration _lastReported = Duration.zero;
 
@@ -99,6 +104,10 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
 
     _controller.listen((value) {
       if (!mounted) return;
+      if (value.hasError && !_unavailable) {
+        setState(() => _unavailable = true);
+        return;
+      }
       if (!_ready && value.playerState != PlayerState.unknown) {
         setState(() => _ready = true);
       }
@@ -145,6 +154,18 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
       aspectRatio: 16 / 9,
       gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
       controlsBuilder: (context, isFullscreen) {
+        if (_unavailable) {
+          return _UnavailableCover(
+            onBack: () {
+              if (isFullscreen) {
+                _controller.exitFullScreen();
+                widget.onFullscreenChanged?.call(false);
+              } else {
+                Navigator.of(context).maybePop();
+              }
+            },
+          );
+        }
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -203,6 +224,58 @@ class _YouTubeLessonPlayerState extends State<YouTubeLessonPlayer> {
           ],
         );
       },
+    );
+  }
+}
+
+/// Shown instead of the embed's own error panel when the video cannot play.
+class _UnavailableCover extends StatelessWidget {
+  final VoidCallback onBack;
+  const _UnavailableCover({required this.onBack});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF10162B), Color(0xFF05070F)],
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.videocam_off_outlined, color: Colors.white38, size: 34),
+                  SizedBox(height: 10),
+                  Text('This class can’t be played right now',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+                  SizedBox(height: 4),
+                  Text('The video is unavailable. Please let the academy know.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white54, fontSize: 12.5, height: 1.4)),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            top: 4,
+            left: 4,
+            child: IconButton(
+              onPressed: onBack,
+              icon: const Icon(Icons.arrow_back, color: Colors.white70),
+              tooltip: 'Back',
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

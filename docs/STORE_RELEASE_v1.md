@@ -274,3 +274,162 @@ cannot vouch for the build. It is **always** shown for a sideloaded APK
 (adb / shared file) and cannot be removed there. On the Play build it is gone
 once the fingerprints above are registered — verified on a POCO M2 Pro
 installed from the alpha track: integrity token, SMS, OTP accepted, no page.
+
+## 8. App Store rejection of 1.1.1 (24 Sep 2026) and the resubmission
+
+Apple rejected build 1.1.1 (40) on two guidelines.
+
+**2.1 App Completeness — the reviewer could not sign in.** Their screenshot
+shows the demo number typed and "Verification failed" under it, before any
+code was asked for. Firebase runs *app* verification even for a fictional
+test number: a silent push on iOS, falling back to a reCAPTCHA web sheet. On
+a review device the push does not arrive and the sheet gets closed, and
+either way the app only said "Verification failed".
+
+Fixed in 1.1.3: for the fictional review numbers the app sets
+`appVerificationDisabledForTesting`, which Firebase honours for fictional
+numbers only, so the code screen appears at once. Proven against Identity
+Toolkit with the iOS API key and bundle id — the review number gets a session
+with no receipt and signs in; an ordinary number is refused with
+`MISSING_CLIENT_IDENTIFIER`. The list lives in
+`mobile/lib/features/auth/services/phone_auth_service.dart` and **must match
+the Firebase console** (Authentication → Sign-in method → Phone → Phone
+numbers for testing): a number in the app's list but not in the console
+cannot sign in at all.
+
+**3.2 Business — "who is this app for?"** Our own words caused it: the
+description said the app "is for students enrolled with Inspiro IAS Academy"
+and the review notes said enrolment "is arranged by the academy offline".
+Apple reads that as an app for one organisation's members, which belongs in
+private distribution. It is not: anyone can sign up in the app, and a
+signed-up user gets daily current affairs, the AI doubt assistant, the AI
+coach's weekly plan, streaks/leaderboard and the catalogue without enrolling.
+The fix is to say so — in the description, in the notes, with a second demo
+account that shows it, and in a reply to the reviewer.
+
+### 8.1 Demo accounts
+
+| | Mobile | Code | Shows |
+|---|---|---|---|
+| A | `7000000001` | `430915` | An enrolled student — batch `001`, *Junior IAS Stream 1* |
+| B | `7000000002` | `430915` | A member of the public who has not enrolled |
+
+Both are Firebase fictional numbers; no SMS is sent. B asks for a name on
+its first ever sign-in, which is the ordinary sign-up step.
+
+### 8.2 Before pressing Resubmit
+
+1. Firebase console: add `+91 7000000002` as a test number (code above).
+2. The review batch must look alive: every lesson must open (a linked
+   YouTube video has to be *Unlisted* with *Allow embedding* on — a private
+   or embed-disabled one shows "This class can't be played right now"), and
+   at least one published test must be attached to the batch so the Exams tab
+   is not empty.
+3. GitHub → Actions → **iOS** → Run workflow → build 1.1.3.
+4. Install that build from TestFlight on a real iPhone and sign in with A, B
+   and one real number. Nobody had run the iOS build on a device before it
+   was first submitted; that must not happen twice.
+5. App Store Connect, on the rejected version: change the version number to
+   **1.1.3**, replace the build, paste the description (§8.5) and the review
+   notes (§8.4), send the reply (§8.3), Resubmit.
+
+### 8.3 Reply to App Review
+
+> Hello,
+>
+> Thank you for the review. Both issues are addressed in build 1.1.3.
+>
+> **Guideline 2.1 — sign-in.** The demo number is a test number that never
+> receives an SMS. In build 1.1.1 the app still tried to verify the device
+> before asking for the code, and that step failed on your device. In 1.1.3
+> the demo numbers skip that step: enter the number, tap Send OTP, and the
+> code screen appears.
+>
+> Demo account A — an enrolled student: mobile 7000000001, code 430915
+> Demo account B — a member of the public, not enrolled: mobile 7000000002, code 430915
+> (The country code is fixed at +91. No SMS is sent to these numbers.)
+>
+> **Guideline 3.2 — audience and business model.** The app is for the general
+> public, not for a closed organisation.
+>
+> 1. *Is the app restricted to users who are part of a single company?* No.
+>    Inspiro IAS Academy is a coaching institute preparing students for
+>    India's civil-service (UPSC) examination, and this is its consumer app
+>    for learners. Anyone can download it and create an account; no
+>    invitation, approval or prior relationship with the academy is needed.
+> 2. *Is it designed for a limited or specific group of companies?* No. It is
+>    not a business-to-business product and has no client companies.
+> 3. *Which features are for the general public?* Every user who signs up
+>    gets, free and without enrolling: a daily current-affairs feed written
+>    for the UPSC syllabus, each item with its exam relevance and a quiz
+>    question; an AI assistant that answers study questions; a weekly study
+>    plan from an AI coach; streaks and a leaderboard; and the academy's
+>    course catalogue. Demo account B shows exactly this.
+> 4. *How do users obtain an account?* In the app: Sign up → mobile number →
+>    one-time code. Sign-up uses Indian mobile numbers because the
+>    examination and the academy are in India.
+> 5. *Is there paid content, and who pays?* The academy's coaching programmes
+>    are paid tuition for a taught educational service — classes by its
+>    faculty, live sessions, mentoring and evaluated tests — which a student
+>    joins by enrolling with the academy directly, as with any school or
+>    coaching institute. Students who have enrolled see their batch's class
+>    recordings, notes and tests in the app (demo account A). The app itself
+>    sells nothing: there are no in-app purchases, no prices are shown, and
+>    there are no links or prompts to pay outside the app.
+>
+> We have also rewritten the App Store description to make the public
+> features clear.
+>
+> Thank you.
+
+Answer 5 must stay true: if a programme is ever sold as recorded content
+alone, with no teaching service around it, Apple will expect in-app purchase.
+
+### 8.4 App Review notes (replaces §1)
+
+Sign-in fields: user name `7000000001`, password `430915`. Notes:
+
+> SIGN-IN — no SMS is sent to these numbers; the code always works. The
+> country code is fixed at +91.
+> A) Enrolled student: mobile 7000000001, code 430915
+> B) Member of the public, not enrolled: mobile 7000000002, code 430915
+> Tap "Log in", enter the 10-digit number, tap "Send OTP", enter the code.
+> The first ever sign-in of B asks for a name; that is the normal sign-up step.
+>
+> WHAT EACH ACCOUNT SHOWS
+> B (public, free): Home → Affairs (daily current affairs with a quiz
+> question), Doubts (AI assistant), Coach (weekly study plan), the
+> leaderboard; Learn → Explore courses (the catalogue).
+> A (enrolled): Learn → Junior IAS Stream 1 → Class 1 — video classes and a
+> notes PDF; Exams — the batch's test.
+>
+> ABOUT THE APP
+> Free app for civil-service (UPSC) aspirants in India. Anyone can sign up in
+> the app with a mobile number. The academy's coaching programmes are joined
+> by enrolling with the academy directly; the app has no in-app purchases,
+> shows no prices and has no payment links. Live classes appear only when one
+> is scheduled, so the Live tab may be empty during review. Account deletion:
+> Profile → Delete my account.
+
+### 8.5 Store description (replaces §2.4, both stores)
+
+> Inspiro IAS Academy's app for civil-service aspirants.
+>
+> Sign up free with your mobile number and get, every day:
+>
+> • Current affairs written for the UPSC syllabus — each with its exam
+>   relevance and a quick quiz question
+> • An AI assistant for your study doubts: ask a question, get a clear
+>   explanation
+> • A weekly study plan from your AI coach
+> • Streaks and a leaderboard to keep your preparation on track
+> • The academy's course catalogue
+>
+> Students of Inspiro's coaching programmes also get their batch in the app:
+>
+> • Video classes and notes, in the order the batch follows
+> • Tests with instant results
+> • Live classes with instructors
+> • Activities and feedback from mentors
+>
+> Inspiro IAS Academy, Marine Drive, Kochi.
