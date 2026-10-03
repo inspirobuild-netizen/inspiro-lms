@@ -335,56 +335,78 @@ Aspirant" and lands on Home directly.
 4. Install that build from TestFlight on a real iPhone and sign in with A, B
    and one real number. Nobody had run the iOS build on a device before it
    was first submitted; that must not happen twice.
-5. App Store Connect, on the rejected version: change the version number to
-   **1.1.3**, replace the build, paste the description (§8.5) and the review
+5. App Store Connect, on the rejected version (the record is "1.0"): change
+   the version number to **1.1.3** so it matches the binary, replace the build, paste the description (§8.5) and the review
    notes (§8.4), send the reply (§8.3), Resubmit.
 
 ### 8.3 Reply to App Review
 
+Written against Apple's own five questions (message of 24 Sep 2026,
+submission `42f88fad-2ac0-427e-b666-0356ec3565f6`, reviewed on an iPad Air
+11-inch (M3) and an iPhone 17 Pro Max as **version 1.0 (40)** — the App Store
+Connect version record is "1.0" while the binary is 1.1.x).
+
 > Hello,
 >
-> Thank you for the review. Both issues are addressed in build 1.1.3.
+> Thank you for the review. Both issues are addressed in the new build.
 >
-> **Guideline 2.1 — sign-in.** The demo number is a test number that never
-> receives an SMS. In build 1.1.1 the app still tried to verify the device
-> before asking for the code, and that step failed on your device. In 1.1.3
-> the demo numbers skip that step: enter the number, tap Send OTP, and the
+> **Guideline 2.1 — demo account**
+>
+> Sign-in is by mobile number and a one-time code; there is no password. The
+> credentials you were given are a fixed test number and its code, and no
+> SMS is sent. In build 40 the app still tried to verify the device before
+> asking for the code, and that step failed on your devices. In the new
+> build the demo numbers skip it: enter the number, tap "Send OTP", and the
 > code screen appears.
 >
 > Demo account A — an enrolled student: mobile 7000000001, code 430915
 > Demo account B — a member of the public, not enrolled: mobile 7000000002, code 430915
-> (The country code is fixed at +91. No SMS is sent to these numbers.)
+> (The country code is fixed at +91.)
 >
-> **Guideline 3.2 — audience and business model.** The app is for the general
-> public, not for a closed organisation.
+> **Guideline 3.2 — the app is for a general, public audience**
 >
-> 1. *Is the app restricted to users who are part of a single company?* No.
->    Inspiro IAS Academy is a coaching institute preparing students for
->    India's civil-service (UPSC) examination, and this is its consumer app
->    for learners. Anyone can download it and create an account; no
->    invitation, approval or prior relationship with the academy is needed.
-> 2. *Is it designed for a limited or specific group of companies?* No. It is
->    not a business-to-business product and has no client companies.
-> 3. *Which features are for the general public?* Every user who signs up
->    gets, free and without enrolling: a daily current-affairs feed written
->    for the UPSC syllabus, each item with its exam relevance and a quiz
->    question; an AI assistant that answers study questions; a weekly study
->    plan from an AI coach; streaks and a leaderboard; and the academy's
->    course catalogue. Demo account B shows exactly this.
-> 4. *How do users obtain an account?* In the app: Sign up → mobile number →
->    one-time code. Sign-up uses Indian mobile numbers because the
->    examination and the academy are in India.
-> 5. *Is there paid content, and who pays?* The academy's coaching programmes
->    are paid tuition for a taught educational service — classes by its
->    faculty, live sessions, mentoring and evaluated tests — which a student
->    joins by enrolling with the academy directly, as with any school or
->    coaching institute. Students who have enrolled see their batch's class
->    recordings, notes and tests in the app (demo account A). The app itself
->    sells nothing: there are no in-app purchases, no prices are shown, and
->    there are no links or prompts to pay outside the app.
+> 1. *Is the app restricted to users who are part of a single company or
+>    organization?* No. Inspiro IAS Academy publishes the app, but its users
+>    are members of the public: people preparing for India's civil-service
+>    (UPSC) examination. No employment, membership or prior relationship
+>    with the academy is needed to download it, register and use it.
 >
-> We have also rewritten the App Store description to make the public
-> features clear.
+> 2. *Is the app designed for use by a limited or specific group of
+>    companies or organizations?* No. It is a consumer education app for
+>    individual learners. It is not offered to companies or organizations
+>    and has no client organizations.
+>
+> 3. *What features are intended for use by the general public?* Anyone who
+>    downloads the app and signs up — without invitation, pre-approved
+>    registration or affiliation — gets, free of charge:
+>    - a daily current-affairs feed written for the UPSC syllabus, each item
+>      with its exam relevance and a quiz question;
+>    - an AI assistant that answers study questions;
+>    - a weekly study plan from an AI coach;
+>    - streaks and a leaderboard;
+>    - the academy's course catalogue.
+>
+>    Demo account B is such a user and shows exactly this.
+>
+> 4. *How do users obtain an account?* They create it themselves in the app:
+>    Sign up → mobile number → one-time code by SMS → name. The account is
+>    active immediately; nobody at the academy creates or approves it.
+>    Sign-up uses Indian mobile numbers because the examination and the
+>    academy are in India.
+>
+> 5. *Is there any paid content in the app, and who pays for it?* Opening an
+>    account is free and no feature in the app is unlocked by payment.
+>    Separately, the academy runs coaching programmes — taught courses with
+>    classes by its faculty, live sessions, mentoring and evaluated tests.
+>    A student who wishes to join one enrols with the academy and pays
+>    tuition to it directly, as with any school or coaching institute.
+>    Enrolled students then see their batch's class recordings, notes and
+>    tests in the app as part of that programme; demo account A is such a
+>    student. The app has no in-app purchases, shows no prices, and has no
+>    links or prompts to pay elsewhere.
+>
+> We have also rewritten the App Store description, which previously read as
+> though the app were only for enrolled students.
 >
 > Thank you.
 
