@@ -148,6 +148,12 @@ your Team ID.
 Without this, sign-in on iPhone falls back to a reCAPTCHA sheet (works, but
 clunky) and no notifications arrive.
 
+**Done 2026-10-03.** Key `6G835B9KAC` ("APN PUSH KEY", team-scoped, Sandbox &
+Production, team `M46HPVLPMC`) is uploaded on both the development and the
+production row. It is the same key Kinvo's call pushes use — never revoke it,
+and Apple allows the `.p8` to be downloaded only once, so the copy on the
+Desktop is the only one. It was missing when 1.1.1 was reviewed.
+
 ### 3.3 Build and upload
 GitHub → Actions → **iOS** → Run workflow (branch `main`). The
 `iOS — TestFlight` job fetches signing files from App Store Connect,
