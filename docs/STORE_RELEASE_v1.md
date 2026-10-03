@@ -314,8 +314,8 @@ account that shows it, and in a reply to the reviewer.
 | A | `7000000001` | `430915` | An enrolled student — batch `001`, *Junior IAS Stream 1* |
 | B | `7000000002` | `430915` | A member of the public who has not enrolled |
 
-Both are Firebase fictional numbers; no SMS is sent. B asks for a name on
-its first ever sign-in, which is the ordinary sign-up step.
+Both are Firebase fictional numbers; no SMS is sent. B is named "Guest
+Aspirant" and lands on Home directly.
 
 ### 8.2 Before pressing Resubmit
 
@@ -394,7 +394,6 @@ Sign-in fields: user name `7000000001`, password `430915`. Notes:
 > A) Enrolled student: mobile 7000000001, code 430915
 > B) Member of the public, not enrolled: mobile 7000000002, code 430915
 > Tap "Log in", enter the 10-digit number, tap "Send OTP", enter the code.
-> The first ever sign-in of B asks for a name; that is the normal sign-up step.
 >
 > WHAT EACH ACCOUNT SHOWS
 > B (public, free): Home → Affairs (daily current affairs with a quiz
