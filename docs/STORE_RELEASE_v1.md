@@ -155,6 +155,7 @@ and Apple allows the `.p8` to be downloaded only once, so the copy on the
 Desktop is the only one. It was missing when 1.1.1 was reviewed.
 
 ### 3.3 Build and upload
+Either push a tag — `git tag ios-v1.1.3 && git push origin ios-v1.1.3` — or
 GitHub → Actions → **iOS** → Run workflow (branch `main`). The
 `iOS — TestFlight` job fetches signing files from App Store Connect,
 creating the App ID `com.bizence.inspiro` on the first run, builds, and
@@ -331,13 +332,19 @@ Aspirant" and lands on Home directly.
    or embed-disabled one shows "This class can't be played right now"), and
    at least one published test must be attached to the batch so the Exams tab
    is not empty.
-3. GitHub → Actions → **iOS** → Run workflow → build 1.1.3.
+3. Cut the build: `git push origin ios-v1.1.3` (done 2026-10-03 — run 46, so
+   the build is **1.1.3 (46)**).
 4. Install that build from TestFlight on a real iPhone and sign in with A, B
    and one real number. Nobody had run the iOS build on a device before it
    was first submitted; that must not happen twice.
-5. App Store Connect, on the rejected version (the record is "1.0"): change
-   the version number to **1.1.3** so it matches the binary, replace the build, paste the description (§8.5) and the review
-   notes (§8.4), send the reply (§8.3), Resubmit.
+5. App Store Connect, on the rejected version. Staged through the API on
+   2026-10-03 (PATCH `appStoreVersions`, `appStoreVersionLocalizations`,
+   `appStoreReviewDetails`): version number 1.0 → **1.1.3**, the description
+   and promotional text (§8.5), keywords without "Kerala PSC", and the review
+   notes (§8.4). The build is attached the same way once Apple has processed
+   it. What the API cannot do on a rejected version is the last step — in the
+   browser: open the submission, paste the reply (§8.3) into the message to
+   App Review, and press **Resubmit to App Review**.
 
 ### 8.3 Reply to App Review
 
