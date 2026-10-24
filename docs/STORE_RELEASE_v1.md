@@ -467,3 +467,57 @@ Sign-in fields: user name `7000000001`, password `430915`. Notes:
 > • Activities and feedback from mentors
 >
 > Inspiro IAS Academy, Marine Drive, Kochi.
+
+## 9. Google Play: production access (personal developer account)
+
+Inspiro is in the **Bizence** developer account (`bizence.role@gmail.com`),
+a personal account, so production unlocks per app only after a closed test
+with **12 testers opted in for 14 continuous days**. On 24 Oct 2026 the
+count stood at 12 testers / 11 days, so *Apply for production* unlocks on
+**27 Oct 2026** if all 12 stay opted in. Google then takes up to about a
+week to decide, and it judges *engagement*: Kinvo's first application from
+the same account was declined because testers had not used the app. Ask the
+12 testers to use it daily until then.
+
+Before applying, upload the current bundle (`store-assets/Inspiro-v1.1.3-2030.aab`)
+to the closed track so testers run what production will run. Only 1.1.1
+(2010) was ever uploaded.
+
+Draft answers for the application (check every claim; fill the brackets):
+
+- **How did you recruit testers?** Students and staff of Inspiro IAS Academy,
+  invited by the academy [by WhatsApp / in class] and added by email to the
+  closed testing list.
+- **How easy was it to recruit testers?** Easy — they are the academy's own
+  students and staff, who wanted to use the app for their classes.
+- **Describe the engagement you received.** Testers signed up with their
+  mobile numbers, watched video classes, opened notes, took the weekly test
+  and read current affairs. [Add a number if you have one, e.g. how many
+  signed in and used it in the last week.]
+- **Summarise the feedback, and how you collected it.** Collected [by
+  WhatsApp, in person and through Play's testing feedback]. Main points:
+  sign-in failed on the Play-installed build; sign-in showed a
+  human-verification web page; the app showed exam options the academy does
+  not teach; some linked videos did not play; enrolment and fee
+  confirmation needed to be clearer.
+- **What changed because of the closed test?** Fixed sign-in on the
+  Play-distributed build (Play app-signing certificate registered) and
+  removed the verification web page; removed Kerala PSC — the academy is
+  UPSC-only; videos that cannot play now show a clear message; the coach
+  shows a starter plan when the AI is unavailable; renewed and automated
+  the server's security certificate after an outage; multi-select
+  enrolment and clearer fee verification for staff.
+- **Who is the intended audience?** School and college students in India
+  preparing for the civil-service (UPSC) examination, and anyone preparing
+  for it who wants daily current affairs and study help. Not designed for
+  children under 13.
+- **How does the app provide value?** Free for everyone: daily UPSC current
+  affairs with exam relevance and a quiz, an AI study assistant, a weekly
+  study plan, streaks and a leaderboard. Students of the academy's
+  programmes also get their video classes, notes, tests and live classes in
+  one place.
+- **Expected installs in the first year?** [e.g. 1,000–10,000]
+- **How did you decide the app is ready?** Every core flow — sign-up, sign-in,
+  classes, notes, tests, current affairs, account deletion — works for the
+  testers on the Play-distributed build, and no crash or sign-in failure
+  has been reported since [date of the last fix].

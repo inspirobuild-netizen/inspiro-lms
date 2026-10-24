@@ -2,9 +2,68 @@ import { and, eq, gte, isNotNull } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { redis } from '../../lib/redis.js';
 import { examAttempts, exams, lessonProgress, streaks } from '../../../drizzle/schema.js';
-import { aiCoachPlan, type AiCoachPlan } from '../../lib/ai-client.js';
+import { aiCoachPlan, AiUnavailableError, type AiCoachPlan } from '../../lib/ai-client.js';
+import { logger } from '../../lib/logger.js';
 
 const CACHE_TTL_SECONDS = 24 * 3600; // one plan per day per student
+// The starter plan is a stand-in, not an answer: cache it just long enough to
+// spare the AI service a request per screen visit, so personalised plans come
+// back within the half hour once the AI does.
+const STARTER_PLAN_TTL_SECONDS = 30 * 60;
+
+/**
+ * What Coach shows when the AI cannot produce a plan — provider outage,
+ * expired key, timeout. It used to be an error screen ("Your coach is offline
+ * right now"), which is what a student or a store reviewer met for weeks when
+ * the Groq key expired in October 2026. A sensible generic week is better than
+ * nothing, and the motivation line says plainly that it is not personalised.
+ */
+function starterPlan(): AiCoachPlan {
+  return {
+    strengths: [],
+    weaknesses: [],
+    at_risk: false,
+    motivation:
+      'Here is a starter week to build your routine. Your personalised plan will appear here as you complete classes and tests.',
+    weekly_plan: [
+      {
+        day: 'Monday',
+        focus: 'Build your routine',
+        tasks: ['Fix a daily study time and keep to it', "Read today's current affairs and answer its quiz", 'Watch one class from your course'],
+      },
+      {
+        day: 'Tuesday',
+        focus: 'Polity basics',
+        tasks: ['Read one NCERT Polity chapter', 'Note five key articles of the Constitution', "Read today's current affairs"],
+      },
+      {
+        day: 'Wednesday',
+        focus: 'History and culture',
+        tasks: ['Read one NCERT History chapter', 'Write a one-page summary in your own words', "Read today's current affairs"],
+      },
+      {
+        day: 'Thursday',
+        focus: 'Geography and environment',
+        tasks: ['Read one NCERT Geography chapter', 'Find ten places from this week\'s news on a map', "Read today's current affairs"],
+      },
+      {
+        day: 'Friday',
+        focus: 'Economy',
+        tasks: ['Read one NCERT Economy chapter', 'Explain five economic terms from this week\'s news', "Read today's current affairs"],
+      },
+      {
+        day: 'Saturday',
+        focus: 'Practice',
+        tasks: ['Take a test from the Exams tab', 'Write one 150-word answer on a topic from the week', 'Ask a doubt about anything that was unclear'],
+      },
+      {
+        day: 'Sunday',
+        focus: 'Revise and plan',
+        tasks: ["Revise the week's notes", 'Re-read the current affairs you found hardest', 'Plan next week\'s study slots'],
+      },
+    ],
+  };
+}
 const keyPrefix = () => process.env['REDIS_KEY_PREFIX'] ?? 'inspiro:';
 
 interface SubjectStats {
@@ -83,14 +142,23 @@ export async function getMyPlan(
   }
 
   const stats = await gatherStats(studentId);
-  const plan = await aiCoachPlan({
-    ...stats,
-    target_exam: 'generic',
-    language: opts.language ?? 'en',
-  });
+  let plan: AiCoachPlan;
+  let ttl = CACHE_TTL_SECONDS;
+  try {
+    plan = await aiCoachPlan({
+      ...stats,
+      target_exam: 'generic',
+      language: opts.language ?? 'en',
+    });
+  } catch (err) {
+    if (!(err instanceof AiUnavailableError)) throw err;
+    logger.warn({ err: err.message }, 'AI coach unavailable — serving the starter plan');
+    plan = starterPlan();
+    ttl = STARTER_PLAN_TTL_SECONDS;
+  }
 
   const payload = { plan, generatedAt: new Date().toISOString() };
-  await redis.set(cacheKey, JSON.stringify(payload), 'EX', CACHE_TTL_SECONDS);
+  await redis.set(cacheKey, JSON.stringify(payload), 'EX', ttl);
 
   return { ...payload, cached: false };
 }
