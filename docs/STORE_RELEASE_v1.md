@@ -576,6 +576,48 @@ The planned bank gateway (v2) has the same constraint: allowed on both stores
 for in-person coaching fees; for online-only digital courses Apple requires
 IAP and Google requires Play Billing (or its user-choice billing in India).
 
+### 10.3a Decision (3 Nov 2026): in-person coaching → reply under 3.1.3(e)
+
+The academy confirmed students attend classes in person; fees pay for that
+classroom coaching. So no In-App Purchase. The listing was aligned with it:
+no "live online classes", no promise of AI answers while the Groq key is
+expired, the batch material described as material for classroom students.
+
+Reply sent with 1.1.4 (50):
+
+> Thank you for the review. Both points are addressed in version 1.1.4 (build 50).
+>
+> **Guideline 2.1 — Sign-in.** Build 46 could not sign in on iOS: a defect in how
+> the app passed notifications to Firebase Authentication made verification
+> fail for every number. It is fixed in build 50, and we verified both demo
+> accounts on an iPhone 17 Pro Max simulator against our production server.
+> Demo account A, an enrolled student: mobile 7000000001, code 430915.
+> Demo account B, a member of the public: mobile 7000000002, code 430915.
+> No SMS is sent to these numbers and the code always works; the country code
+> is fixed at +91.
+>
+> **Guideline 3.1.1 — Payments.** We believe the app falls under guideline
+> 3.1.3(e), Goods and Services Outside of the App.
+> - Inspiro IAS Academy is a coaching centre in Kochi, Kerala. Students attend
+>   classes in person at the centre, and any fee is paid to the academy for
+>   that classroom coaching — a service consumed outside the app.
+> - The app is the academy's learning app for those classroom students. When a
+>   student joins a classroom batch, the academy gives them access to that
+>   batch's notes, tests and videos for their classes. Some batches are free.
+> - Nothing is sold in or for the app. The material is not sold anywhere and
+>   cannot be bought separately from the classroom course. The app shows no
+>   prices and has no payment screens or payment links. Tapping Enrol sends a
+>   request to the academy, which confirms the student's place in a classroom
+>   batch.
+> - Anyone can use the app's free features without joining a batch (demo
+>   account B).
+>
+> We would be grateful if you could reconsider under 3.1.3(e). Thank you.
+
+The planned bank gateway (v2) stays allowed on both stores for these
+classroom fees — Apple's 3.1.3(e) in fact requires a non-IAP method for
+services consumed outside the app.
+
 ### 10.4 Do not disturb a store review
 
 While a Play release is in review, do not upload a new bundle or edit the
