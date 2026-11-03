@@ -65,8 +65,14 @@ void main() {
       await prefs.clear();
 
       app.main();
-      final onLogin = await pumpUntil(tester, find.text('Log in'), timeout: const Duration(seconds: 60));
-      report('launch', onLogin ? 'login screen shown' : 'NO LOGIN SCREEN: ${screenText(tester)}');
+      // The first launch of a debug build on a cold CI simulator compiles the
+      // app as it starts and has taken over a minute (run 3); a release build
+      // is precompiled. Allow for that, and log the time so a genuine hang
+      // still fails and a slow start is visible rather than hidden.
+      final launched = DateTime.now();
+      final onLogin = await pumpUntil(tester, find.text('Log in'), timeout: const Duration(seconds: 180));
+      final took = DateTime.now().difference(launched).inSeconds;
+      report('launch', onLogin ? 'login screen shown after ${took}s' : 'NO LOGIN SCREEN after ${took}s: ${screenText(tester)}');
       expect(onLogin, isTrue);
 
       await tester.tap(find.text('Log in'));
