@@ -158,6 +158,72 @@ export async function listCatalogFeePlans(courseId: string) {
     .orderBy(asc(feePlans.sortOrder), asc(feePlans.createdAt));
 }
 
+// ── Student: ask to join a course (v1 — no payment in the app) ─────────────
+/**
+ * A student taps Enrol and the academy confirms. Nothing is paid in the app:
+ * any fee is collected by the office, which records it on the Fees page after
+ * approval, and some courses have none. So this only queues the request — in
+ * the same Enrolment requests list staff already work from, with method
+ * 'other' and no reference marking it as asked-for rather than paid-for. The
+ * app's "Awaiting confirmation" state keys on the pending row and works as is.
+ *
+ * Idempotent: tapping twice returns the request already waiting.
+ */
+export async function requestEnrolment(studentId: string, courseId: string) {
+  const [course] = await db
+    .select()
+    .from(courses)
+    .where(and(eq(courses.id, courseId), eq(courses.isPublished, true)))
+    .limit(1);
+  if (!course) throw err('Course not found', 404, 'COURSE_NOT_FOUND');
+
+  const [already] = await db
+    .select({ batchId: batchEnrollments.batchId })
+    .from(batchEnrollments)
+    .innerJoin(batches, eq(batches.id, batchEnrollments.batchId))
+    .where(
+      and(
+        eq(batchEnrollments.userId, studentId),
+        eq(batchEnrollments.status, 'active'),
+        eq(batches.courseId, courseId),
+      ),
+    )
+    .limit(1);
+  if (already) throw err('You are already enrolled in this course', 409, 'ALREADY_ENROLLED');
+
+  const [waiting] = await db
+    .select()
+    .from(enrollmentRequests)
+    .where(
+      and(
+        eq(enrollmentRequests.studentId, studentId),
+        eq(enrollmentRequests.courseId, courseId),
+        eq(enrollmentRequests.status, 'pending'),
+      ),
+    )
+    .limit(1);
+  if (waiting) return waiting;
+
+  const lead = await ensureLead(studentId);
+  const [row] = await db
+    .insert(enrollmentRequests)
+    .values({
+      studentId,
+      leadId: lead.id,
+      courseId,
+      amount: course.feeAmount,
+      method: 'other',
+      channel: 'manual',
+    })
+    .returning();
+  return row!;
+}
+
+/** A request made with requestEnrolment: asked for in the app, nothing paid. */
+function isAppRequest(r: { method: string; channel: string; reference: string | null }) {
+  return r.method === 'other' && r.channel === 'manual' && !r.reference;
+}
+
 // ── Student: my requests ────────────────────────────────────────────────────
 export async function listMyEnrollRequests(studentId: string) {
   const rows = await db
@@ -247,7 +313,10 @@ export async function verifyEnrollRequest(
     const [reqRow] = await tx.select().from(enrollmentRequests).where(eq(enrollmentRequests.id, requestId)).limit(1);
     if (!reqRow) throw err('Enrollment request not found', 404, 'NOT_FOUND');
     if (reqRow.status !== 'pending') throw err('This request has already been processed', 400, 'ALREADY_PROCESSED');
-    if (!reqRow.reference) throw err('Student has not submitted a payment reference yet', 400, 'NO_REFERENCE');
+    // Asked for in the app: there is no payment to check. Approving admits the
+    // student with the fee due, for the office to collect.
+    const appRequest = isAppRequest(reqRow);
+    if (!appRequest && !reqRow.reference) throw err('Student has not submitted a payment reference yet', 400, 'NO_REFERENCE');
 
     const [batch] = await tx.select().from(batches).where(eq(batches.id, input.batchId)).limit(1);
     if (!batch) throw err('Batch not found', 400, 'BATCH_NOT_FOUND');
@@ -285,7 +354,9 @@ export async function verifyEnrollRequest(
         feePlan: plan?.name,
         feeAmount,
         amountPaid: 0,
-        paymentStatus: 'pending',
+        // A free course owes nothing; leaving it "pending" would list the
+        // student in Fees outstanding for ₹0.
+        paymentStatus: feeAmount > 0 ? 'pending' : 'paid',
       })
       .returning();
 
@@ -304,18 +375,32 @@ export async function verifyEnrollRequest(
       await tx.insert(leadStatusHistory).values({ leadId: reqRow.leadId, toStatus: 'converted', changedBy: staffId });
     }
 
-    return { admissionId: admission!.id, admissionNo, studentId: reqRow.studentId, amount: reqRow.amount, method: reqRow.method, reference: reqRow.reference! };
+    return {
+      admissionId: admission!.id,
+      admissionNo,
+      studentId: reqRow.studentId,
+      amount: reqRow.amount,
+      method: reqRow.method,
+      reference: reqRow.reference,
+      appRequest,
+    };
   });
 
   const finish = async () => {
     const r = await result;
-    await recordPayment(r.admissionId, { amount: r.amount, method: r.method, reference: r.reference }, staffId, staffRole);
+    // Nothing was paid for an app request, so there is no payment to record —
+    // the office records the fee on the Fees page when it is collected.
+    if (!r.appRequest) {
+      await recordPayment(r.admissionId, { amount: r.amount, method: r.method, reference: r.reference! }, staffId, staffRole);
+    }
     await sendNotificationToUser(
       r.studentId,
-      isAdmin ? 'Admission confirmed' : 'Admission received',
-      isAdmin
-        ? 'Your payment has been verified and course access is now active.'
-        : 'Your admission has been recorded. Course access opens once our office confirms the payment — usually within a working day.',
+      !isAdmin ? 'Admission received' : r.appRequest ? 'You are enrolled' : 'Admission confirmed',
+      !isAdmin
+        ? 'Your admission has been recorded. Course access opens once our office confirms it — usually within a working day.'
+        : r.appRequest
+          ? 'The academy has confirmed your enrolment. Your classes are open now.'
+          : 'Your payment has been verified and course access is now active.',
       'admission_update',
     );
     return r;

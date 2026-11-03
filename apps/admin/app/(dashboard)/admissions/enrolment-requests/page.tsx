@@ -48,6 +48,11 @@ const money = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 const when = (iso: string) =>
   new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
 
+// A student who tapped Enrol in the app (v1 takes no payment in the app):
+// nothing to check, the office collects any fee after approval.
+const isAppRequest = (r: Pick<Request, 'method' | 'channel' | 'reference'>) =>
+  r.method === 'other' && r.channel === 'manual' && !r.reference;
+
 export default function EnrolmentRequestsPage() {
   const { accessToken } = useAuthStore();
   const api = createApiClient(accessToken);
@@ -82,8 +87,9 @@ export default function EnrolmentRequestsPage() {
         <div>
           <h2 className="font-display font-bold text-2xl text-slate-100">Enrolment requests</h2>
           <p className="text-sm text-slate-500 mt-1">
-            Students who signed up in the app and paid. Check the money arrived, then verify —
-            that records the payment, admits them and places them in a batch in one step.
+            Students who asked to join a course in the app, and students who paid. Approving an
+            app request admits the student into a batch straight away — collect any fee at the
+            office and record it on the Fees page. For a paid claim, check the money arrived first.
           </p>
         </div>
         <Select
@@ -150,8 +156,9 @@ export default function EnrolmentRequestsPage() {
                                   : 'amber'
                             }
                           >
-                            {r.status === 'pending' ? 'awaiting check' : r.status}
+                            {r.status === 'pending' ? (isAppRequest(r) ? 'awaiting approval' : 'awaiting check') : r.status}
                           </Badge>
+                          {isAppRequest(r) && <Badge variant="slate">asked in the app</Badge>}
                           {r.channel === 'gateway' && <Badge variant="teal">bank gateway</Badge>}
                           {r.status === 'verified' &&
                             (r.batchName ? (
@@ -167,6 +174,18 @@ export default function EnrolmentRequestsPage() {
                           {when(r.createdAt)}
                         </p>
 
+                        {isAppRequest(r) ? (
+                          <p className="mt-3 text-xs text-slate-400">
+                            {r.courseFee > 0 ? (
+                              <>
+                                Fee due at the office{' '}
+                                <span className="text-slate-100 font-medium">{money(r.courseFee)}</span>
+                              </>
+                            ) : (
+                              'Free course — no fee'
+                            )}
+                          </p>
+                        ) : (
                         <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs">
                           <span className="text-slate-400">
                             Paid{' '}
@@ -188,6 +207,7 @@ export default function EnrolmentRequestsPage() {
                             </span>
                           </span>
                         </div>
+                        )}
 
                         {r.status === 'rejected' && r.rejectionReason && (
                           <p className="text-xs text-rose-300/80 mt-2">
@@ -206,7 +226,7 @@ export default function EnrolmentRequestsPage() {
                         {r.status === 'pending' ? (
                           <>
                             <Button size="sm" onClick={() => setActing({ req: r, mode: 'verify' })}>
-                              Verify fee
+                              {isAppRequest(r) ? 'Approve' : 'Verify fee'}
                             </Button>
                             <Button
                               variant="outline"
@@ -300,7 +320,7 @@ function ActionModal({
       const batch = batches.find((b) => b.id === batchId);
       toast(
         mode === 'verify'
-          ? `Fee verified — ${request.studentName} is admitted${
+          ? `${appRequest ? 'Approved' : 'Fee verified'} — ${request.studentName} is admitted${
               batch ? ` into ${batch.name}` : ''
             } and can open the course now.`
           : `Request rejected. ${request.studentName} has been told why.`,
@@ -313,16 +333,31 @@ function ActionModal({
     onError: (e) => toast(e instanceof ApiError ? e.message : 'Could not complete that', 'error'),
   });
 
-  const noReference = !request.reference && !request.gatewayPaymentId;
+  const appRequest = isAppRequest(request);
+  const noReference = !appRequest && !request.reference && !request.gatewayPaymentId;
 
   return (
     <Modal
       open
       onClose={onClose}
-      title={mode === 'verify' ? 'Verify fee and admit' : 'Reject this request'}
+      title={mode === 'verify' ? (appRequest ? 'Approve and enrol' : 'Verify fee and admit') : 'Reject this request'}
       description={`${request.studentName} · ${request.courseTitle}`}
     >
       <div className="space-y-4">
+        {appRequest ? (
+        <div className="rounded-xl border border-white/8 bg-surface-2 p-4 space-y-1.5 text-sm">
+          <div className="flex justify-between">
+            <span className="text-slate-400">Asked in the app</span>
+            <span className="text-slate-300">no payment taken</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-400">Course fee</span>
+            <span className="text-slate-100 font-medium">
+              {request.courseFee > 0 ? `${money(request.courseFee)} — due at the office` : 'Free'}
+            </span>
+          </div>
+        </div>
+        ) : (
         <div className="rounded-xl border border-white/8 bg-surface-2 p-4 space-y-1.5 text-sm">
           <div className="flex justify-between">
             <span className="text-slate-400">Amount claimed</span>
@@ -345,6 +380,7 @@ function ActionModal({
             </span>
           </div>
         </div>
+        )}
 
         {mode === 'verify' ? (
           <>
@@ -354,7 +390,7 @@ function ActionModal({
                 verified. Ask them to enter it in the app first.
               </p>
             )}
-            {request.amount !== request.courseFee && (
+            {!appRequest && request.amount !== request.courseFee && (
               <p className="text-xs text-amber-300/90">
                 This is {request.amount < request.courseFee ? 'less' : 'more'} than the course fee.
                 Verify only if that is expected.
@@ -385,9 +421,9 @@ function ActionModal({
             </Field>
 
             <p className="text-xs text-slate-500">
-              Check the payment against the bank statement first. This records the payment, creates
-              the admission and enrols the student in one step — they can open the course
-              immediately afterwards.
+              {appRequest
+                ? 'This creates the admission and enrols the student now — they can open the course immediately. No payment is recorded: if the course has a fee, collect it at the office and record it on the Fees page.'
+                : 'Check the payment against the bank statement first. This records the payment, creates the admission and enrols the student in one step — they can open the course immediately afterwards.'}
             </p>
           </>
         ) : (
@@ -411,7 +447,7 @@ function ActionModal({
             disabled={mode === 'verify' ? !batchId || noReference : reason.trim().length < 3}
             onClick={() => act.mutate()}
           >
-            {mode === 'verify' ? 'Verify and admit' : 'Reject request'}
+            {mode === 'verify' ? (appRequest ? 'Approve and enrol' : 'Verify and admit') : 'Reject request'}
           </Button>
         </div>
       </div>

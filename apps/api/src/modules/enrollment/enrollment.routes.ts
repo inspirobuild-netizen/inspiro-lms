@@ -10,6 +10,7 @@ import {
 } from './enrollment.schema.js';
 import { enrolOptions, startCheckout, checkoutStatus } from './checkout.service.js';
 import {
+  requestEnrolment,
   listMyEnrollRequests,
   listCatalogFeePlans,
   listEnrollRequests,
@@ -49,6 +50,19 @@ export default async function enrollmentRoutes(app: FastifyInstance) {
     }
     return true;
   };
+
+  // v1 enrolment: ask, and the academy confirms. Any fee is paid at the office.
+  app.post(
+    '/me/enroll/request',
+    { preHandler: [authenticate], config: { rateLimit: { max: 20, timeWindow: '1 hour' } } },
+    async (req, reply) => {
+      if (!studentsOnly(req, reply)) return;
+      const body = validate(z.object({ courseId: z.string().uuid() }), req.body, reply);
+      if (!body) return;
+      const request = await requestEnrolment(req.user.sub, body.courseId);
+      return reply.status(201).send({ success: true, data: request });
+    },
+  );
 
   app.get('/me/enroll/options/:id', { preHandler: [authenticate] }, async (req, reply) => {
     if (!studentsOnly(req, reply)) return;

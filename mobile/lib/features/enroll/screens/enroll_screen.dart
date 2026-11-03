@@ -35,6 +35,27 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
   bool _busy = false;
   String? _error;
 
+  /// v1 enrolment: ask, and the academy confirms. Nothing is paid here.
+  Future<void> _request(EnrolOptions o) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await EnrollApi.request(o.courseId);
+      // The catalogue and this screen both read the pending request.
+      ref.invalidate(myEnrollRequestsProvider);
+    } on DioException catch (e) {
+      final err = e.response?.data is Map ? (e.response!.data as Map)['error'] : null;
+      final msg = err is Map ? err['message'] as String? : null;
+      setState(() => _error = msg ?? 'Could not send your request. Please try again.');
+    } catch (_) {
+      setState(() => _error = 'Something went wrong. Please try again.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _pay(EnrolOptions o) async {
     setState(() {
       _busy = true;
@@ -86,6 +107,19 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         icon: Icons.hourglass_top_rounded, color: Brand.amber,
         title: 'Admission received',
         body: 'Your admission has been recorded. Course access opens once our office confirms the payment — usually within a working day. Nothing more to pay here.',
+      ));
+    }
+
+    // Asked already (v1 request, or anything else the office still has to act
+    // on): say so rather than offering the button again.
+    final requested = ref.watch(myEnrollRequestsProvider).asData?.value
+            .any((r) => r.courseId == widget.course.id && r.isOfficePending) ??
+        false;
+    if (requested && !kInAppPayments) {
+      return AppScaffold(title: widget.course.title, body: _panel(
+        icon: Icons.mark_email_read_rounded, color: Brand.teal,
+        title: 'Request sent',
+        body: 'Inspiro IAS Academy will confirm your enrolment. Your classes, notes and tests open here as soon as you are enrolled — we will send you a notification.',
       ));
     }
 
@@ -209,16 +243,24 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         // own billing for it, so until the bank gateway ships (v2) the fee is
         // shown and enrolment is arranged by the academy. On iOS even the
         // wording avoids promising a non-Apple payment method.
-        if (!kInAppPayments)
+        if (!kInAppPayments) ...[
+          // v1: the student asks, the academy confirms. No payment in the app
+          // on either platform; on iOS the wording does not mention fees at
+          // all (App Review reads any fee talk as an outside-purchase prompt).
           _panel(
             icon: Icons.school_rounded, color: Brand.teal,
-            title: Platform.isIOS ? 'Enrolment through the academy' : 'Online payment coming soon',
+            title: 'Enrolment through the academy',
             body: Platform.isIOS
-                ? 'Enrolment for this course is arranged by Inspiro IAS Academy. Once you are enrolled, your classes, notes and tests appear here.'
-                : 'Paying inside the app is on its way. For now, enrol through Inspiro IAS Academy — once the academy enrols you, your classes, notes and tests appear here.',
+                ? 'Send a request and Inspiro IAS Academy will confirm your place. Your classes, notes and tests open here once you are enrolled.'
+                : 'Send a request and Inspiro IAS Academy will confirm your place — any course fee is handled by the academy office. Your classes, notes and tests open here once you are enrolled.',
             flat: true,
-          )
-        else if (o.canPayOnline) ...[
+          ),
+          const SizedBox(height: 16),
+          BrandButton(
+            label: _busy ? 'Sending…' : 'Request to enrol',
+            onTap: _busy ? null : () => _request(o),
+          ),
+        ] else if (o.canPayOnline) ...[
           BrandButton(
             label: _busy ? 'Opening the bank…' : 'Pay ${rupees(amount)} securely',
             onTap: _busy ? null : () => _pay(o),

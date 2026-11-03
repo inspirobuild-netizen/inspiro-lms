@@ -42,6 +42,16 @@ class EnrollApi {
     return CheckoutSession.fromJson(res.data!['data'] as Map<String, dynamic>);
   }
 
+  /// Asks the academy to enrol the student (v1: no payment in the app). The
+  /// request waits in the admin's Enrolment requests list; approving it opens
+  /// the course. Safe to call twice — the server returns the waiting request.
+  static Future<void> request(String courseId) async {
+    await ApiClient.dio.post<Map<String, dynamic>>(
+      '/api/v1/me/enroll/request',
+      data: {'courseId': courseId},
+    );
+  }
+
   /// The server's view of an order. Also nudges the bank when a webhook is
   /// late, so a student who paid is not left staring at a spinner.
   static Future<CheckoutStatus> status(String orderId) async {

@@ -94,7 +94,7 @@ class CatalogScreen extends ConsumerWidget {
                 const Text(
                   kInAppPayments
                       ? 'Pick a course, pay securely in the app, and start learning the moment your payment clears.'
-                      : 'Browse the courses. Enrolment is arranged by the academy — your classes appear here as soon as you are enrolled.',
+                      : 'Tap Enrol on a course to send a request. The academy confirms it, and your classes appear here as soon as you are enrolled.',
                   style: TextStyle(color: Colors.white38, fontSize: 13, height: 1.5),
                 ),
                 const SizedBox(height: 20),
@@ -249,7 +249,7 @@ class _CatalogCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text(kInAppPayments ? 'Enrol' : 'Details',
+                  child: const Text('Enrol',
                       style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold)),
                 ),
             ],
