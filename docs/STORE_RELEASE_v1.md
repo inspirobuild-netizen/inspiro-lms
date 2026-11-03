@@ -521,3 +521,63 @@ Draft answers for the application (check every claim; fill the brackets):
   classes, notes, tests, current affairs, account deletion — works for the
   testers on the Play-distributed build, and no crash or sign-in failure
   has been reported since [date of the last fix].
+
+## 10. Second App Store rejection (28 Oct 2026) and 1.1.4
+
+Apple rejected 1.1.3 (46) again: **2.1** neither demo account could sign in,
+and **3.1.1** the app gives access to paid content without In-App Purchase.
+
+### 10.1 Sign-in (2.1) — fixed in 1.1.4, proven on iOS
+
+Apple's device never reached our server (no session, no request from them in
+nginx's log). Running the app in the iOS Simulator
+(`.github/workflows/ios-e2e.yml`, push a tag `ios-e2e-<n>`; results on the
+branch `ci/ios-e2e-results`) reproduced it: Send OTP →
+"Verification failed … (notification-not-forwarded)" — for every number.
+
+Cause: the project used Flutter's scene-based template (SceneDelegate in
+Info.plist, plugins registered on an implicit engine). FlutterAppDelegate then
+does not answer `application(_:didReceiveRemoteNotification:…)`, Firebase Auth
+probes exactly that before every phone verification, and firebase_auth compiles
+out its own forwarding when firebase_messaging is present. Fix (7a9457b): the
+classic lifecycle the CampusOne apps ship with — no scene manifest, plugins
+registered with the delegate. Simulator run 2: both demo numbers reach Home.
+
+**Every iOS build must pass the simulator check before it is submitted.**
+
+Known plugin defect, not fixed: on iOS `setSettings(appVerificationDisabledForTesting: false)`
+is a no-op, so after a review number is used, a real number in the *same app
+session* stays in test mode and fails. Students never type the review numbers.
+
+### 10.2 Enrolment as the academy runs it (1.1.4)
+
+Student signs up → opens a course → **Request to enrol** → staff approve it in
+Admissions → Enrolment requests (*Approve and enrol*, pick the batch) → the
+course opens and the student is notified. No payment in the app: the fee, if
+any, is due on the admission and collected by the office (Fees page); free
+courses are marked paid. API: `POST /me/enroll/request` (additive).
+
+### 10.3 In-App Purchase (3.1.1) — open, business decision
+
+Apple's rule: content unlocked in the app that was paid for outside must also
+be purchasable with In-App Purchase (3.1.1, 3.1.3(b)). Exemptions that could
+fit: a fee for a service *consumed outside the app* — in-person classroom
+coaching — may not use IAP at all (3.1.3(e)); one-to-one live tutoring
+(3.1.3(d)). Group online classes are explicitly not exempt.
+
+- If the academy's courses are classroom coaching and the app holds material
+  for those students: reply citing 3.1.3(e) (draft in the conversation of
+  3 Nov 2026), resubmit 1.1.4.
+- If any course is sold as online-only: Apple In-App Purchase for those on
+  iPhone (Apple keeps 15% with the Small Business Program); office-paid and
+  free access keeps working alongside (3.1.3(b)).
+
+The planned bank gateway (v2) has the same constraint: allowed on both stores
+for in-person coaching fees; for online-only digital courses Apple requires
+IAP and Google requires Play Billing (or its user-choice billing in India).
+
+### 10.4 Do not disturb a store review
+
+While a Play release is in review, do not upload a new bundle or edit the
+Play listing — a new submission replaces the one in review and restarts it.
+Server changes during a review must be additive only.
