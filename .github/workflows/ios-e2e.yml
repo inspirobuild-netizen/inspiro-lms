@@ -1,0 +1,104 @@
+name: iOS sign-in (Simulator)
+
+# Runs the real iOS app in the iOS Simulator and signs in with the App Store
+# review numbers against production (integration_test/review_sign_in_test.dart).
+# Nobody can run the iOS build on a device from the development machine, and
+# Apple rejected 1.1.3 (46) because the review accounts could not sign in — so
+# this is the check every iOS submission should pass first.
+#
+# Trigger: Actions → "iOS sign-in (Simulator)" → Run workflow, or push a tag
+# `ios-e2e-<anything>`. Results: the job's annotations, plus the test output and
+# filtered Simulator logs on the branch `ci/ios-e2e-results`.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['ios-e2e-*']
+
+jobs:
+  sign-in:
+    name: iOS Simulator — review sign-in
+    runs-on: macos-26
+    timeout-minutes: 60
+    permissions:
+      contents: write   # to publish the results branch
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.44.2
+          cache: true
+
+      # Same reason as ios.yml: Agora and media_kit build only with CocoaPods.
+      - name: Use CocoaPods instead of Swift Package Manager
+        run: flutter config --no-enable-swift-package-manager
+
+      - run: flutter pub get
+
+      - name: Boot an iPhone simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          found = [(rt, d) for rt, ds in devices.items() if "iOS" in rt for d in ds]
+          pick = [f for f in found if f[1]["name"] == "iPhone 17 Pro Max"] or [f for f in found if f[1]["name"].startswith("iPhone")]
+          rt, d = sorted(pick, key=lambda f: f[0])[-1]
+          print(d["udid"])
+          print("Using", d["name"], rt, file=sys.stderr)
+          ')
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Run the review sign-in test against production
+        id: test
+        run: |
+          # The app's own process only; filtered and redacted before publishing.
+          xcrun simctl spawn "${{ steps.sim.outputs.udid }}" log stream --style compact --level debug \
+            --predicate 'process == "Runner"' > "$RUNNER_TEMP/sim-raw.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/logpid"
+          set +e
+          flutter test integration_test/review_sign_in_test.dart \
+            -d "${{ steps.sim.outputs.udid }}" \
+            --dart-define=API_BASE_URL=https://api.inspiroiasacademy.in \
+            --reporter expanded 2>&1 | tee "$RUNNER_TEMP/e2e.log"
+          status=${PIPESTATUS[0]}
+          kill "$(cat "$RUNNER_TEMP/logpid")" 2>/dev/null || true
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Report
+        if: always()
+        run: |
+          grep -o 'E2E|.*' "$RUNNER_TEMP/e2e.log" | while IFS= read -r line; do
+            case "$line" in *FAILED*|*NO\ LOGIN*) echo "::error title=sign-in::$line";; *) echo "::notice title=sign-in::$line";; esac
+          done
+          # What Firebase and the app said on the device, without tokens.
+          grep -iE 'FIRAuth|FirebaseAuth|\[Firebase|phone|verif|recaptcha|apns|error|exception|E2E\|' "$RUNNER_TEMP/sim-raw.log" \
+            | sed -E 's/eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/<jwt>/g; s/AIza[0-9A-Za-z_-]{30,}/<key>/g' \
+            | tail -400 > "$RUNNER_TEMP/sim.log" || true
+          grep -iE 'FIRAuth|FirebaseAuth|error' "$RUNNER_TEMP/sim.log" | tail -15 | while IFS= read -r line; do
+            echo "::warning title=simulator log::${line:0:900}"
+          done
+          echo "Test exit status: ${{ steps.test.outputs.status }}"
+
+      - name: Publish results to branch ci/ios-e2e-results
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/results"
+          cp "$RUNNER_TEMP/e2e.log" "$RUNNER_TEMP/sim.log" "$RUNNER_TEMP/results/" 2>/dev/null || true
+          echo "run ${{ github.run_number }} · commit ${{ github.sha }} · status ${{ steps.test.outputs.status }}" > "$RUNNER_TEMP/results/SUMMARY.txt"
+          cd "$RUNNER_TEMP/results"
+          git init -q && git checkout -q -b results
+          git config user.name "ios-e2e" && git config user.email "ios-e2e@users.noreply.github.com"
+          git add -A && git commit -q -m "iOS sign-in results, run ${{ github.run_number }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:refs/heads/ci/ios-e2e-results
+
+      - name: Fail the job if sign-in failed
+        if: steps.test.outputs.status != '0'
+        run: exit 1
