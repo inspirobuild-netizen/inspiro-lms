@@ -4,6 +4,9 @@ class Exam {
   final String subject;
   final String type; // practice | mock | sectional | live
   final int durationMins;
+  /// The exam's own marking scheme, so the player labels questions with the
+  /// real marks (it used to print a fixed "+2.0" whatever the exam said).
+  final double marksPerQuestion;
   final double negMarks;
   final double passPercent;
 
@@ -13,6 +16,7 @@ class Exam {
     required this.subject,
     required this.type,
     required this.durationMins,
+    this.marksPerQuestion = 1,
     this.negMarks = 0,
     this.passPercent = 40,
   });
@@ -23,6 +27,7 @@ class Exam {
         subject: (json['subject'] as String?) ?? 'General',
         type: (json['type'] as String?) ?? 'practice',
         durationMins: json['durationMins'] as int? ?? 30,
+        marksPerQuestion: (json['marksPerQuestion'] as num?)?.toDouble() ?? 1,
         negMarks: (json['negMarks'] as num?)?.toDouble() ?? 0,
         passPercent: (json['passPercent'] as num?)?.toDouble() ?? 40,
       );
@@ -47,7 +52,7 @@ class ExamQuestionApi {
     this.correct = -1,
   });
 
-  factory ExamQuestionApi.fromJson(Map<String, dynamic> json, {double marks = 2.0}) => ExamQuestionApi(
+  factory ExamQuestionApi.fromJson(Map<String, dynamic> json, {double marks = 1.0}) => ExamQuestionApi(
         id: json['id'] as String,
         subject: (json['subject'] as String?) ?? 'General',
         marks: marks,

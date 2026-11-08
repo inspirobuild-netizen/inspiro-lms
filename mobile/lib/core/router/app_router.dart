@@ -142,6 +142,8 @@ final routerProvider = Provider<GoRouter>((ref) {
               examId: extra.id.startsWith('demo-') ? null : extra.id,
               title: extra.title,
               durationMins: extra.durationMins,
+              marksPerQuestion: extra.marksPerQuestion,
+              negMarks: extra.negMarks,
             );
           }
           return const ExamPlayerScreen();

@@ -307,7 +307,11 @@ export async function convertLead(leadId: string, input: ConvertLeadInput, couns
         feePlan,
         feeAmount,
         amountPaid: 0,
-        paymentStatus: 'pending',
+        // A free admission (scholarship / free batch) owes nothing, so it is
+        // settled from day one — the same rule the app's enrol-request
+        // approval applies. 'pending' here made free students look unpaid in
+        // every fee list and filter.
+        paymentStatus: feeAmount > 0 ? 'pending' : 'paid',
       })
       .returning();
 

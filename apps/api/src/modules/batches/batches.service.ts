@@ -378,7 +378,8 @@ async function createAdmissionForEnrolment(
       feePlan: plan?.name,
       feeAmount,
       amountPaid: 0,
-      paymentStatus: 'pending',
+      // Nothing owed on a free batch — settled from day one (see convertLead).
+      paymentStatus: feeAmount > 0 ? 'pending' : 'paid',
     })
     .returning();
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/theme/brand.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../models/exam.dart';
@@ -14,7 +15,18 @@ class ExamPlayerScreen extends ConsumerStatefulWidget {
   final String? examId;
   final String title;
   final int durationMins;
-  const ExamPlayerScreen({super.key, this.examId, this.title = 'Mock Test', this.durationMins = 20});
+  /// The exam's marking scheme, shown on every question. The server scores
+  /// with the same figures; these are only for the label.
+  final double marksPerQuestion;
+  final double negMarks;
+  const ExamPlayerScreen({
+    super.key,
+    this.examId,
+    this.title = 'Mock Test',
+    this.durationMins = 20,
+    this.marksPerQuestion = 1,
+    this.negMarks = 0,
+  });
 
   @override
   ConsumerState<ExamPlayerScreen> createState() => _ExamPlayerScreenState();
@@ -61,6 +73,9 @@ class _ExamPlayerScreenState extends ConsumerState<ExamPlayerScreen> with Widget
   // Suppresses the lifecycle handler while WE are the reason the app is
   // backgrounding (submitting, or already finished).
   bool _finished = false;
+  /// Set once the attempt is scored; the page then shows the result instead
+  /// of the questions.
+  ExamResult? _result;
 
   @override
   void initState() {
@@ -228,9 +243,12 @@ class _ExamPlayerScreenState extends ConsumerState<ExamPlayerScreen> with Widget
     ref.invalidate(myAttemptsProvider);
     ref.invalidate(examsProvider);
 
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => _ResultScreen(result: result, terminated: _terminated)),
-    );
+    // The result replaces the question view in THIS page. It used to be
+    // pushed as a plain MaterialPageRoute over the router's /exam-player
+    // page; when the router rebuilt its pages it re-created the player
+    // underneath (which started the attempt again), so "Back to Exams" could
+    // land on a submitted test with the clock running and no way out.
+    setState(() => _result = result);
   }
 
   ExamResult _localScore() {
@@ -239,11 +257,15 @@ class _ExamPlayerScreenState extends ConsumerState<ExamPlayerScreen> with Widget
       if (_questions[q].correct == a) correct++;
     });
     return ExamResult(
-        total: _questions.length, correct: correct, attempted: _answers.length, score: correct * 2.0);
+        total: _questions.length, correct: correct, attempted: _answers.length,
+        score: correct * widget.marksPerQuestion);
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_result != null) {
+      return _ResultScreen(result: _result!, terminated: _terminated);
+    }
     if (_loading) {
       return const Scaffold(backgroundColor: Brand.bg, body: LoadingState(message: 'Loading questions…'));
     }
@@ -301,7 +323,7 @@ class _ExamPlayerScreenState extends ConsumerState<ExamPlayerScreen> with Widget
                           children: [
                             _tag(q.subject, Brand.surface2, Colors.white70),
                             const SizedBox(width: 8),
-                            _tag('+${q.marks.toStringAsFixed(1)} Marks', Brand.surface2, Brand.teal),
+                            _tag(_marksLabel(), Brand.surface2, Brand.teal),
                           ],
                         ),
                       ],
@@ -467,6 +489,14 @@ class _ExamPlayerScreenState extends ConsumerState<ExamPlayerScreen> with Widget
     );
   }
 
+  /// "+1 mark · −0.5 wrong", from the exam's own marking scheme.
+  String _marksLabel() {
+    String n(double v) => v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+    final m = widget.marksPerQuestion;
+    final label = '+${n(m)} ${m == 1 ? 'mark' : 'marks'}';
+    return widget.negMarks > 0 ? '$label · −${n(widget.negMarks)} wrong' : label;
+  }
+
   Widget _tag(String text, Color bg, Color fg) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
@@ -537,7 +567,9 @@ class _ResultScreen extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
+                  // Pops the /exam-player page itself — the result is drawn
+                  // inside it — so this always returns to the Exams tab.
+                  onPressed: () => context.pop(),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Brand.blue,
                     foregroundColor: Colors.white,

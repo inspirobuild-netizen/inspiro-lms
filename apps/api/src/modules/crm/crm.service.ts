@@ -219,18 +219,29 @@ export async function getCrmOverview() {
     .orderBy(desc(sql`count(${admissions.id})`))
     .limit(20);
 
-  // Leads owned per counsellor (for conversion %)
-  const leadCountRows = await db.select({ ownerId: leads.ownerId, n: count() }).from(leads).groupBy(leads.ownerId);
-  const leadMap = new Map(leadCountRows.map((r) => [r.ownerId, Number(r.n)]));
+  // Leads owned per counsellor (for conversion %). Conversion is "of the
+  // leads this counsellor owns, how many became students" — converted leads
+  // over leads. Admissions over leads is a different number: app approvals
+  // and manual enrolments are admissions with no owned lead behind them, and
+  // dividing those by the two leads the admin happens to own printed 600%.
+  const leadCountRows = await db
+    .select({
+      ownerId: leads.ownerId,
+      n: count(),
+      converted: sql<number>`count(*) filter (where ${leads.status} = 'converted')`,
+    })
+    .from(leads)
+    .groupBy(leads.ownerId);
+  const leadMap = new Map(leadCountRows.map((r) => [r.ownerId, { leads: Number(r.n), converted: Number(r.converted) }]));
   const counsellorPerformance = perfRows.map((p) => {
-    const leadTotal = leadMap.get(p.counsellorId) ?? 0;
+    const owned = leadMap.get(p.counsellorId) ?? { leads: 0, converted: 0 };
     return {
       counsellorId: p.counsellorId,
       counsellorName: p.counsellorName,
       admissions: Number(p.admissions),
       revenue: Number(p.revenue),
-      leads: leadTotal,
-      conversionRate: leadTotal > 0 ? Math.round((Number(p.admissions) / leadTotal) * 1000) / 10 : 0,
+      leads: owned.leads,
+      conversionRate: owned.leads > 0 ? Math.round((owned.converted / owned.leads) * 1000) / 10 : 0,
     };
   });
 

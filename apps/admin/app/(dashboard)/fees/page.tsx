@@ -22,11 +22,12 @@ type Overview = {
   byCourse: BreakdownRow[];
 };
 type OutstandingRow = {
-  installmentId: string;
+  // null = no instalment plan: the row is the admission's whole open balance
+  installmentId: string | null;
   label: string;
   amount: number;
   paidAmount: number;
-  dueDate: string;
+  dueDate: string | null;
   admissionId: string;
   admissionNo: string;
   studentName: string | null;
@@ -107,7 +108,9 @@ export default function FeesPage() {
       </div>
     ) },
     { key: 'due', header: 'Due', width: 'w-32', render: (r) => (
-      <Badge variant={isOverdue(r.dueDate) ? 'rose' : 'slate'}>{formatDate(r.dueDate)}</Badge>
+      r.dueDate
+        ? <Badge variant={isOverdue(r.dueDate) ? 'rose' : 'slate'}>{formatDate(r.dueDate)}</Badge>
+        : <Badge variant="slate">No schedule</Badge>
     ) },
     { key: 'counsellor', header: 'Counsellor', width: 'w-36', render: (r) => <span className="text-slate-400">{r.counsellorName || '—'}</span> },
     { key: 'branch', header: 'Branch', width: 'w-32', render: (r) => <span className="text-slate-400">{r.branchName || '—'}</span> },
@@ -163,15 +166,16 @@ export default function FeesPage() {
       <EnrollmentRequestsSection />
 
       <div>
-        <h3 className="font-display font-semibold text-lg text-slate-200 mb-3">Outstanding installments</h3>
-        <DataTable columns={columns} data={outstandingQ.data?.data ?? []} loading={outstandingQ.isLoading} getKey={(r) => r.installmentId} emptyMessage="Nothing outstanding 🎉" />
+        <h3 className="font-display font-semibold text-lg text-slate-200 mb-3">Outstanding balances</h3>
+        <p className="text-xs text-slate-500 mb-3">Unpaid instalments, then students with a balance and no instalment plan.</p>
+        <DataTable columns={columns} data={outstandingQ.data?.data ?? []} loading={outstandingQ.isLoading} getKey={(r) => r.installmentId ?? `balance-${r.admissionId}`} emptyMessage="Nothing outstanding 🎉" />
         <Pagination page={page} limit={limit} total={outstandingQ.data?.meta?.total ?? 0} onPage={setPage} />
       </div>
 
       <PaymentModal
         open={!!payFor}
         admissionId={payFor?.admissionId ?? null}
-        installmentId={payFor?.installmentId}
+        installmentId={payFor?.installmentId ?? undefined}
         defaultAmount={payFor ? payFor.amount - payFor.paidAmount : 0}
         onClose={() => setPayFor(null)}
         onRecorded={() => {

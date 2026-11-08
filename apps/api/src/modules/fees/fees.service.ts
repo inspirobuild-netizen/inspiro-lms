@@ -239,6 +239,11 @@ export async function listPayments(admissionId: string) {
       createdAt: payments.createdAt,
       installmentId: payments.installmentId,
       collectedByName: users.name,
+      // Whether the money is confirmed. A counsellor's entry sits at 'pending'
+      // until an admin checks it, and a bounced one is 'rejected' — a history
+      // without this read as if every claim were real money.
+      status: payments.status,
+      verifiedAt: payments.verifiedAt,
     })
     .from(payments)
     .leftJoin(users, eq(users.id, payments.collectedBy))
@@ -300,17 +305,11 @@ export async function getFeesOverview(q: FeesOverviewQuery) {
 
 export async function getOutstandingInstallments(q: FeesOverviewQuery & { page: number; limit: number }) {
   const admissionWhere = overviewFilters(q);
-  const conds = [eq(admissionInstallments.status, 'pending')];
-  if (admissionWhere) conds.push(admissionWhere);
-  const where = and(...conds);
 
-  const [{ total }] = await db
-    .select({ total: count() })
-    .from(admissionInstallments)
-    .innerJoin(admissions, eq(admissions.id, admissionInstallments.admissionId))
-    .where(where);
-
-  const items = await db
+  // 1. Unpaid instalments of plan-based admissions, earliest due first.
+  const instConds = [eq(admissionInstallments.status, 'pending')];
+  if (admissionWhere) instConds.push(admissionWhere);
+  const instalments = await db
     .select({
       installmentId: admissionInstallments.id,
       label: admissionInstallments.label,
@@ -329,12 +328,45 @@ export async function getOutstandingInstallments(q: FeesOverviewQuery & { page: 
     .leftJoin(users, eq(users.id, admissions.studentId))
     .leftJoin(counsellorAlias, eq(counsellorAlias.id, admissions.counsellorId))
     .leftJoin(branches, eq(branches.id, admissions.branchId))
-    .where(where)
-    .orderBy(asc(admissionInstallments.dueDate))
-    .limit(q.limit)
-    .offset((q.page - 1) * q.limit);
+    .where(and(...instConds))
+    .orderBy(asc(admissionInstallments.dueDate));
 
-  return { items, total };
+  // 2. Admissions that owe money but have no instalment plan at all — every
+  //    app-approved or manually enrolled student, i.e. most of them. Only
+  //    listing plan instalments said "nothing outstanding" while ₹47,500 was
+  //    due, so nobody was ever chased. One row per admission, the whole
+  //    balance, no due date (there is no schedule to be late against).
+  const balanceConds = [
+    sql`${admissions.feeAmount} > ${admissions.amountPaid}`,
+    sql`not exists (select 1 from ${admissionInstallments} where ${admissionInstallments.admissionId} = ${admissions.id})`,
+  ];
+  if (admissionWhere) balanceConds.push(admissionWhere);
+  const balances = await db
+    .select({
+      installmentId: sql<string | null>`null`,
+      label: sql<string>`'Balance due'`,
+      amount: admissions.feeAmount,
+      paidAmount: admissions.amountPaid,
+      dueDate: sql<string | null>`null`,
+      admissionId: admissions.id,
+      admissionNo: admissions.admissionNo,
+      studentName: users.name,
+      studentPhone: users.phone,
+      counsellorName: counsellorAlias.name,
+      branchName: branches.name,
+    })
+    .from(admissions)
+    .leftJoin(users, eq(users.id, admissions.studentId))
+    .leftJoin(counsellorAlias, eq(counsellorAlias.id, admissions.counsellorId))
+    .leftJoin(branches, eq(branches.id, admissions.branchId))
+    .where(and(...balanceConds))
+    .orderBy(asc(admissions.admissionDate));
+
+  // Dated instalments first (those can go overdue), then open balances by
+  // admission date. Paged in memory: a few hundred rows at most.
+  const all = [...instalments, ...balances];
+  const start = (q.page - 1) * q.limit;
+  return { items: all.slice(start, start + q.limit), total: all.length };
 }
 
 // ── Payment accounts (preset Inspiro UPI/bank accounts) ─────────────────────────
