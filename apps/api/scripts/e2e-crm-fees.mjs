@@ -85,8 +85,9 @@ try {
   check('a converted lead can no longer change stage', (await code(() => changeStatus(ids.lead, 'lost', admin.id))) === 'LEAD_CONVERTED');
   const [enr] = await q(`select status::text from batch_enrollments where user_id=$1 and batch_id=$2`, [ids.student, ids.batch]);
   check('MAKER-CHECKER: enrolment waits for admin approval', enr?.status === 'pending_approval', enr?.status);
-  const pays = await listPayments(ids.admission);
+  const pays = await q(`select id, amount, status::text from payments where admission_id=$1`, [ids.admission]);
   check('MAKER-CHECKER: the counsellor\'s ₹3000 cash entry is pending, not counted yet', pays.length === 1 && pays[0].status === 'pending' && adm.amount_paid === 0 && adm.payment_status === 'pending', JSON.stringify(pays.map((p) => [p.amount, p.status])));
+  check('payment history for staff shows each entry\'s status (pending/verified/rejected)', 'status' in ((await listPayments(ids.admission))[0] ?? {}), 'listPayments has no status field — staff cannot see which entries are still unconfirmed');
   const insts = await listInstallments(ids.admission);
   check('two instalments materialised (3000 due now, 3000 in 30 days), both pending', insts.length === 2 && insts.every((i) => i.status === 'pending') && insts.map((i) => Number(i.amount)).join('+') === '3000+3000', JSON.stringify(insts.map((i) => [i.label, i.amount, String(i.dueDate).slice(0, 10), i.status])));
 
