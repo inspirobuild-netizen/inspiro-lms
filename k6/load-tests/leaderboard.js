@@ -29,8 +29,10 @@ export default function () {
   const periods = ['weekly', 'monthly', 'all_time'];
   const period  = periods[Math.floor(Math.random() * periods.length)];
 
+  // The API takes the batch as a query parameter; the old /leaderboard/:batch
+  // path never existed and made every request a 404.
   const url = BATCH
-    ? `${BASE}/api/v1/leaderboard/${BATCH}?period=${period}`
+    ? `${BASE}/api/v1/leaderboard?batchId=${BATCH}&period=${period}`
     : `${BASE}/api/v1/leaderboard?period=${period}`;
 
   const res = http.get(url, { headers });
