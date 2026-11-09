@@ -37,7 +37,18 @@ class CourseDetailScreen extends ConsumerWidget {
             child: ErrorRetry(message: 'Could not load this course', onRetry: () => ref.invalidate(courseDetailProvider(courseId))),
           ),
         ]),
-        data: (detail) => _content(context, detail, batchName),
+        data: (detail) => RefreshIndicator(
+          color: Brand.blue,
+          backgroundColor: Brand.surface,
+          // Pull down to pick up classes the office added while this screen
+          // was open; the Learn tab refreshes the same way.
+          onRefresh: () async {
+            ref.invalidate(courseDetailProvider(courseId));
+            ref.invalidate(courseProgressProvider);
+            await ref.read(courseDetailProvider(courseId).future);
+          },
+          child: _content(context, detail, batchName),
+        ),
       ),
     );
   }
@@ -90,6 +101,8 @@ class CourseDetailScreen extends ConsumerWidget {
     }
 
     return CustomScrollView(
+      // Always scrollable so the pull-to-refresh gesture works on a short course.
+      physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
         SliverToBoxAdapter(
           child: _VideoHeader(

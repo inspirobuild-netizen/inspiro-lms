@@ -72,8 +72,11 @@ final courseFeePlansProvider =
 });
 
 // ── Course detail (modules + lessons) ─────────────────────────────────────────
+// autoDispose: fetched afresh each time a course is opened. Kept for the
+// app's lifetime, a class the office uploaded during the day did not appear
+// until the student killed the app — the first thing staff reported.
 final courseDetailProvider =
-    FutureProvider.family<CourseDetail, String>((ref, courseId) async {
+    FutureProvider.autoDispose.family<CourseDetail, String>((ref, courseId) async {
   final demo = CourseDetail(
     course: _demoCourses.firstWhere((c) => c.id == courseId, orElse: () => _demoCourses.first),
     modules: const [
