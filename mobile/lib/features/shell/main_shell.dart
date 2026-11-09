@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/brand.dart';
 import '../../core/auth/auth_provider.dart';
+import '../../core/refresh/app_refresh.dart';
 
 /// App shell: hosts the 5 bottom-nav tabs (Home · Learn · Exams · Live · Me)
 /// with a persistent footer, a quick-action FAB, and a "compact sidebar" drawer
@@ -33,7 +34,13 @@ class MainShell extends ConsumerWidget {
       bottomNavigationBar: _BottomBar(
         tabs: _tabs,
         currentIndex: shell.currentIndex,
-        onTap: (i) => shell.goBranch(i, initialLocation: i == shell.currentIndex),
+        onTap: (i) {
+          // Tapping a tab is when students look for new material: refetch
+          // what that tab shows (throttled) so a class or test the office
+          // published a minute ago is already there.
+          AppRefresh.forTab(ref, i);
+          shell.goBranch(i, initialLocation: i == shell.currentIndex);
+        },
       ),
     );
   }

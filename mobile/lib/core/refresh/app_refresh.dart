@@ -87,6 +87,36 @@ class AppRefresh {
     _invalidate(ref, [notificationsProvider, unreadCountProvider]);
   }
 
+  /// Refresh what a bottom tab shows when the student taps it. This is the
+  /// moment they look for new content — a class published while they were on
+  /// Home should be there when they open Learn, without a restart or a pull.
+  /// Throttled per tab so bouncing between tabs does not hammer the server.
+  static final Map<int, DateTime> _tabRefreshedAt = {};
+  static const _tabThrottle = Duration(seconds: 20);
+
+  static void forTab(WidgetRef ref, int tabIndex) {
+    final last = _tabRefreshedAt[tabIndex];
+    if (last != null && DateTime.now().difference(last) < _tabThrottle) return;
+    _tabRefreshedAt[tabIndex] = DateTime.now();
+    switch (tabIndex) {
+      case 0: // Home
+        _invalidate(ref, [homeStatsProvider, coursesProvider, courseProgressProvider, myCourseBatchesProvider, liveClassesProvider, unreadCountProvider, bannersProvider]);
+        break;
+      case 1: // Learn
+        _invalidate(ref, [coursesProvider, courseProgressProvider, myCourseBatchesProvider, catalogProvider, myEnrollRequestsProvider]);
+        break;
+      case 2: // Exams
+        _invalidate(ref, [examsProvider, myAttemptsProvider]);
+        break;
+      case 3: // Live
+        _invalidate(ref, [liveClassesProvider]);
+        break;
+      case 4: // Me
+        _invalidate(ref, [homeStatsProvider, myBatchProvider, myStreakProvider]);
+        break;
+    }
+  }
+
   static void _invalidate(WidgetRef ref, List<ProviderOrFamily> providers) {
     for (final p in providers) {
       ref.invalidate(p);

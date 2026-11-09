@@ -8,6 +8,7 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
     // Firebase / FCM
     id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 // Signing config from key.properties (never committed). Falls back to debug

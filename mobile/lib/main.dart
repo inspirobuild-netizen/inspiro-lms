@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart' show PlatformDispatcher, kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -37,6 +39,27 @@ void main() async {
     firebaseReady = true;
   } catch (e) {
     debugPrint('Firebase unavailable — continuing without push notifications: $e');
+  }
+
+  // Crash reporting. Every uncaught Dart error and every native crash is
+  // reported to Firebase Crashlytics in release builds, so a problem a
+  // student hits is visible to us within minutes instead of arriving as
+  // "the app closed" over the phone. Debug builds report nothing.
+  if (firebaseReady) {
+    try {
+      final crashlytics = FirebaseCrashlytics.instance;
+      await crashlytics.setCrashlyticsCollectionEnabled(kReleaseMode);
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        crashlytics.recordFlutterFatalError(details);
+      };
+      PlatformDispatcher.instance.onError = (error, stack) {
+        crashlytics.recordError(error, stack, fatal: true);
+        return true;
+      };
+    } catch (e) {
+      debugPrint('Crashlytics unavailable: $e');
+    }
   }
 
   // FCM — init after Firebase, non-blocking (token registration happens async)
