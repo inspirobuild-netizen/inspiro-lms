@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../../middleware/authenticate.js';
 import { deleteOwnAccount } from './account-deletion.service.js';
+import { deleteStudentPermanently, studentDeletionImpact } from './student-purge.service.js';
 import { logAudit } from '../../lib/audit.js';
 import { requireRole } from '../../middleware/require-role.js';
 import { requireRoleOrPermission } from '../../middleware/require-permission.js';
@@ -117,6 +118,48 @@ export default async function usersRoutes(app: FastifyInstance) {
       }
       const user = await updateUserRole(id, parsed.data.role);
       return reply.send({ success: true, data: user });
+    },
+  );
+
+  // ── Admin: permanently delete a student ──────────────────────────────────
+  // Admin role only — deliberately not a staff permission: it destroys fee
+  // records, so no counsellor role can ever be granted it.
+  app.get(
+    '/admin/students/:id/deletion-impact',
+    { preHandler: [authenticate, requireRole(['admin'])] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      return reply.send({ success: true, data: await studentDeletionImpact(id) });
+    },
+  );
+
+  app.delete(
+    '/admin/students/:id',
+    { preHandler: [authenticate, requireRole(['admin'])] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const body = (req.body ?? {}) as { confirm?: string; confirmPaid?: boolean };
+      // A typed confirmation, checked here too so no stray request can do it.
+      if (body.confirm !== 'DELETE') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'CONFIRMATION_REQUIRED', message: 'Type DELETE to confirm' },
+        });
+      }
+      const impact = await deleteStudentPermanently(id, { confirmPaid: body.confirmPaid === true });
+      await logAudit(req, {
+        action: 'student.deleted_permanently',
+        entityType: 'student',
+        entityId: id,
+        // Enough to answer "who removed whom" without keeping the person's data.
+        meta: {
+          name: impact.name,
+          phoneLast4: impact.phone.replace(/\D/g, '').slice(-4),
+          admissions: impact.admissions,
+          confirmedPaid: impact.confirmedPaid,
+        },
+      });
+      return reply.send({ success: true, data: { deleted: true, ...impact } });
     },
   );
 

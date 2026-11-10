@@ -63,6 +63,9 @@ export default function StudentsPage() {
     enabled: !!accessToken,
   });
 
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
+  const [deleting, setDeleting] = useState<User | null>(null);
+
   const toggleStatus = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
       api.patch(`/api/v1/admin/users/${id}/status`, { isActive }),
@@ -99,16 +102,23 @@ export default function StudentsPage() {
     {
       key: 'actions',
       header: '',
-      width: 'w-28',
+      width: isAdmin ? 'w-48' : 'w-28',
       render: (u) => (
-        <Button
-          variant="outline"
-          size="sm"
-          loading={toggleStatus.isPending && (toggleStatus.variables as { id: string })?.id === u.id}
-          onClick={() => toggleStatus.mutate({ id: u.id, isActive: !u.isActive })}
-        >
-          {u.isActive ? 'Disable' : 'Enable'}
-        </Button>
+        <div className="flex gap-2 justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            loading={toggleStatus.isPending && (toggleStatus.variables as { id: string })?.id === u.id}
+            onClick={() => toggleStatus.mutate({ id: u.id, isActive: !u.isActive })}
+          >
+            {u.isActive ? 'Disable' : 'Enable'}
+          </Button>
+          {isAdmin && (
+            <Button variant="destructive" size="sm" onClick={() => setDeleting(u)}>
+              Delete
+            </Button>
+          )}
+        </div>
       ),
     },
   ];
@@ -148,7 +158,137 @@ export default function StudentsPage() {
         total={data?.meta?.total ?? 0}
         onPage={setPage}
       />
+
+      <DeleteStudentModal
+        student={deleting}
+        onClose={() => setDeleting(null)}
+        onDeleted={() => {
+          setDeleting(null);
+          void qc.invalidateQueries({ queryKey: ['admin'] });
+        }}
+      />
     </div>
+  );
+}
+
+type DeletionImpact = {
+  name: string;
+  phone: string;
+  admissions: string[];
+  confirmedPaid: number;
+  paymentEntries: number;
+  leads: number;
+  enrolments: number;
+  enrolmentRequests: number;
+  testAttempts: number;
+  doubts: number;
+  lessonsWatched: number;
+};
+
+/**
+ * Permanent deletion. Shows exactly what goes, asks for DELETE typed, and a
+ * second tick when confirmed fee payments would disappear. Admins only.
+ */
+function DeleteStudentModal({
+  student, onClose, onDeleted,
+}: { student: User | null; onClose: () => void; onDeleted: () => void }) {
+  const { accessToken } = useAuthStore();
+  const api = createApiClient(accessToken);
+  const [typed, setTyped] = useState('');
+  const [paidOk, setPaidOk] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTyped(''); setPaidOk(false); setError(null);
+  }, [student?.id]);
+
+  const impactQ = useQuery({
+    queryKey: ['admin', 'student-deletion-impact', student?.id],
+    queryFn: () => api.get<DeletionImpact>(`/api/v1/admin/students/${student!.id}/deletion-impact`),
+    enabled: !!student && !!accessToken,
+  });
+  const impact = impactQ.data?.data;
+
+  const del = useMutation({
+    mutationFn: () => api.delete(`/api/v1/admin/students/${student!.id}`, { confirm: 'DELETE', confirmPaid: paidOk }),
+    onSuccess: onDeleted,
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Could not delete the student'),
+  });
+
+  const needsPaidOk = (impact?.confirmedPaid ?? 0) > 0;
+  const ready = typed === 'DELETE' && (!needsPaidOk || paidOk) && !!impact;
+
+  const rows: [string, number | string][] = impact
+    ? ([
+        ['Admissions', impact.admissions.length ? impact.admissions.join(', ') : 0],
+        ['Fee payment entries', impact.paymentEntries],
+        ['CRM leads with this number', impact.leads],
+        ['Batch enrolments', impact.enrolments],
+        ['Enrolment requests', impact.enrolmentRequests],
+        ['Test attempts', impact.testAttempts],
+        ['Doubts', impact.doubts],
+        ['Lessons watched', impact.lessonsWatched],
+      ] as [string, number | string][]).filter(([, v]) => v !== 0)
+    : [];
+
+  return (
+    <Modal
+      open={!!student}
+      onClose={onClose}
+      title="Delete student permanently"
+      description="Removes the account and everything linked to it. This cannot be undone."
+    >
+      <div className="space-y-4">
+        <div>
+          <p className="font-medium text-slate-200">{student?.name || '—'}</p>
+          <p className="text-xs text-slate-500">{student ? formatPhone(student.phone) : ''}</p>
+        </div>
+
+        {impactQ.isLoading && <p className="text-sm text-slate-400">Checking what will be removed…</p>}
+        {impact && (
+          <div className="rounded-xl border border-white/10 p-3 text-sm">
+            <p className="text-slate-300 mb-2">Also removed:</p>
+            {rows.length === 0 ? (
+              <p className="text-slate-500">Nothing else — the account has no admissions, leads or activity.</p>
+            ) : (
+              <ul className="space-y-1">
+                {rows.map(([k, v]) => (
+                  <li key={k} className="flex justify-between gap-4">
+                    <span className="text-slate-400">{k}</span>
+                    <span className="text-slate-200 text-right">{v}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-xs text-slate-500 mt-3">
+              Afterwards the number is free: the student can sign up again as a new account.
+            </p>
+          </div>
+        )}
+
+        {needsPaidOk && (
+          <label className="flex items-start gap-2 text-sm text-amber-300">
+            <input type="checkbox" className="mt-1" checked={paidOk} onChange={(e) => setPaidOk(e.target.checked)} />
+            <span>
+              This student has <b>₹{impact!.confirmedPaid.toLocaleString('en-IN')}</b> of confirmed payments. I understand
+              these fee records will be removed from the books.
+            </span>
+          </label>
+        )}
+
+        <Field label="Type DELETE to confirm">
+          <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="DELETE" autoFocus />
+        </Field>
+
+        {error && <p className="text-sm text-rose-400">{error}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="destructive" loading={del.isPending} disabled={!ready} onClick={() => del.mutate()}>
+            Delete permanently
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
