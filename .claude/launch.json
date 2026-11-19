@@ -4,8 +4,23 @@
     {
       "name": "admin",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["node_modules/.bin/next", "dev", "-p", "3001"],
+      "runtimeArgs": [
+        "node_modules/.bin/next",
+        "dev",
+        "-p",
+        "3001"
+      ],
       "cwd": "D:\\INSPIRO\\apps\\admin",
+      "port": 3001
+    },
+    {
+      "name": "admin-mac",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "apps/admin",
+        "dev"
+      ],
       "port": 3001
     }
   ]
