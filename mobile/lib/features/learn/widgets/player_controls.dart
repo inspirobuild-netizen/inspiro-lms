@@ -5,7 +5,8 @@ import 'lesson_playback.dart';
 
 import '../../../core/theme/brand.dart';
 
-/// A quality option handed down by the API (one signed MP4 per rendition).
+/// A quality option handed down by the API: one signed HLS playlist or MP4 per
+/// rendition.
 class VideoQuality {
   final String label;
   final String url;

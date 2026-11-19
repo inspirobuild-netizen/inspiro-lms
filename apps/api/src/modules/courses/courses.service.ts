@@ -1,6 +1,6 @@
 import { eq, and, count, asc, inArray, gt, isNull, or, sql, ne, exists } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
-import { signBunnyMp4Url, signBunnyFileUrl, orderResolutions } from '../../lib/bunny.js';
+import { signBunnyMp4Url, signBunnyFileUrl, orderResolutions, playbackOrder, signBunnyFolder } from '../../lib/bunny.js';
 import { redis } from '../../lib/redis.js';
 import { logger } from '../../lib/logger.js';
 import { getBunnyVideoStatus } from '../media/media.service.js';
@@ -380,6 +380,20 @@ export async function getModuleLessons(moduleId: string, userId: string, role: s
 
 const WATCH_URL_TTL = 7200;
 
+// HLS links outlive MP4 ones: a player keeps requesting segments with the same
+// token for the whole class, and a three-hour lecture with a break in it must
+// not outlive its own signature halfway through.
+const HLS_URL_TTL = 6 * 60 * 60;
+
+export type VideoFormat = 'hls' | 'mp4';
+
+// What a caller gets when it does not ask. Installed app builds never ask, and
+// they hand whatever URL comes back straight to the player — so flipping this
+// to 'hls' moves every installed build to HLS without an app release.
+function defaultFormat(): VideoFormat {
+  return process.env['VIDEO_FORMAT'] === 'hls' ? 'hls' : 'mp4';
+}
+
 // Bunny's rendition list never changes once encoding finishes, so cache it and
 // keep the watch-url endpoint from making a Bunny API call on every play.
 async function getCachedResolutions(videoId: string): Promise<string[]> {
@@ -405,7 +419,14 @@ async function getCachedResolutions(videoId: string): Promise<string[]> {
 }
 
 // ── Get signed watch URL for a lesson ────────────────────────────────────────
-export async function getLessonWatchUrl(lessonId: string, userId: string, role: string) {
+export async function getLessonWatchUrl(
+  lessonId: string,
+  userId: string,
+  role: string,
+  // apiBase is the API's public origin (https://api.…); HLS links point back
+  // at it, so without one only MP4 can be offered.
+  opts: { format?: VideoFormat; apiBase?: string } = {},
+) {
   const [lesson] = await db.select().from(lessons).where(eq(lessons.id, lessonId)).limit(1);
   if (!lesson) throw notFound('Lesson');
 
@@ -453,19 +474,44 @@ export async function getLessonWatchUrl(lessonId: string, userId: string, role: 
       });
     }
 
-    // Best first. The player defaults to [0] and offers the rest for manual
-    // switching, since MP4 gives us no adaptive bitrate.
-    const qualities = resolutions.map((r) => ({
-      label: r,
-      url: signBunnyMp4Url(videoId, r, WATCH_URL_TTL),
-    }));
+    // The rendition to open at first, then the rest best-first for manual
+    // switching. Neither format gives us adaptive bitrate on the app's player,
+    // so the starting rendition matters; see DEFAULT_RENDITION.
+    const order = playbackOrder(resolutions);
 
     // Where the student stopped last time, so the player can pick up there.
     const resumeSeconds = await readResume();
 
+    const format = opts.format ?? defaultFormat();
+    if (format === 'hls' && opts.apiBase) {
+      // One folder token covers every rendition, so a quality switch needs no
+      // new signature. The playlist URL carries it because the player fetches
+      // the playlist itself and cannot send the app's bearer token.
+      const { token, expires } = signBunnyFolder(videoId, HLS_URL_TTL);
+      const qualities = order.map((r) => ({
+        label: r,
+        url: `${opts.apiBase}/api/v1/stream/${videoId}/${r}/video.m3u8?token=${token}&expires=${expires}`,
+      }));
+      return {
+        type: 'video',
+        provider: 'bunny' as const,
+        format: 'hls' as const,
+        url: qualities[0]!.url,
+        qualities,
+        resumeSeconds,
+        expiresIn: HLS_URL_TTL,
+      };
+    }
+
+    const qualities = order.map((r) => ({
+      label: r,
+      url: signBunnyMp4Url(videoId, r, WATCH_URL_TTL),
+    }));
+
     return {
       type: 'video',
       provider: 'bunny' as const,
+      format: 'mp4' as const,
       url: qualities[0]!.url,
       qualities,
       resumeSeconds,

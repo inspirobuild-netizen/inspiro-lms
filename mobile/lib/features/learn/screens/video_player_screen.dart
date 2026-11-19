@@ -14,14 +14,26 @@ import '../../../core/widgets/app_ui.dart';
 import '../widgets/player_controls.dart';
 import '../widgets/lesson_playback.dart';
 
-/// Plays a lesson video from a short-lived signed Bunny URL, fetched fresh on
-/// open — the signature expires, so it is never cached.
+/// Plays a lesson video from short-lived signed links, fetched fresh on open —
+/// the signatures expire, so they are never cached.
 ///
-/// The API returns one signed MP4 per rendition rather than an HLS playlist:
-/// CDN token authentication cannot protect HLS on a native player, because the
-/// master playlist points at relative sub-paths and URL resolution drops the
-/// token. MP4 means no adaptive bitrate, so quality is offered manually and we
-/// carry the playback position across a switch.
+/// The API offers one link per rendition, as HLS or MP4. HLS is asked for
+/// first: it starts after one small playlist and a 4-second segment however
+/// long the class is, where an MP4 must first download an index that grows
+/// with the class (2.3 MB for 37 minutes at 480p). The playlist comes from our
+/// API, which signs every segment — Bunny's own lists them by relative name,
+/// and the token does not survive that. If HLS cannot start, the screen falls
+/// back to MP4, the proven path. Neither gives adaptive bitrate on this player,
+/// so quality is offered manually and the position is carried across a switch.
+/// Whether a media_kit error means the media itself could not be opened.
+///
+/// The error stream carries more than that: "Could not open/initialize audio
+/// device" (the iOS Simulator has none) and `tcp:` connection failures that
+/// ffmpeg goes on to retry. Falling back on those would abandon a stream that
+/// was about to play, so only a failed open counts.
+bool isMediaOpenFailure(String message) =>
+    message.startsWith('Failed to open') || message.contains('Failed to recognize file format');
+
 class VideoPlayerScreen extends StatefulWidget {
   final String lessonId;
   final String title;
@@ -45,6 +57,20 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   List<VideoQuality> _qualities = const [];
   String _currentQuality = '';
 
+  // Once HLS has failed to start on this device, every later class goes
+  // straight to MP4 rather than making the student wait for HLS to fail again.
+  static bool _hlsFailedThisSession = false;
+  String _format = _hlsFailedThisSession ? 'mp4' : 'hls';
+  // Set by the first real playback position. A failure before that means the
+  // format never opened; after it, it is an ordinary network hiccup.
+  bool _started = false;
+  StreamSubscription<Duration>? _startWatch;
+  StreamSubscription<String>? _errorWatch;
+  Timer? _startTimeout;
+  // Each _load bumps this, so a superseded load (HLS that was abandoned for
+  // MP4 mid-open) cannot overwrite the state of the one that replaced it.
+  int _loadGeneration = 0;
+
   // Set when the class is hosted externally rather than uploaded. The student
   // is shown the same controls either way; only the engine differs.
   String? _youtubeId;
@@ -67,6 +93,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
+    _stopStartupWatch();
     setState(() {
       _loading = true;
       _error = null;
@@ -74,7 +102,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     try {
       final res = await ApiClient.dio.get<Map<String, dynamic>>(
         '/api/v1/lessons/${widget.lessonId}/watch-url',
+        queryParameters: {'format': _format},
       );
+      if (generation != _loadGeneration) return;
       final data = res.data!['data'] as Map<String, dynamic>;
 
       // Externally hosted class: no signed URL to open, so hand off to the
@@ -100,25 +130,32 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
       final resumeAt = Duration(seconds: (data['resumeSeconds'] as num?)?.toInt() ?? 0);
 
+      // An older API ignores the format request and answers with MP4 links and
+      // no `format` field; only real HLS links get the fallback watch.
+      if (data['format'] == 'hls') _watchStartup();
       await _player.open(Media(qualities.first.url));
+      // A fallback may have replaced the player while this open was running.
+      if (!mounted || generation != _loadGeneration) return;
       if (resumeAt > const Duration(seconds: 5)) await _seekWhenReady(resumeAt);
 
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
-        _qualities = qualities;
+        // The menu lists best first; the server's first entry is still the one
+        // that opens, since it picks the starting rendition.
+        _qualities = [...qualities]..sort((a, b) => _height(b.label).compareTo(_height(a.label)));
         _currentQuality = qualities.first.label;
         _loading = false;
       });
       _startProgressReporting();
     } on DioException catch (e) {
-      if (mounted) {
+      if (mounted && generation == _loadGeneration) {
         setState(() {
           _error = _loadFailureMessage(e);
           _loading = false;
         });
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && generation == _loadGeneration) {
         setState(() {
           // Naming the failure beats a blanket "check your connection", which
           // sent staff hunting a network fault when the real answer was that
@@ -128,6 +165,58 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         });
       }
     }
+  }
+
+  static int _height(String label) => int.tryParse(label.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+
+  /// Falls back to MP4 if HLS has not produced playback when it fails.
+  ///
+  /// mpv reports a refused or unreadable playlist as an error, which media_kit
+  /// passes on. A refused segment is only a warning, so a playlist that opens
+  /// with segments that never arrive would hang silently; the timeout covers
+  /// that, and stands down while media is still arriving, so a slow network
+  /// is not mistaken for a broken format.
+  void _watchStartup() {
+    _started = false;
+    _startWatch = _player.stream.position.listen((p) {
+      if (p > Duration.zero) {
+        _started = true;
+        _stopStartupWatch();
+      }
+    });
+    _errorWatch = _player.stream.error.listen((message) {
+      if (isMediaOpenFailure(message)) _fallBackToMp4('error: $message');
+    });
+    _startTimeout = Timer(const Duration(seconds: 20), () {
+      if (_player.state.buffer > Duration.zero) return;
+      _fallBackToMp4('no media after 20 s');
+    });
+  }
+
+  void _stopStartupWatch() {
+    _startWatch?.cancel();
+    _errorWatch?.cancel();
+    _startTimeout?.cancel();
+    _startWatch = null;
+    _errorWatch = null;
+    _startTimeout = null;
+  }
+
+  void _fallBackToMp4(String reason) {
+    if (_started || _format != 'hls' || !mounted) return;
+    debugPrint('HLS did not start ($reason); falling back to MP4');
+    _hlsFailedThisSession = true;
+    _format = 'mp4';
+    // MP4 goes on a fresh player. Reopening the one whose HLS open was still
+    // in flight left it loaded but never playing (seen in the Simulator), the
+    // same family of trouble as the stuck seeks noted above.
+    final failed = _player;
+    setState(() {
+      _player = Player();
+      _controller = VideoController(_player);
+    });
+    unawaited(failed.dispose());
+    unawaited(_load());
   }
 
   /// Turns the server's refusal into something the student can act on.
@@ -238,6 +327,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   @override
   void dispose() {
+    _stopStartupWatch();
     _progressTimer?.cancel();
     // Fire-and-forget a final position so resume is accurate even when the
     // student leaves between ticks.

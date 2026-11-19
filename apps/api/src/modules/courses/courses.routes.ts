@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate.js';
 import { logAudit } from '../../lib/audit.js';
@@ -17,6 +17,9 @@ import {
   updateLessonSchema,
   updateProgressSchema,
   listCoursesSchema,
+  watchUrlQuerySchema,
+  streamParamsSchema,
+  streamQuerySchema,
 } from './courses.schema.js';
 import {
   listCourses,
@@ -42,8 +45,17 @@ import {
 } from './courses.service.js';
 import { getBatchContent, createBatchModule, copyContentToBatch } from './batch-content.service.js';
 import { getLessonPreview } from './preview.service.js';
+import { getSignedRenditionPlaylist } from './hls.service.js';
 
 type ZodSchema<T> = { safeParse: (v: unknown) => { success: true; data: T } | { success: false; error: { flatten: () => unknown } } };
+
+// The API's public origin, for links that point back at it. Behind nginx,
+// trustProxy turns the forwarded scheme and host into
+// https://api.inspiroiasacademy.in; PUBLIC_API_URL overrides it if a proxy
+// in front ever stops forwarding them.
+function publicApiBase(req: FastifyRequest): string {
+  return (process.env['PUBLIC_API_URL'] ?? `${req.protocol}://${req.hostname}`).replace(/\/+$/, '');
+}
 
 function validate<T>(schema: ZodSchema<T>, value: unknown, reply: FastifyReply): T | null {
   const r = schema.safeParse(value);
@@ -145,9 +157,43 @@ export default async function coursesRoutes(app: FastifyInstance) {
 
   app.get('/lessons/:id/watch-url', { preHandler: [authenticate] }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const result = await getLessonWatchUrl(id, req.user.sub, req.user.role);
+    const query = validate(watchUrlQuerySchema, req.query, reply);
+    if (!query) return;
+    const result = await getLessonWatchUrl(id, req.user.sub, req.user.role, {
+      format: query.format,
+      apiBase: publicApiBase(req),
+    });
     return reply.send({ success: true, data: result });
   });
+
+  // ── HLS rendition playlist ─────────────────────────────────────────────────
+  // No bearer token: the video player fetches this itself and cannot send the
+  // app's Authorization header. The query carries the folder token watch-url
+  // issued after its enrolment checks — the token that already unlocks every
+  // segment on Bunny — so this route hands its holder nothing new.
+  app.get(
+    '/stream/:videoId/:rendition/video.m3u8',
+    {
+      // Per IP, and a classroom shares one: 60 students opening a class at once
+      // is 60 requests, plus a few quality switches.
+      config: { rateLimit: { max: 600, timeWindow: '1 minute' } },
+      // Request logging records the full URL, and this one carries a token.
+      // At warn, the per-request lines (and 4xx refusals, logged at info) stay out.
+      logLevel: 'warn',
+    },
+    async (req, reply) => {
+      const params = validate(streamParamsSchema, req.params, reply);
+      if (!params) return;
+      const query = validate(streamQuerySchema, req.query, reply);
+      if (!query) return;
+      const playlist = await getSignedRenditionPlaylist(params.videoId, params.rendition, query.token, query.expires);
+      return reply
+        .header('Content-Type', 'application/vnd.apple.mpegurl')
+        // Every line carries a signature; nothing in between should keep it.
+        .header('Cache-Control', 'private, no-store')
+        .send(playlist);
+    },
+  );
 
   // ── Update lesson progress ─────────────────────────────────────────────────
   app.post('/lessons/:id/progress', { preHandler: [authenticate] }, async (req, reply) => {

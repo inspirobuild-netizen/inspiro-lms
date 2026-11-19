@@ -81,3 +81,21 @@ export type CreateLessonInput = z.infer<typeof createLessonSchema>;
 export type UpdateLessonInput = z.infer<typeof updateLessonSchema>;
 export type UpdateProgressInput = z.infer<typeof updateProgressSchema>;
 export type ListCoursesInput = z.infer<typeof listCoursesSchema>;
+
+// GET /lessons/:id/watch-url?format=hls|mp4 — builds that can fall back from
+// HLS ask for it; installed builds send nothing and get the server default.
+export const watchUrlQuerySchema = z.object({
+  format: z.enum(['hls', 'mp4']).optional(),
+});
+
+// GET /stream/:videoId/:rendition/video.m3u8?token=…&expires=…
+export const streamParamsSchema = z.object({
+  videoId: z.string().uuid(),
+  rendition: z.string().regex(/^\d{3,4}p$/),
+});
+
+export const streamQuerySchema = z.object({
+  // base64url of a SHA-256 digest
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  expires: z.coerce.number().int().positive(),
+});
