@@ -1,119 +1,130 @@
-# Handover — state as of 2026-08-10
+# Handover — state as of 2026-11-19
 
-Snapshot for picking this up on another machine. Permanent facts (server,
-deploy workflow, conventions) live in `CLAUDE.md`; this file is "where we are
-right now" and will go stale — trust the code and the live system over it.
-
-Last commit on `main`: **77d7928**. Working tree was clean at handover.
+Snapshot for continuing development on another machine (moving from the
+Windows PC to a Mac). Permanent facts live in `CLAUDE.md`; this file is
+"where we are right now" — trust the code and the live system over it.
 
 ---
 
-## Setting up a second machine
+## Setting up the new machine
 
 ```bash
 git clone https://github.com/inspirobuild-netizen/inspiro-lms.git
 cd inspiro-lms && pnpm install
 ```
 
-Then copy these across by hand — they are gitignored and **cannot** come from
-the clone:
+Copy these across by hand — they are gitignored and **cannot** come from the
+clone (they are in the migration folder made on the PC):
 
-| File | Purpose |
-|---|---|
-| `.env.production` (repo root) | Server env; only needed if you edit/redeploy server config |
-| `apps/api/.env` | Local API dev + `pnpm db:migrate:http` (contains `DATABASE_URL`) |
-| `~/.ssh/id_ed25519` (+ `.pub`) | SSH to the VPS for deploys |
+| File | Goes to | Purpose |
+|---|---|---|
+| `.env.production` | repo root | Server env (only for editing/redeploying server config) |
+| `apps-api.env` | `apps/api/.env` | Local API dev, `DATABASE_URL` |
+| `inspiro-release.jks` | `mobile/android/` | **Android upload key — irreplaceable. Keep a backup.** |
+| `key.properties` | `mobile/android/` | Keystore passwords (`storeFile=../inspiro-release.jks`) |
+| `google-services.json` | `mobile/android/app/` | Firebase Android config |
+| `AuthKey_7369JHNR2C.p8` | anywhere private, e.g. `~/keys/` | App Store Connect API key (status checks, staging builds) |
+| `AuthKey_6G835B9KAC.p8` | anywhere private | APNs key (already uploaded to Firebase; keep as backup — shared with Kinvo, never revoke) |
 
-Tooling needed: Node 20+ with pnpm, Flutter (for `mobile/`), Android SDK +
-`adb` if you want to run on a device. Docker is **not** needed locally — builds
-happen on the server.
+SSH to the server (`root@200.97.162.147`): make a **new** key on the Mac
+(`ssh-keygen -t ed25519`) and add its `.pub` to `/root/.ssh/authorized_keys`
+on the server, rather than copying the PC's private key.
 
-Sanity check once set up:
+Tooling: Node 22 + pnpm, Flutter, Android SDK (`adb`), Xcode for iOS work.
+iOS release builds run on GitHub Actions (tag `ios-v<version>`), not locally.
+
+Sanity check:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' https://api.inspiroiasacademy.in/health   # 200
-ssh -o BatchMode=yes root@200.97.162.147 'hostname'                                # srv1811142
+ssh -o BatchMode=yes root@200.97.162.147 hostname
 ```
 
-### Known friction
+---
 
-- **GitHub push is flaky.** The Windows credential manager sometimes resolves a
-  different GitHub account (`bizencerole-coder`), giving a 403 "denied", and
-  sometimes hangs trying to open a prompt it cannot display. Retrying usually
-  works. A permanent fix is deleting the stale `git:https://github.com` entry in
-  Windows Credential Manager, or adding an SSH key to the account and switching
-  the remote (the current key is **not** registered with GitHub —
-  `ssh -T git@github.com` returns `Permission denied`).
-- Deploys go to **200.97.162.147**. See the warning in `CLAUDE.md` about the
-  decommissioned box.
+## Release state
+
+| | Version | State |
+|---|---|---|
+| Android (Play) | 1.1.4 (2040) | Live |
+| Android | 1.1.5 (2050) | Built: `store-assets/Inspiro-v1.1.5-2050.aab` (sha256 ae791c19…), upload is manual in Play Console |
+| iOS | 1.1.4 (51) | **Waiting for review** — resubmitted 15 Nov after answering Apple's 2.1(b) business-model questions (in-person coaching, fees at the office, guideline 3.1.3(e)) |
+| iOS | 1.1.5 (57) | Built on TestFlight (run 57), simulator sign-in check passed. Stage it only after Apple decides on 1.1.4 — swapping the build loses the queue place |
+
+Apple risk: one-to-many live classes (3.1.3(d)). Fallback if Apple objects:
+hide the Live tab on iOS in the next build.
+
+Release notes, rejection history and the reply texts: `docs/STORE_RELEASE_v1.md`.
 
 ---
 
-## What is deployed right now
+## Deploying the server
 
-Everything below is live and was verified against production, not just built.
+`/opt/inspiro` on the server is **not** a clean git checkout (`git pull`
+refuses). Deploy by copying changed files:
 
-**Course → batch → enrolment.** Course is the master; `batches.courseId` is NOT
-NULL. Three enrolment paths all write `batch_enrollments` + `admissions` with
-`courseId` taken from the batch and the fee resolved server-side:
+1. Check the server's copy matches the last committed version
+   (`md5sum` of `tr -d '\r' < file` on both sides).
+2. `scp` the changed files to the same path under `/opt/inspiro/`.
+3. `docker compose -f docker-compose.prod.yml build api`
+4. `docker compose -f docker-compose.prod.yml up -d --no-deps api`
+5. `curl https://api.inspiroiasacademy.in/health`
 
-1. Counsellor — Admissions → Leads → Convert (payment required)
-2. App self-signup — Fees page → Enrollment requests → Verify (staff confirms UPI)
-3. Manual — Batches → *batch* → Enroll student
+The admin panel deploys itself on Vercel when `main` is pushed (~3 min).
+Push admin changes only after the API they depend on is live.
 
-Path 3 previously wrote only the enrolment row, giving course access with no
-admission and no fee due. It now creates both; re-enrolling will not mint a
-duplicate admission. Verified live (ADM-00014, ₹10,000 due, `pending`), then
-the test data was removed.
+Test new server code against production without touching the live API, in a
+one-off container from the freshly built image:
 
-Course detail pages now list their batches and can create one scoped to the
-course.
+```bash
+docker compose -f docker-compose.prod.yml run --rm --no-deps -T \
+  -v /root/x.mjs:/app/x.mjs:ro --entrypoint node api --no-warnings /app/x.mjs
+```
 
-**Current affairs.** `CA_RSS_FEEDS` is set on the server to The Hindu's
-opinion / business / sci-tech feeds. Ingestion runs daily at **06:00 IST**.
-
-- PIB is **not** usable: its RSS has only `<title>` and `<link>` — no article
-  text to summarise — and Hindi titles regardless of the `Lang` parameter.
-  Using it needs a fetcher for each `PressReleaseIframePage`. This is the
-  single biggest content improvement still available.
-- Indian Express Explained 403s from the server's IP (works from a home
-  connection), so it cannot be used here.
-- Relevance scoring is a heuristic over the AI's free text and still lands
-  almost everything at 0.8, so the "EXAM RELEVANT" badge does not discriminate.
-  A numeric score from the AI service is the real fix.
-
-**AI service.** Rate limits used to escape as unhandled 500s because tenacity
-reraises the original exception type and every router catches only `LlmError`.
-Both clients now funnel all failures into `LlmError` / `EmbeddingsError`, and
-provider error bodies are logged. MCQ generation was **never broken** — ~60% of
-articles get quizzes; the model correctly declines for news with no exam angle.
+Ready-made checks in `apps/api/scripts/` (each creates throwaway data and
+removes it): `e2e-student-journey.mjs` (33 checks), `e2e-crm-fees.mjs`
+(46), `e2e-student-purge.mjs` (6), `check-client-asks.mjs` (6).
+Load tests: `k6/load-tests/` (run with the grafana/k6 Docker image on the
+server; the leaderboard test needs a fresh 15-minute student token).
 
 ---
+
+## What changed in November
+
+- Request-to-enrol flow; **paid courses collect the first payment at
+  approval** (full fee or first instalment, never a typed figure).
+- Exams: batch picker on create, "Taken by" column, Change batches,
+  publishing a non-practice test with no batch refused (`NO_AUDIENCE`),
+  Delete.
+- Students: App column (device, last active) + "Using the app / Never
+  signed in" filter; **permanent delete** (admins, typed confirmation,
+  second tick for confirmed payments).
+- Fees: free admissions are `paid`; Outstanding lists plan-less balances;
+  payment history shows status; CRM conversion = converted / owned leads.
+- App 1.1.5: content refresh on course open and tab tap, pull-to-refresh,
+  exam result navigation fix, real marks label, Firebase Crashlytics, iOS
+  minimum 15.0.
+- Groq key renewed 6 Nov (AI service). The academy switched **AI doubt
+  answers off** in Settings on 17 Nov — doubts go to mentors by their choice.
 
 ## Open items
 
-- **PIB ingestion** — needs a page fetcher (above). Biggest remaining win for
-  current-affairs quality.
-- **Numeric exam-relevance score** from the AI service, replacing the regex
-  heuristic in `current-affairs.service.ts`.
-- **`/admin/current-affairs/refresh` 504s at nginx** (~60s run). Either raise
-  `proxy_read_timeout` or make it fire-and-forget.
-- **Privacy policy URL + support contact** — required before public store
-  release; the Help/Privacy entries were removed from the app's Me page.
-- **Test accounts still live**: `poco-test@example.com` (student) and
-  `dev-verify-admin@example.com` (admin). Remove before release.
-- **Mobile not rebuilt for a device** since the coach-checkbox change. The
-  emulator build is current; the POCO is not.
+- Domain `inspiroiasacademy.in` (GoDaddy) expires **2027-01-15**, auto-renew off.
+- Academy housekeeping: tick batches on old tests, delete the two empty
+  "weekly test" exams and test students, check the 600-seat "Batch 1".
+- Online fees (HDFC gateway, v2): classroom-course fees may use the gateway
+  in the iOS app (3.1.3(e)); online-only courses on iPhone need IAP or
+  website-only purchase. Plan: a per-course "classroom / online-only" flag.
+- Video start is slow on mobile data (720p MP4 default) — consider a lower
+  default quality.
 
----
+## Gotchas worth not relearning
 
-## Conventions worth not relearning
-
-- Fee amounts are **never** accepted from the client — always resolved
-  server-side from the plan or the course fee.
-- UPI is a collect-request QR with **manual staff confirmation**; there is no
-  gateway or webhook. Deliberate.
-- Show real data or show nothing — placeholder progress bars, invented ratings
-  and hardcoded stats have all been removed from the app once already.
-- Bunny **Stream** (video) is configured; Bunny **Storage** never was. Course
-  thumbnails are served from server disk via `/api/v1/uploads/images/:file`.
+- Inside drizzle `.select()`, `${users.id}` in a raw `sql` subquery renders
+  unqualified `"id"` and silently binds to the inner table — use
+  `sql.raw('"users"."id"')`.
+- Android local build: with the `integration_test` dev dependency, never
+  build with `--no-pub` (stale plugin registrant breaks release javac).
+- App Store Connect: after a rejection, "Resubmit to App Review" stays grey
+  until the version page is saved once (add a space to the review notes).
+- Fee amounts are never accepted from the client — always resolved server-side.
