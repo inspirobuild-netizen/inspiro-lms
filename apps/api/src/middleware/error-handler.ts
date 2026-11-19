@@ -1,8 +1,8 @@
 import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
-import { logger } from '../lib/logger.js';
+import { logger, redactUrl } from '../lib/logger.js';
 
 export function errorHandler(error: FastifyError, req: FastifyRequest, reply: FastifyReply): void {
-  logger.error({ err: error, url: req.url, method: req.method }, 'Request error');
+  logger.error({ err: error, url: redactUrl(req.url), method: req.method }, 'Request error');
 
   if (error.validation) {
     reply.status(400).send({

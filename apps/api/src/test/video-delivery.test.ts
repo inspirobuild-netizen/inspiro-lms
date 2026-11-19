@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
+import pino from 'pino';
 import { buildApp } from './helpers.js';
 import { redis } from '../lib/redis.js';
+import { logger, redactUrl, serializers } from '../lib/logger.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import {
   playbackOrder,
@@ -75,6 +77,17 @@ describe('rewriteHlsPlaylist', () => {
   it('never sends the token to another host', () => {
     const src = '#EXTM3U\n#EXTINF:4,\nhttps://ads.example.com/a.ts\n';
     expect(rewriteHlsPlaylist(src, base, q).split('\n')[2]).toBe('https://ads.example.com/a.ts');
+  });
+});
+
+describe('redactUrl', () => {
+  it('masks secret query values and nothing else', () => {
+    expect(redactUrl('/a?token=abc&expires=1&page=2')).toBe('/a?token=[REDACTED]&expires=1&page=2');
+    expect(redactUrl('/w?key=k&sig=s&signature=x&secret=y&password=p')).toBe(
+      '/w?key=[REDACTED]&sig=[REDACTED]&signature=[REDACTED]&secret=[REDACTED]&password=[REDACTED]',
+    );
+    expect(redactUrl('/plain/path')).toBe('/plain/path');
+    expect(redactUrl('/a?mytoken=keep&tokens=keep')).toBe('/a?mytoken=keep&tokens=keep');
   });
 });
 
@@ -165,24 +178,32 @@ describe('GET /api/v1/stream/:videoId/:rendition/video.m3u8', () => {
     expect(refused.json().error.code).toBe('VIDEO_UNAVAILABLE');
   });
 
-  it('keeps the playlist token out of the request log', async () => {
+  it('logs a refused playlist request with its token masked, in the request and error logs', async () => {
     const lines: string[] = [];
-    const logged = Fastify({ logger: { level: 'info', stream: { write: (l: string) => { lines.push(l); } } } });
+    // A logger built like lib/logger.ts, writing where the test can read it.
+    const logged = Fastify({ logger: pino({ level: 'info', serializers }, { write: (l: string) => { lines.push(l); } }) });
     await logged.register(rateLimit, { global: false, redis });
     logged.setErrorHandler(errorHandler);
     await logged.register(import('../modules/courses/courses.routes.js'), { prefix: '/api/v1' });
     await logged.ready();
+    const errorSpy = vi.spyOn(logger, 'error');
+    try {
+      const wrong = signBunnyFolder(OTHER_VIDEO, 600);
+      const res = await logged.inject({ method: 'GET', url: url(VIDEO, '480p', `?token=${wrong.token}&expires=${wrong.expires}`) });
+      expect(res.statusCode).toBe(403);
 
-    const wrong = signBunnyFolder(OTHER_VIDEO, 600);
-    await logged.inject({ method: 'GET', url: url(VIDEO, '480p', `?token=${wrong.token}&expires=${wrong.expires}`) });
-    // Control: an ordinary route is logged with its URL, so silence above is the route's doing.
-    await logged.inject({ method: 'GET', url: `/api/v1/lessons/${VIDEO}/watch-url?format=hls` });
-    await logged.close();
+      const requestLog = lines.join('');
+      expect(requestLog).toContain('/stream/');
+      expect(requestLog).toContain('token=[REDACTED]');
+      expect(requestLog).not.toContain(wrong.token);
 
-    const log = lines.join('');
-    expect(log).toContain('/watch-url?format=hls');
-    expect(log).not.toContain(wrong.token);
-    expect(log).not.toContain('/stream/');
+      const errorLog = JSON.stringify(errorSpy.mock.calls);
+      expect(errorLog).toContain('token=[REDACTED]');
+      expect(errorLog).not.toContain(wrong.token);
+    } finally {
+      errorSpy.mockRestore();
+      await logged.close();
+    }
   });
 
   it('keeps watch-url behind sign-in', async () => {

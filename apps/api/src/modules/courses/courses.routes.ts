@@ -173,14 +173,10 @@ export default async function coursesRoutes(app: FastifyInstance) {
   // segment on Bunny — so this route hands its holder nothing new.
   app.get(
     '/stream/:videoId/:rendition/video.m3u8',
-    {
-      // Per IP, and a classroom shares one: 60 students opening a class at once
-      // is 60 requests, plus a few quality switches.
-      config: { rateLimit: { max: 600, timeWindow: '1 minute' } },
-      // Request logging records the full URL, and this one carries a token.
-      // At warn, the per-request lines (and 4xx refusals, logged at info) stay out.
-      logLevel: 'warn',
-    },
+    // Per IP, and a classroom shares one: 60 students opening a class at once
+    // is 60 requests, plus a few quality switches. The token in the query is
+    // masked in every log line by lib/logger.ts.
+    { config: { rateLimit: { max: 600, timeWindow: '1 minute' } } },
     async (req, reply) => {
       const params = validate(streamParamsSchema, req.params, reply);
       if (!params) return;
