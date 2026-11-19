@@ -24,6 +24,14 @@ export const confirmEnrollRequestSchema = z.object({
 
 export const verifyEnrollRequestSchema = z.object({
   batchId: z.string().uuid(),
+  // Approving an app request for a PAID course collects the first payment in
+  // the same step (the academy's rule from 19 Nov 2026, same as converting a
+  // lead): the full fee, or the first instalment of the chosen plan. The fee
+  // itself is never typed — it comes from the course or the plan.
+  feePlanId: z.string().uuid().optional(),
+  collectAmount: z.number().positive().optional(),
+  collectMethod: z.enum(['upi', 'cash', 'card', 'bank_transfer', 'other']).default('cash'),
+  collectReference: z.string().max(120).optional(),
 });
 
 export const rejectEnrollRequestSchema = z.object({

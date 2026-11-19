@@ -324,12 +324,34 @@ export async function verifyEnrollRequest(
 
     let plan: { id: string; name: string; totalAmount: number; installments: { label: string; amount: number; dueAfterDays: number }[] } | null = null;
     let feeAmount = reqRow.amount;
-    if (reqRow.feePlanId) {
-      const [p] = await tx.select().from(feePlans).where(eq(feePlans.id, reqRow.feePlanId)).limit(1);
-      if (p) { plan = p; feeAmount = p.totalAmount; }
+    // For an app request the office may put the student on an instalment plan
+    // at approval; otherwise the plan the request carried, else the course fee.
+    const planId = (appRequest ? input.feePlanId : undefined) ?? reqRow.feePlanId;
+    if (planId) {
+      const [p] = await tx.select().from(feePlans).where(eq(feePlans.id, planId)).limit(1);
+      if (!p) throw err('Fee plan not found', 404, 'FEE_PLAN_NOT_FOUND');
+      if (p.courseId !== reqRow.courseId) throw err("Fee plan does not belong to this request's course", 400, 'FEE_PLAN_COURSE_MISMATCH');
+      plan = p; feeAmount = p.totalAmount;
     } else {
       const [c] = await tx.select({ feeAmount: courses.feeAmount }).from(courses).where(eq(courses.id, reqRow.courseId)).limit(1);
       feeAmount = c?.feeAmount ?? reqRow.amount;
+    }
+
+    // Paid course asked for in the app: the first payment is collected at
+    // approval, so no student reaches the classes of a paid course without
+    // paying — the same rule as converting a lead, enforced here so it holds
+    // for any caller. The amount must be the full fee or a plan instalment.
+    if (appRequest && feeAmount > 0) {
+      const amt = input.collectAmount;
+      if (!(amt && amt > 0)) throw err('Collect the first payment before approving this paid course.', 400, 'PAYMENT_REQUIRED');
+      if (amt > feeAmount + 0.01) throw err('Amount to collect cannot exceed the fee', 400, 'COLLECT_EXCEEDS_FEE');
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      const allowed = plan
+        ? [...new Set(plan.installments.map((i) => r2(i.amount)))].concat(r2(feeAmount))
+        : [r2(feeAmount)];
+      if (!allowed.some((a) => Math.abs(a - r2(amt)) < 0.01)) {
+        throw err('Collected amount must match a preset instalment or the full fee.', 400, 'COLLECT_AMOUNT_NOT_PRESET');
+      }
     }
 
     const [{ enrolled }] = await tx
@@ -383,15 +405,24 @@ export async function verifyEnrollRequest(
       method: reqRow.method,
       reference: reqRow.reference,
       appRequest,
+      collected: appRequest && feeAmount > 0 ? input.collectAmount ?? 0 : 0,
     };
   });
 
   const finish = async () => {
     const r = await result;
-    // Nothing was paid for an app request, so there is no payment to record —
-    // the office records the fee on the Fees page when it is collected.
     if (!r.appRequest) {
       await recordPayment(r.admissionId, { amount: r.amount, method: r.method, reference: r.reference! }, staffId, staffRole);
+    } else if (r.collected > 0) {
+      // The first payment collected at approval. An admin's entry is
+      // confirmed at once; a counsellor's waits in Finance Approvals with the
+      // enrolment, exactly like a lead conversion.
+      await recordPayment(
+        r.admissionId,
+        { amount: r.collected, method: input.collectMethod, reference: input.collectReference },
+        staffId,
+        staffRole,
+      );
     }
     await sendNotificationToUser(
       r.studentId,

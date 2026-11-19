@@ -178,7 +178,7 @@ export default function EnrolmentRequestsPage() {
                           <p className="mt-3 text-xs text-slate-400">
                             {r.courseFee > 0 ? (
                               <>
-                                Fee due at the office{' '}
+                                Collect the first payment at approval · fee{' '}
                                 <span className="text-slate-100 font-medium">{money(r.courseFee)}</span>
                               </>
                             ) : (
@@ -298,6 +298,12 @@ function ActionModal({
   const toast = useToast();
   const [batchId, setBatchId] = useState('');
   const [reason, setReason] = useState('');
+  // First payment, collected at approval for a paid course asked for in the app.
+  const [planId, setPlanId] = useState('');
+  const [amount, setAmount] = useState<number | ''>('');
+  const [method, setMethod] = useState<'cash' | 'upi' | 'card' | 'bank_transfer'>('cash');
+  const [payRef, setPayRef] = useState('');
+  const [received, setReceived] = useState(false);
 
   // Verifying admits the student AND places them, in one transaction, so the
   // batch is chosen here rather than in a later step. Only batches of THIS
@@ -309,10 +315,39 @@ function ActionModal({
   });
   const batches = batchesQ.data?.data ?? [];
 
+  const appRequestEarly = isAppRequest(request);
+  const needsPayment = mode === 'verify' && appRequestEarly && request.courseFee > 0;
+  const plansQ = useQuery({
+    queryKey: ['admin', 'course', request.courseId, 'fee-plans'],
+    queryFn: () =>
+      api.get<{ id: string; name: string; totalAmount: number; installments: { label: string; amount: number }[] }[]>(
+        `/api/v1/catalog/courses/${request.courseId}/fee-plans`,
+      ),
+    enabled: needsPayment,
+  });
+  const plans = plansQ.data?.data ?? [];
+  const plan = plans.find((p) => p.id === planId);
+  const feeTotal = plan ? plan.totalAmount : request.courseFee;
+  // Only preset figures: the full fee, or (on a plan) one of its instalments.
+  const amountChoices = plan
+    ? [...new Set([plan.installments[0]?.amount, plan.totalAmount].filter((x): x is number => typeof x === 'number'))]
+    : [request.courseFee];
+  const paymentReady = !needsPayment || (typeof amount === 'number' && amount > 0 && received);
+
   const act = useMutation({
     mutationFn: () =>
       mode === 'verify'
-        ? api.post(`/api/v1/admin/enrollment-requests/${request.id}/verify`, { batchId })
+        ? api.post(`/api/v1/admin/enrollment-requests/${request.id}/verify`, {
+            batchId,
+            ...(needsPayment
+              ? {
+                  ...(planId ? { feePlanId: planId } : {}),
+                  collectAmount: amount,
+                  collectMethod: method,
+                  ...(payRef.trim() ? { collectReference: payRef.trim() } : {}),
+                }
+              : {}),
+          })
         : api.post(`/api/v1/admin/enrollment-requests/${request.id}/reject`, {
             reason: reason.trim(),
           }),
@@ -348,12 +383,12 @@ function ActionModal({
         <div className="rounded-xl border border-white/8 bg-surface-2 p-4 space-y-1.5 text-sm">
           <div className="flex justify-between">
             <span className="text-slate-400">Asked in the app</span>
-            <span className="text-slate-300">no payment taken</span>
+            <span className="text-slate-300">{request.courseFee > 0 ? 'collect the first payment below' : 'free course'}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-slate-400">Course fee</span>
             <span className="text-slate-100 font-medium">
-              {request.courseFee > 0 ? `${money(request.courseFee)} — due at the office` : 'Free'}
+              {request.courseFee > 0 ? money(request.courseFee) : 'Free'}
             </span>
           </div>
         </div>
@@ -420,9 +455,56 @@ function ActionModal({
               )}
             </Field>
 
+            {needsPayment && (
+              <div className="rounded-xl border border-white/8 p-4 space-y-3">
+                <p className="text-sm text-slate-200 font-medium">First payment</p>
+                {plans.length > 0 && (
+                  <Field label="Fee plan">
+                    <Select value={planId} onChange={(e) => { setPlanId(e.target.value); setAmount(''); }}>
+                      <option value="">Full fee · {money(request.courseFee)}</option>
+                      {plans.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} · {money(p.totalAmount)} in {p.installments.length} instalment{p.installments.length === 1 ? '' : 's'}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Field label="Amount received">
+                    <Select value={amount === '' ? '' : String(amount)} onChange={(e) => setAmount(e.target.value ? Number(e.target.value) : '')}>
+                      <option value="">Choose…</option>
+                      {amountChoices.map((a) => (
+                        <option key={a} value={a}>
+                          {money(a)}{a === feeTotal ? ' · full fee' : ' · first instalment'}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Paid by">
+                    <Select value={method} onChange={(e) => setMethod(e.target.value as typeof method)}>
+                      <option value="cash">Cash</option>
+                      <option value="upi">UPI</option>
+                      <option value="card">Card</option>
+                      <option value="bank_transfer">Bank transfer</option>
+                    </Select>
+                  </Field>
+                </div>
+                <Field label="Reference (UPI / bank ref, optional)">
+                  <Input value={payRef} onChange={(e) => setPayRef(e.target.value)} placeholder="e.g. 431245678901" />
+                </Field>
+                <label className="flex items-start gap-2 text-sm text-slate-300">
+                  <input type="checkbox" className="mt-1" checked={received} onChange={(e) => setReceived(e.target.checked)} />
+                  <span>I have received {typeof amount === 'number' ? money(amount) : 'this amount'} from the student.</span>
+                </label>
+              </div>
+            )}
+
             <p className="text-xs text-slate-500">
               {appRequest
-                ? 'This creates the admission and enrols the student now — they can open the course immediately. No payment is recorded: if the course has a fee, collect it at the office and record it on the Fees page.'
+                ? request.courseFee > 0
+                  ? 'This records the payment, creates the admission and enrols the student — they can open the course immediately. Any balance stays due under Fees. A counsellor’s approval waits for an admin in Finance Approvals.'
+                  : 'Free course: this creates the admission and enrols the student now — they can open the course immediately.'
                 : 'Check the payment against the bank statement first. This records the payment, creates the admission and enrols the student in one step — they can open the course immediately afterwards.'}
             </p>
           </>
@@ -444,7 +526,7 @@ function ActionModal({
           </Button>
           <Button
             loading={act.isPending}
-            disabled={mode === 'verify' ? !batchId || noReference : reason.trim().length < 3}
+            disabled={mode === 'verify' ? !batchId || noReference || !paymentReady : reason.trim().length < 3}
             onClick={() => act.mutate()}
           >
             {mode === 'verify' ? (appRequest ? 'Approve and enrol' : 'Verify and admit') : 'Reject request'}

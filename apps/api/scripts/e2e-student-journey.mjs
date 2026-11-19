@@ -17,7 +17,7 @@ const BATCH = '5669eb83-030e-407f-bfcc-704a28be138a';  // batch 001
 const MODULE = '7e21ff6d-00b4-409f-9072-44ef316ce904'; // Class 1
 const LESSON_VIDEO = '60100d75-8617-4fa6-9e97-5fc0517dbac6';
 const LESSON_PDF = 'd1321edd-48ed-42b0-a952-f53e1ba3b671';
-const LESSON_YT = 'a9eac72b-dcaf-4884-933b-b06730139485';
+// The YouTube class is whichever the academy has linked now — looked up below.
 const EXAM = '09178b2e-90df-47e9-8fbe-aa592615f357';   // Class 1 Weekly Test, 3 questions
 
 const c = new pg.Client({ connectionString: process.env.DATABASE_URL });
@@ -28,6 +28,7 @@ const check = (n, ok, d = '') => { ok ? pass++ : fail++; console.log(`${ok ? 'ok
 const data = (r) => (r && r.data !== undefined ? r.data : r);
 
 const [admin] = await q(`select id from users where role='admin' and is_active limit 1`);
+const [{ fee_amount: FEE }] = await q(`select fee_amount from courses where id=$1`, [COURSE]); // the academy sets it; read, never assume
 const tag = Date.now().toString().slice(-9);
 const phone = '+9190' + tag;
 // 1. sign-up: Firebase sign-in inserts the user exactly like this
@@ -53,20 +54,27 @@ try {
 
   // 4. request to enrol (the app's "Request to enrol" button)
   const req = await requestEnrolment(S, COURSE);
-  check('request created: pending, fee 5000, no reference', req.status === 'pending' && req.amount === 5000 && !req.reference, JSON.stringify({ status: req.status, amount: req.amount, method: req.method, channel: req.channel }));
+  check(`request created: pending, fee ${FEE}, no reference`, req.status === 'pending' && req.amount === FEE && !req.reference, JSON.stringify({ status: req.status, amount: req.amount, method: req.method, channel: req.channel }));
   const mine = await listMyEnrollRequests(S);
   check('student sees "Request sent" (pending, manual channel)', mine.some((r) => r.id === req.id && r.status === 'pending' && r.channel === 'manual'));
   const adminList = data(await listEnrollRequests('pending'));
   const adminRows = Array.isArray(adminList) ? adminList : (adminList.items ?? []);
   check('admin "Enrolment requests" shows it as pending', adminRows.some((r) => r.id === req.id), `${adminRows.length} pending in total`);
 
-  // 5. admin approves into batch 001 (the "Approve and enrol" modal)
-  const v = await verifyEnrollRequest(req.id, { batchId: BATCH }, admin.id, 'admin');
-  check('admin approval without payment reference succeeds', !!v.admissionId);
+  // 5. admin approves into batch 001 (the "Approve and enrol" modal). A paid
+  // course needs the first payment at approval (academy rule, 19 Nov 2026).
+  let noPay = 'no error';
+  try { await verifyEnrollRequest(req.id, { batchId: BATCH, collectMethod: 'cash' }, admin.id, 'admin'); } catch (e) { noPay = e.code; }
+  check('approving a paid course without a payment is refused', noPay === 'PAYMENT_REQUIRED', noPay);
+  let odd = 'no error';
+  try { await verifyEnrollRequest(req.id, { batchId: BATCH, collectAmount: 1234, collectMethod: 'cash' }, admin.id, 'admin'); } catch (e) { odd = e.code; }
+  check('a typed amount that is not the fee is refused', odd === 'COLLECT_AMOUNT_NOT_PRESET', odd);
+  const v = await verifyEnrollRequest(req.id, { batchId: BATCH, collectAmount: FEE, collectMethod: 'cash' }, admin.id, 'admin');
+  check('admin approval with the full fee collected succeeds', !!v.admissionId);
   const [enr] = await q(`select status::text from batch_enrollments where user_id=$1 and batch_id=$2`, [S, BATCH]);
   check('student is active in batch 001', enr?.status === 'active', enr?.status);
   const [adm] = await q(`select fee_amount, amount_paid, payment_status::text from admissions where id=$1`, [v.admissionId]);
-  check('admission: fee 5000 due at the office, nothing paid', adm.fee_amount === 5000 && adm.amount_paid === 0 && adm.payment_status === 'pending', JSON.stringify(adm));
+  check(`admission: fee ${FEE}, paid in full (admin cash confirmed at once)`, adm.fee_amount === FEE && adm.amount_paid === FEE && adm.payment_status === 'paid', JSON.stringify(adm));
   const [notif] = await q(`select title, body from notifications where user_id=$1 order by created_at desc limit 1`, [S]);
   check('student notified "You are enrolled"', /enrolled/i.test(notif?.title ?? ''), notif?.title);
   const mine2 = await listMyEnrollRequests(S);
@@ -86,8 +94,9 @@ try {
   check('academy video: signed Bunny URL issued', w.provider === 'bunny' && /^https:\/\/.*b-cdn\.net\//.test(w.url ?? ''), (w.url ?? '').replace(/token=[^&]+/, 'token=…').slice(0, 110));
   const vres = await fetch(w.url).catch((e) => ({ status: 'ERR ' + e.message }));
   check('academy video URL plays (CDN answers 200)', vres.status === 200, `HTTP ${vres.status}`);
-  const y = await getLessonWatchUrl(LESSON_YT, S, 'student');
-  check('YouTube lesson returns its video id', y.provider === 'youtube' && y.youtubeVideoId === 'rsi-H1GCBhs', JSON.stringify(y));
+  const ytLesson = lessonList.find((l) => l.videoProvider === 'youtube');
+  const y = ytLesson ? await getLessonWatchUrl(ytLesson.id, S, 'student') : null;
+  check('YouTube lesson returns its video id', !ytLesson || (y.provider === 'youtube' && /^[\w-]{11}$/.test(y.youtubeVideoId ?? '')), JSON.stringify(y ?? 'no YouTube lesson in Class 1'));
   const p = await getLessonWatchUrl(LESSON_PDF, S, 'student');
   const fname = await getLessonFileName(LESSON_PDF, S, 'student');
   check('PDF note: file route + stored file name', p.type === 'pdf' && /\/lessons\/.*\/file$/.test(p.url) && !!fname, `${p.url} -> ${fname}`);
@@ -127,13 +136,20 @@ try {
 
   // 8. AI doubt
   const d = data(await createDoubt(S, { requestedRoute: 'ai', subject: 'Polity', body: 'What does Article 21 of the Constitution guarantee?' }));
-  check('AI doubt answered instantly', d.status === 'ai_answered' && (d.aiAnswer ?? d.answer ?? '').length > 40, JSON.stringify({ status: d.status, answer: (d.aiAnswer ?? d.answer ?? '').slice(0, 80) }));
+  // The academy can switch AI answers off (Settings → aiDoubtsEnabled); then
+  // doubts go straight to the mentor queue, which is correct behaviour.
+  const [aiSetting] = await q(`select value from app_settings where key='aiDoubtsEnabled'`);
+  const aiOn = aiSetting ? aiSetting.value !== false : true;
+  check(aiOn ? 'AI doubt answered instantly' : 'AI answers are off in Settings: doubt goes to the mentor queue',
+    aiOn ? d.status === 'ai_answered' && (d.aiAnswer ?? d.answer ?? '').length > 40 : d.status === 'escalated',
+    JSON.stringify({ status: d.status, answer: (d.aiAnswer ?? d.answer ?? '').slice(0, 80) }));
   const myD = data(await listMyDoubts(S, { page: 1, limit: 10 }));
   check('Doubts list shows it', (Array.isArray(myD) ? myD : (myD.items ?? [])).length === 1);
 
   // 9. streak / leaderboard
   const streak = data(await getUserStreak(S));
-  check('streak counted after studying', (streak?.currentStreak ?? streak?.streak ?? 0) >= 1 || (streak?.xp ?? streak?.totalXp ?? 0) > 0, JSON.stringify(streak));
+  // XP comes from AI-answered doubts; with AI answers off there is none to count.
+  check('streak record responds' + (aiOn ? ' and counts the study' : ''), !!streak && (!aiOn || (streak.currentStreak ?? 0) >= 1 || (streak.totalXp ?? 0) > 0), JSON.stringify(streak));
   const lb = data(await getGlobalLeaderboard(1, 50, S));
   check('global leaderboard responds', !!lb, JSON.stringify(lb).slice(0, 80));
 } catch (e) {
