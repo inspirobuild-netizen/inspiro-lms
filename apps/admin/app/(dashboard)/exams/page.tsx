@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Modal, Select, Field } from '@/components/ui/modal';
 import { ApiError } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
+import { BatchPicker, useBatchOptions } from '@/components/shared/batch-picker';
 
 type Exam = {
   id: string;
@@ -23,6 +24,8 @@ type Exam = {
   scheduleStart: string | null;
   scheduleEnd: string | null;
   createdAt: string;
+  batchIds: string[] | null;
+  lessonId: string | null;
 };
 
 const typeColor: Record<string, 'default' | 'teal' | 'amber' | 'rose'> = {
@@ -67,10 +70,30 @@ export default function ExamsPage() {
     enabled: !!accessToken,
   });
 
+  const { nameOf } = useBatchOptions();
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
+  const [actionError, setActionError] = useState<string | null>(null);
+
   const publish = useMutation({
     mutationFn: (id: string) => api.post(`/api/v1/admin/exams/${id}/publish`),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'exams'] }),
+    onSuccess: () => { setActionError(null); void qc.invalidateQueries({ queryKey: ['admin', 'exams'] }); },
+    onError: (e) => setActionError(e instanceof ApiError ? e.message : 'Could not publish'),
   });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api.delete(`/api/v1/admin/exams/${id}`),
+    onSuccess: () => { setActionError(null); void qc.invalidateQueries({ queryKey: ['admin', 'exams'] }); },
+    onError: (e) => setActionError(e instanceof ApiError ? e.message : 'Could not delete'),
+  });
+
+  // Who actually receives the test in the app — the single most useful fact
+  // about it, and the one that was invisible when tests reached no one.
+  const audience = (e: Exam): { text: string; warn: boolean } => {
+    if (e.lessonId) return { text: 'Students of the lesson it follows', warn: false };
+    if (e.type === 'practice') return { text: 'All students (practice)', warn: false };
+    if (e.batchIds && e.batchIds.length > 0) return { text: e.batchIds.map(nameOf).join(', '), warn: false };
+    return { text: 'No batch — nobody sees it', warn: true };
+  };
 
   const columns: Column<Exam>[] = [
     {
@@ -92,6 +115,14 @@ export default function ExamsPage() {
           {e.type.replace('_', ' ')}
         </Badge>
       ),
+    },
+    {
+      key: 'audience',
+      header: 'Taken by',
+      render: (e) => {
+        const a = audience(e);
+        return <span className={a.warn ? 'text-amber-400 text-xs' : 'text-slate-400 text-xs'}>{a.text}</span>;
+      },
     },
     {
       key: 'duration',
@@ -136,6 +167,19 @@ export default function ExamsPage() {
               onClick={() => publish.mutate(e.id)}
             >
               Publish
+            </Button>
+          )}
+          {isAdmin && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-rose-400"
+              loading={remove.isPending && remove.variables === e.id}
+              onClick={() => {
+                if (confirm(`Delete "${e.title}"? Its questions are removed from the test and every student's attempt and result for it is deleted. This cannot be undone.`)) remove.mutate(e.id);
+              }}
+            >
+              Delete
             </Button>
           )}
         </div>
@@ -183,6 +227,8 @@ export default function ExamsPage() {
         ))}
       </div>
 
+      {actionError && <p className="text-sm text-rose-400">{actionError}</p>}
+
       <DataTable
         columns={columns}
         data={data?.data ?? []}
@@ -214,6 +260,7 @@ function NewExamButton({
   const [negMarks, setNegMarks] = useState('0.25');
   const [passPercent, setPassPercent] = useState('40');
   const [maxAttempts, setMaxAttempts] = useState('1');
+  const [batchIds, setBatchIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   // Arriving from a lesson's "+ Quiz" action — pre-fill and auto-open once.
@@ -237,10 +284,11 @@ function NewExamButton({
         passPercent: Number(passPercent) || 40,
         maxAttempts: Number(maxAttempts) || 1,
         ...(type === 'topic_quiz' && defaultLessonId ? { lessonId: defaultLessonId } : {}),
+        ...(type !== 'practice' && !(type === 'topic_quiz' && defaultLessonId) ? { batchIds } : {}),
       }),
     onSuccess: () => {
       setOpen(false);
-      setTitle(''); setError(null);
+      setTitle(''); setBatchIds([]); setError(null);
       onCreated();
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to create exam'),
@@ -283,10 +331,21 @@ function NewExamButton({
               <Input value={maxAttempts} inputMode="numeric" onChange={(e) => setMaxAttempts(e.target.value.replace(/\D/g, ''))} />
             </Field>
           </div>
+          {type === 'practice' ? (
+            <p className="text-xs text-slate-400">Practice tests are open to every student in the app, enrolled or not.</p>
+          ) : type === 'topic_quiz' && defaultLessonId ? null : (
+            <Field label="Batches that take this test">
+              <BatchPicker selected={batchIds} onChange={setBatchIds} />
+            </Field>
+          )}
           {error && <p className="text-sm text-rose-400">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button loading={create.isPending} disabled={title.trim().length < 2} onClick={() => create.mutate()}>
+            <Button
+              loading={create.isPending}
+              disabled={title.trim().length < 2 || (type !== 'practice' && !(type === 'topic_quiz' && defaultLessonId) && batchIds.length === 0)}
+              onClick={() => create.mutate()}
+            >
               Create
             </Button>
           </div>

@@ -22,6 +22,9 @@ export const listUsersSchema = z.object({
   isActive: z.coerce.boolean().optional(),
   search: z.string().max(100).optional(),
   batchId: z.string().uuid().optional(),
+  // 'signed_in' = has used the mobile app (a session was ever issued);
+  // 'never' = added by staff or converted from a lead but never opened the app.
+  appStatus: z.enum(['signed_in', 'never']).optional(),
 });
 
 export const updateUserRoleSchema = z.object({

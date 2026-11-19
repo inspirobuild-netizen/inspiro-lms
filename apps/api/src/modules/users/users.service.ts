@@ -66,11 +66,28 @@ export async function createUser(data: CreateUserInput) {
 }
 
 // ── Admin: list users ─────────────────────────────────────────────────────────
+// When the student last used the mobile app, from what the app leaves behind:
+// a sign-in or session refresh, a push-device registration, a lesson watched,
+// a test started. NULL = never used the app (added by the office or converted
+// from a lead, and never signed in). Postgres GREATEST skips NULLs.
+// Always table-qualified: inside .select() drizzle renders a bare column as
+// "id", which in these subqueries silently binds to the inner table's id.
+const uid = sql.raw('"users"."id"');
+const lastActiveExpr = sql<Date | null>`greatest(
+  (select max(r.created_at) from refresh_tokens r where r.user_id = ${uid}),
+  (select max(d.updated_at) from device_tokens d where d.user_id = ${uid}),
+  (select max(p.last_watched_at) from lesson_progress p where p.user_id = ${uid}),
+  (select max(a.started_at) from exam_attempts a where a.student_id = ${uid})
+)`;
+const devicesExpr = sql<string | null>`(select string_agg(distinct d.platform, ',') from device_tokens d where d.user_id = ${uid})`;
+
 export async function listUsers(input: ListUsersInput) {
-  const { page, limit, role, isActive, search, batchId } = input;
+  const { page, limit, role, isActive, search, batchId, appStatus } = input;
   const offset = (page - 1) * limit;
 
   const conditions = [];
+  if (appStatus === 'signed_in') conditions.push(sql`${lastActiveExpr} is not null`);
+  if (appStatus === 'never') conditions.push(sql`${lastActiveExpr} is null`);
   if (role) conditions.push(eq(users.role, role));
   if (isActive !== undefined) conditions.push(eq(users.isActive, isActive));
   if (search) {
@@ -93,9 +110,23 @@ export async function listUsers(input: ListUsersInput) {
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [{ total }] = await db.select({ total: count() }).from(users).where(where);
-  const items = await db.select().from(users).where(where).limit(limit).offset(offset);
+  const rows = await db
+    .select({ user: users, lastActiveAt: lastActiveExpr, devices: devicesExpr })
+    .from(users)
+    .where(where)
+    .orderBy(sql`${users.createdAt} desc`)
+    .limit(limit)
+    .offset(offset);
 
-  return { items: items.map(sanitizeUser), total };
+  return {
+    items: rows.map((r) => ({
+      ...sanitizeUser(r.user),
+      lastActiveAt: r.lastActiveAt,
+      // 'android' | 'ios' | 'android,ios' — phones registered for notifications
+      appDevices: r.devices ? r.devices.split(',') : [],
+    })),
+    total,
+  };
 }
 
 // ── Admin: get single user ────────────────────────────────────────────────────

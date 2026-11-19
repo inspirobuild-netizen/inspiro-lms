@@ -180,6 +180,20 @@ export async function publishExam(examId: string) {
 
   if (qCount === 0) throw err('Cannot publish an exam with no questions', 400, 'NO_QUESTIONS');
 
+  // A test must reach someone. Students see a test when it is a practice test
+  // (open to every student), names their batch, or follows a lesson they can
+  // open. Anything else published to nobody: the Exams page used to create
+  // tests with no batch at all, so they went live and no student ever saw them.
+  const [ex] = await db
+    .select({ type: exams.type, batchIds: exams.batchIds, lessonId: exams.lessonId })
+    .from(exams)
+    .where(eq(exams.id, examId))
+    .limit(1);
+  if (!ex) throw err('Exam not found', 404, 'EXAM_NOT_FOUND');
+  if (ex.type !== 'practice' && !ex.lessonId && !(ex.batchIds && ex.batchIds.length > 0)) {
+    throw err('Choose the batches that take this test before publishing it', 400, 'NO_AUDIENCE');
+  }
+
   const [updated] = await db
     .update(exams)
     .set({ isPublished: true, updatedAt: new Date() })

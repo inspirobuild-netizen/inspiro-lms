@@ -18,7 +18,18 @@ type User = {
   role: string;
   isActive: boolean;
   createdAt: string;
+  lastActiveAt: string | null;
+  appDevices: string[];
 };
+
+/** "today", "3 days ago", "12 Nov 2026" */
+function ago(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 30) return `${days} days ago`;
+  return formatDate(iso);
+}
 
 export default function StudentsPage() {
   const { accessToken } = useAuthStore();
@@ -28,6 +39,7 @@ export default function StudentsPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [appStatus, setAppStatus] = useState<'' | 'signed_in' | 'never'>('');
   const limit = 20;
 
   // Prefill from ?q= (e.g. arriving via the global search dropdown)
@@ -50,13 +62,14 @@ export default function StudentsPage() {
   }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin', 'users', page, debouncedSearch],
+    queryKey: ['admin', 'users', page, debouncedSearch, appStatus],
     queryFn: () => {
       const params = new URLSearchParams({
         page: String(page),
         limit: String(limit),
         role: 'student',
         ...(debouncedSearch ? { search: debouncedSearch } : {}),
+        ...(appStatus ? { appStatus } : {}),
       });
       return api.get<User[]>(`/api/v1/admin/users?${params.toString()}`);
     },
@@ -94,6 +107,22 @@ export default function StudentsPage() {
       ),
     },
     {
+      key: 'app',
+      header: 'App',
+      width: 'w-44',
+      render: (u) =>
+        u.lastActiveAt ? (
+          <div>
+            <p className="text-slate-300 text-sm">
+              {u.appDevices.length ? u.appDevices.map((d) => (d === 'ios' ? 'iPhone' : 'Android')).join(' + ') : 'Signed in'}
+            </p>
+            <p className="text-xs text-slate-500">active {ago(u.lastActiveAt)}</p>
+          </div>
+        ) : (
+          <span className="text-xs text-slate-500">Never signed in</span>
+        ),
+    },
+    {
       key: 'joined',
       header: 'Joined',
       width: 'w-32',
@@ -129,7 +158,7 @@ export default function StudentsPage() {
         <div>
           <h2 className="font-display font-bold text-2xl text-slate-100">Students</h2>
           <p className="text-slate-400 text-sm mt-1">
-            {data?.meta?.total ?? 0} registered students
+            {data?.meta?.total ?? 0} {appStatus === 'signed_in' ? 'students using the app' : appStatus === 'never' ? 'students who never signed in' : 'registered students'}
           </p>
         </div>
         <AddStudentButton onCreated={() => void qc.invalidateQueries({ queryKey: ['admin', 'users'] })} />
@@ -142,6 +171,15 @@ export default function StudentsPage() {
           onChange={(e) => handleSearchChange(e.target.value)}
           className="max-w-xs"
         />
+        <Select
+          value={appStatus}
+          onChange={(e) => { setAppStatus(e.target.value as typeof appStatus); setPage(1); }}
+          className="max-w-[220px]"
+        >
+          <option value="">All students</option>
+          <option value="signed_in">Using the app</option>
+          <option value="never">Never signed in</option>
+        </Select>
       </div>
 
       <DataTable

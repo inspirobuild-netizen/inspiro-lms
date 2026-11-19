@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createApiClient, ApiError } from '@/lib/api';
@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, Select, Field, Textarea } from '@/components/ui/modal';
+import { BatchPicker, useBatchOptions } from '@/components/shared/batch-picker';
 
 type Exam = {
   id: string;
@@ -20,6 +21,8 @@ type Exam = {
   negMarks: number;
   passPercent: number;
   isPublished: boolean;
+  batchIds: string[] | null;
+  lessonId: string | null;
 };
 
 type Question = {
@@ -60,9 +63,29 @@ export default function ExamQuestionsPage() {
     onSuccess: invalidate,
   });
 
+  const router = useRouter();
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
+  const { nameOf } = useBatchOptions();
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [editingAudience, setEditingAudience] = useState(false);
+  const [audienceDraft, setAudienceDraft] = useState<string[]>([]);
+
   const publish = useMutation({
     mutationFn: () => api.post(`/api/v1/admin/exams/${id}/publish`),
-    onSuccess: invalidate,
+    onSuccess: () => { setPageError(null); invalidate(); },
+    onError: (e) => setPageError(e instanceof ApiError ? e.message : 'Could not publish'),
+  });
+
+  const saveAudience = useMutation({
+    mutationFn: (batchIds: string[]) => api.patch(`/api/v1/admin/exams/${id}`, { batchIds }),
+    onSuccess: () => { setEditingAudience(false); setPageError(null); invalidate(); void qc.invalidateQueries({ queryKey: ['admin', 'exams'] }); },
+    onError: (e) => setPageError(e instanceof ApiError ? e.message : 'Could not save the batches'),
+  });
+
+  const removeExam = useMutation({
+    mutationFn: () => api.delete(`/api/v1/admin/exams/${id}`),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['admin', 'exams'] }); router.push('/exams'); },
+    onError: (e) => setPageError(e instanceof ApiError ? e.message : 'Could not delete'),
   });
 
   if (examError)
@@ -89,9 +112,43 @@ export default function ExamQuestionsPage() {
               <span>{exam.durationMins} min · −{exam.negMarks}/wrong · pass {exam.passPercent}%</span>
             </div>
           )}
+          {exam && (
+            <div className="mt-3 text-sm">
+              <span className="text-slate-500">Taken by: </span>
+              {exam.lessonId ? (
+                <span className="text-slate-300">students of the lesson it follows</span>
+              ) : exam.type === 'practice' ? (
+                <span className="text-slate-300">all students (practice test)</span>
+              ) : exam.batchIds && exam.batchIds.length > 0 ? (
+                <span className="text-slate-300">{exam.batchIds.map(nameOf).join(', ')}</span>
+              ) : (
+                <span className="text-amber-400">no batch yet — no student can see this test</span>
+              )}
+              {!exam.lessonId && exam.type !== 'practice' && (
+                <button
+                  className="ml-3 text-brand-blue hover:underline"
+                  onClick={() => { setAudienceDraft(exam.batchIds ?? []); setEditingAudience(true); }}
+                >
+                  Change batches
+                </button>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex gap-2 shrink-0">
           <AddQuestionButton examId={id} defaultSubject={exam?.subject ?? 'General Studies'} onAdded={invalidate} />
+          {isAdmin && exam && (
+            <Button
+              variant="ghost"
+              className="text-rose-400"
+              loading={removeExam.isPending}
+              onClick={() => {
+                if (confirm(`Delete "${exam.title}"? Every student's attempt and result for this test is deleted too. This cannot be undone.`)) removeExam.mutate();
+              }}
+            >
+              Delete test
+            </Button>
+          )}
           {exam && !exam.isPublished && (
             <Button
               variant="outline"
@@ -105,6 +162,20 @@ export default function ExamQuestionsPage() {
           )}
         </div>
       </div>
+
+      {pageError && <p className="text-sm text-rose-400">{pageError}</p>}
+
+      <Modal open={editingAudience} onClose={() => setEditingAudience(false)} title="Batches that take this test" description="Students of the ticked batches see it under Exams once it is published.">
+        <div className="space-y-4">
+          <BatchPicker selected={audienceDraft} onChange={setAudienceDraft} />
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setEditingAudience(false)}>Cancel</Button>
+            <Button loading={saveAudience.isPending} disabled={audienceDraft.length === 0} onClick={() => saveAudience.mutate(audienceDraft)}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {isLoading && <p className="text-slate-400">Loading questions…</p>}
 
