@@ -3,22 +3,9 @@
 import { useState } from 'react';
 import { useAuthStore } from '@/lib/auth';
 import { useToast } from '@/components/ui/toast';
-
-const API_BASE = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3000';
-
-// CSV routes require a Bearer token — a plain <a href download> can't attach
-// one, so we fetch authenticated and trigger the download from a Blob.
-async function downloadCsv(path: string, filename: string, token: string | null) {
-  const res = await fetch(`${API_BASE}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-  if (!res.ok) throw new Error(`Download failed (${res.status})`);
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+// CSV routes require a Bearer token; downloadFile sends it, and refreshes it
+// when the 15-minute access token has run out.
+import { downloadFile as downloadCsv } from '@/lib/api';
 
 function ExportCard({ title, description, path, filename }: { title: string; description: string; path: string; filename: string }) {
   const { accessToken } = useAuthStore();

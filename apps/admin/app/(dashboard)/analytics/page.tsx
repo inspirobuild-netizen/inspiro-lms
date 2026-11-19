@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   AreaChart,
@@ -13,9 +14,10 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
-import { createApiClient } from '@/lib/api';
+import { createApiClient, downloadFile } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth';
 import { StatCard } from '@/components/shared/stat-card';
+import { useToast } from '@/components/ui/toast';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,22 +47,38 @@ type TopStudent = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function ExportButton({ href, label }: { href: string; label: string }) {
+// The exports need the Bearer token, which a plain download link cannot send —
+// these buttons used to fetch a 401 instead of the CSV.
+function ExportButton({ path, filename, label }: { path: string; filename: string; label: string }) {
+  const { accessToken } = useAuthStore();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  async function handleClick() {
+    setBusy(true);
+    try {
+      await downloadFile(path, filename, accessToken);
+    } catch {
+      toast('Could not download this export', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <a
-      href={href}
-      download
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-surface-2 hover:bg-surface-high text-xs font-medium text-slate-300 transition-colors"
+    <button
+      type="button"
+      onClick={() => void handleClick()}
+      disabled={busy}
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-surface-2 hover:bg-surface-high text-xs font-medium text-slate-300 transition-colors disabled:opacity-60"
     >
       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
       </svg>
-      {label}
-    </a>
+      {busy ? 'Preparing…' : label}
+    </button>
   );
 }
-
-const API_BASE = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3000';
 
 const CHART_COLORS = {
   violet: '#7C3AED',
@@ -143,9 +161,9 @@ export default function AnalyticsPage() {
           <p className="text-slate-400 text-sm mt-1">Platform-wide metrics and exports</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <ExportButton href={`${API_BASE}/api/v1/admin/analytics/export/students`} label="Export Students" />
-          <ExportButton href={`${API_BASE}/api/v1/admin/analytics/export/exam-results`} label="Export Exam Results" />
-          <ExportButton href={`${API_BASE}/api/v1/admin/analytics/export/attendance`} label="Export Attendance" />
+          <ExportButton path="/api/v1/admin/analytics/export/students" filename="students-all.csv" label="Export Students" />
+          <ExportButton path="/api/v1/admin/analytics/export/exam-results" filename="exam-results-all.csv" label="Export Exam Results" />
+          <ExportButton path="/api/v1/admin/analytics/export/attendance" filename="attendance-all.csv" label="Export Attendance" />
         </div>
       </div>
 
@@ -250,7 +268,7 @@ export default function AnalyticsPage() {
       <div className="rounded-2xl border border-white/8 bg-surface-1 p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display font-semibold text-slate-200">Top students by exam score</h3>
-          <ExportButton href={`${API_BASE}/api/v1/admin/analytics/export/students`} label="Export CSV" />
+          <ExportButton path="/api/v1/admin/analytics/export/students" filename="students-all.csv" label="Export CSV" />
         </div>
         {topStudents.length === 0 ? (
           <p className="text-slate-500 text-sm py-4">No exam attempts yet</p>
