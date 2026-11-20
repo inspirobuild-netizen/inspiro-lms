@@ -158,6 +158,19 @@ export const rolePermissions = pgTable('role_permissions', {
   roleIdx: index('idx_role_permissions_role').on(t.staffRoleId),
 }));
 
+// The roles a staff member holds. One person can hold several (an Admission
+// Counsellor who is also a Mentor, say); their permissions are the union of
+// those roles' sets. users.staff_role_id stays as the main role, the first
+// one chosen, for screens that show a single role.
+export const staffMemberRoles = pgTable('staff_member_roles', {
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  staffRoleId: uuid('staff_role_id').notNull().references(() => staffRoles.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.userId, t.staffRoleId] }),
+  roleIdx: index('idx_staff_member_roles_role').on(t.staffRoleId),
+}));
+
 // HR profile — 1:1 with a users row (role='staff'). Keeps the shared users table lean.
 export const staffProfiles = pgTable('staff_profiles', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -879,7 +892,8 @@ export const banners = pgTable('banners', {
 // Deliberately key/value: these are policy toggles, not a schema.
 export const appSettings = pgTable('app_settings', {
   key: varchar('key', { length: 64 }).primaryKey(),
-  value: jsonb('value').notNull().$type<boolean>(),
+  // A switch (boolean) or a number, depending on the key; see settings.service.ts.
+  value: jsonb('value').notNull().$type<boolean | number>(),
   updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

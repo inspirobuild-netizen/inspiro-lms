@@ -1,9 +1,11 @@
 import { eq, and, count, sql, inArray } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
+import { holdsStaffRole } from '../../lib/permissions.js';
 import {
   batches,
   users,
   staffRoles,
+  staffMemberRoles,
   mentorProfiles,
   mentorBatches,
   batchEnrollments,
@@ -29,7 +31,24 @@ function err(message: string, statusCode: number, code: string) {
 }
 
 // ── Admin: list mentors with profile + mapping ────────────────────────────────
+// Everyone holding the Mentor role, active or not: through the role links, or
+// as their main role for a member with no links yet.
+async function mentorIds(): Promise<string[]> {
+  const [linked, main] = await Promise.all([
+    db.select({ id: staffMemberRoles.userId })
+      .from(staffMemberRoles)
+      .innerJoin(staffRoles, eq(staffRoles.id, staffMemberRoles.staffRoleId))
+      .where(eq(staffRoles.slug, 'mentor')),
+    db.select({ id: users.id })
+      .from(users)
+      .innerJoin(staffRoles, eq(staffRoles.id, users.staffRoleId))
+      .where(eq(staffRoles.slug, 'mentor')),
+  ]);
+  return [...new Set([...linked, ...main].map((r) => r.id))];
+}
+
 export async function listMentors() {
+  if ((await mentorIds()).length === 0) return [];
   const rows = await db
     .select({
       id: users.id,
@@ -41,9 +60,9 @@ export async function listMentors() {
       strongSubjects: mentorProfiles.strongSubjects,
     })
     .from(users)
-    .innerJoin(staffRoles, eq(users.staffRoleId, staffRoles.id))
     .leftJoin(mentorProfiles, eq(mentorProfiles.userId, users.id))
-    .where(eq(staffRoles.slug, 'mentor'));
+    // Anyone holding the Mentor role, whether alone or among several roles.
+    .where(inArray(users.id, await mentorIds()));
 
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
@@ -62,14 +81,9 @@ export async function listMentors() {
 
 // ── Admin: set subject profile ────────────────────────────────────────────────
 export async function setMentorProfile(userId: string, coreSubject: string, strongSubjects: string[]) {
-  const [user] = await db
-    .select({ id: users.id, slug: staffRoles.slug })
-    .from(users)
-    .leftJoin(staffRoles, eq(users.staffRoleId, staffRoles.id))
-    .where(eq(users.id, userId))
-    .limit(1);
+  const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
   if (!user) throw err('User not found', 404, 'USER_NOT_FOUND');
-  if (user.slug !== 'mentor') throw err('This staff member does not hold the Mentor role', 400, 'NOT_A_MENTOR');
+  if (!(await holdsStaffRole(userId, 'mentor'))) throw err('This staff member does not hold the Mentor role', 400, 'NOT_A_MENTOR');
 
   const [profile] = await db
     .insert(mentorProfiles)

@@ -1,6 +1,6 @@
-import { and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
-import { users, staffProfiles, staffRoles, branches } from '../../../drizzle/schema.js';
+import { users, staffProfiles, staffRoles, staffMemberRoles, branches } from '../../../drizzle/schema.js';
 import { hashPassword } from '../../lib/password.js';
 import { redis } from '../../lib/redis.js';
 import { bustStaffRoleCache } from '../../middleware/require-permission.js';
@@ -10,8 +10,54 @@ function err(msg: string, statusCode: number, code: string) {
   return Object.assign(new Error(msg), { statusCode, code });
 }
 
-// Columns that live on `users` vs `staff_profiles`.
-const USER_FIELDS = ['name', 'staffRoleId', 'branchId'] as const;
+// Columns that live on `users` vs `staff_profiles`. Roles are handled apart:
+// they live in staff_member_roles, with the main one mirrored on users.
+const USER_FIELDS = ['name', 'branchId'] as const;
+const ROLE_FIELDS = ['staffRoleId', 'staffRoleIds'];
+
+type RoleRef = { id: string; name: string; slug: string };
+
+/** The roles asked for: the list from current screens, or the one older screens send. */
+function requestedRoles(input: { staffRoleIds?: string[]; staffRoleId?: string }): string[] {
+  return [...new Set(input.staffRoleIds ?? (input.staffRoleId ? [input.staffRoleId] : []))];
+}
+
+async function assertRolesExist(ids: string[]) {
+  const found = await db.select({ id: staffRoles.id }).from(staffRoles).where(inArray(staffRoles.id, ids));
+  if (found.length !== ids.length) throw err('Selected role does not exist', 400, 'ROLE_NOT_FOUND');
+}
+
+// Replaces the roles someone holds. The first is the main one, mirrored on
+// users.staff_role_id for screens that show a single role.
+async function setStaffRoles(userId: string, ids: string[]) {
+  await db.transaction(async (tx) => {
+    await tx.delete(staffMemberRoles).where(eq(staffMemberRoles.userId, userId));
+    await tx.insert(staffMemberRoles).values(ids.map((staffRoleId) => ({ userId, staffRoleId })));
+    await tx.update(users).set({ staffRoleId: ids[0], updatedAt: new Date() }).where(eq(users.id, userId));
+  });
+  await bustStaffRoleCache(userId); // their permission set changes with their roles
+}
+
+/**
+ * Adds every role each member holds. roleName becomes all of them, main first,
+ * so a screen that shows one role name shows them all.
+ */
+async function withRoles<T extends { id: string; staffRoleId: string | null; roleName: string | null; roleSlug: string | null }>(
+  rows: T[],
+): Promise<(T & { staffRoles: RoleRef[] })[]> {
+  if (rows.length === 0) return [];
+  const links = await db
+    .select({ userId: staffMemberRoles.userId, id: staffRoles.id, name: staffRoles.name, slug: staffRoles.slug })
+    .from(staffMemberRoles)
+    .innerJoin(staffRoles, eq(staffRoles.id, staffMemberRoles.staffRoleId))
+    .where(inArray(staffMemberRoles.userId, rows.map((r) => r.id)));
+  return rows.map((r) => {
+    let roles: RoleRef[] = links.filter((l) => l.userId === r.id).map(({ id, name, slug }) => ({ id, name, slug }));
+    if (roles.length === 0 && r.staffRoleId && r.roleName) roles = [{ id: r.staffRoleId, name: r.roleName, slug: r.roleSlug ?? '' }];
+    roles.sort((a, b) => (a.id === r.staffRoleId ? -1 : b.id === r.staffRoleId ? 1 : a.name.localeCompare(b.name)));
+    return { ...r, staffRoles: roles, roleName: roles.map((x) => x.name).join(', ') || r.roleName };
+  });
+}
 
 async function nextEmployeeId(): Promise<string> {
   const res = (await db.execute(sql`SELECT nextval('staff_emp_seq')::int AS v`)) as unknown as { rows: { v: number }[] };
@@ -53,7 +99,13 @@ export async function listStaff(opts: {
   search?: string;
 }) {
   const conds = [eq(users.role, 'staff')];
-  if (opts.staffRoleId) conds.push(eq(users.staffRoleId, opts.staffRoleId));
+  if (opts.staffRoleId) {
+    // Anyone who holds the role, as their main role or one of several.
+    conds.push(or(
+      eq(users.staffRoleId, opts.staffRoleId),
+      inArray(users.id, db.select({ id: staffMemberRoles.userId }).from(staffMemberRoles).where(eq(staffMemberRoles.staffRoleId, opts.staffRoleId))),
+    )!);
+  }
   if (opts.branchId) conds.push(eq(users.branchId, opts.branchId));
   if (opts.isActive !== undefined) conds.push(eq(users.isActive, opts.isActive));
   if (opts.search) {
@@ -79,7 +131,7 @@ export async function listStaff(opts: {
     .limit(opts.limit)
     .offset((opts.page - 1) * opts.limit);
 
-  return { items, total };
+  return { items: await withRoles(items), total };
 }
 
 export async function getStaffById(id: string) {
@@ -92,7 +144,7 @@ export async function getStaffById(id: string) {
     .where(and(eq(users.id, id), eq(users.role, 'staff')))
     .limit(1);
   if (!staff) throw err('Staff member not found', 404, 'STAFF_NOT_FOUND');
-  return staff;
+  return (await withRoles([staff]))[0]!;
 }
 
 export async function createStaff(input: CreateStaffInput) {
@@ -101,8 +153,9 @@ export async function createStaff(input: CreateStaffInput) {
   const [byPhone] = await db.select({ id: users.id }).from(users).where(eq(users.phone, input.phone)).limit(1);
   if (byPhone) throw err('A user with this phone already exists', 409, 'PHONE_EXISTS');
 
-  const [role] = await db.select({ id: staffRoles.id }).from(staffRoles).where(eq(staffRoles.id, input.staffRoleId)).limit(1);
-  if (!role) throw err('Selected role does not exist', 400, 'ROLE_NOT_FOUND');
+  const roleIds = requestedRoles(input);
+  if (roleIds.length === 0) throw err('Choose at least one role', 400, 'ROLE_REQUIRED');
+  await assertRolesExist(roleIds);
 
   const passwordHash = await hashPassword(input.password);
   const employeeId = await nextEmployeeId();
@@ -115,7 +168,7 @@ export async function createStaff(input: CreateStaffInput) {
       phone: input.phone,
       role: 'staff',
       passwordHash,
-      staffRoleId: input.staffRoleId,
+      staffRoleId: roleIds[0],
       branchId: input.branchId ?? null,
       isActive: true,
     })
@@ -134,28 +187,34 @@ export async function createStaff(input: CreateStaffInput) {
     designation: input.designation,
     notes: input.notes,
   });
+  await db.insert(staffMemberRoles).values(roleIds.map((staffRoleId) => ({ userId: user!.id, staffRoleId })));
 
   return getStaffById(user!.id);
 }
 
 export async function updateStaff(id: string, input: UpdateStaffInput) {
-  await getStaffById(id); // 404 if not a staff member
+  const current = await getStaffById(id); // 404 if not a staff member
 
   const userPatch: Record<string, unknown> = {};
   const profilePatch: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(input)) {
+    if (ROLE_FIELDS.includes(k)) continue;
     if ((USER_FIELDS as readonly string[]).includes(k)) userPatch[k] = v;
     else profilePatch[k] = v;
   }
 
-  if (input.staffRoleId) {
-    const [role] = await db.select({ id: staffRoles.id }).from(staffRoles).where(eq(staffRoles.id, input.staffRoleId)).limit(1);
-    if (!role) throw err('Selected role does not exist', 400, 'ROLE_NOT_FOUND');
+  let roleIds = requestedRoles(input);
+  // Screens from before roles could be combined send the one role they know
+  // on every save. When that is simply the main role coming back, it is not a
+  // change, and must not strip the person's other roles.
+  if (!input.staffRoleIds && input.staffRoleId === current.staffRoleId) roleIds = [];
+  if (roleIds.length) {
+    await assertRolesExist(roleIds);
+    await setStaffRoles(id, roleIds);
   }
 
   if (Object.keys(userPatch).length) {
     await db.update(users).set({ ...userPatch, updatedAt: new Date() }).where(eq(users.id, id));
-    if ('staffRoleId' in userPatch) await bustStaffRoleCache(id); // permission set may change
   }
   if (Object.keys(profilePatch).length) {
     await db.update(staffProfiles).set({ ...profilePatch, updatedAt: new Date() }).where(eq(staffProfiles.userId, id));

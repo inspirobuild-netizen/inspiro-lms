@@ -1,27 +1,17 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { getRolePermissions } from '../lib/permissions.js';
-import { db } from '../lib/db.js';
-import { redis } from '../lib/redis.js';
-import { users } from '../../drizzle/schema.js';
-import { eq } from 'drizzle-orm';
+import { bustUserStaffRoles, getRolePermissions, getStaffRoleIds, mergePermissions } from '../lib/permissions.js';
 import type { JwtPayload } from './authenticate.js';
 
-// Cache the user → staffRoleId lookup briefly so permission checks are cheap.
-const STAFF_ROLE_TTL = 300;
-
-async function getStaffRoleId(userId: string): Promise<string | null> {
-  const key = `user:staffrole:${userId}`;
-  const cached = await redis.get(key);
-  if (cached !== null) return cached === '' ? null : cached;
-
-  const [u] = await db.select({ staffRoleId: users.staffRoleId }).from(users).where(eq(users.id, userId)).limit(1);
-  const val = u?.staffRoleId ?? null;
-  await redis.set(key, val ?? '', 'EX', STAFF_ROLE_TTL);
-  return val;
+// A staff member may hold several roles; what they may do is the union of
+// those roles' permissions. null when they hold no role at all.
+async function staffPermissions(userId: string): Promise<string[] | null> {
+  const ids = await getStaffRoleIds(userId);
+  if (ids.length === 0) return null;
+  return mergePermissions(await Promise.all(ids.map(getRolePermissions)));
 }
 
 export async function bustStaffRoleCache(userId: string): Promise<void> {
-  await redis.del(`user:staffrole:${userId}`);
+  await bustUserStaffRoles(userId);
 }
 
 // Non-throwing permission check for finer-grained logic inside handlers
@@ -30,10 +20,8 @@ export async function hasPermission(req: FastifyRequest, code: string): Promise<
   if (!req.user) return false;
   if (req.user.role === 'admin') return true;
   if (req.user.role !== 'staff') return false;
-  const staffRoleId = await getStaffRoleId(req.user.sub);
-  if (!staffRoleId) return false;
-  const perms = await getRolePermissions(staffRoleId);
-  return perms.includes(code);
+  const perms = await staffPermissions(req.user.sub);
+  return !!perms && perms.includes(code);
 }
 
 // Gate a route on a permission code. Admins bypass (full access). Staff are
@@ -51,12 +39,11 @@ export function requirePermission(code: string) {
       return;
     }
 
-    const staffRoleId = await getStaffRoleId(req.user.sub);
-    if (!staffRoleId) {
+    const perms = await staffPermissions(req.user.sub);
+    if (!perms) {
       reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'No role assigned' } });
       return;
     }
-    const perms = await getRolePermissions(staffRoleId);
     if (!perms.includes(code)) {
       reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
     }
@@ -80,12 +67,11 @@ export function requireRoleOrPermission(roles: JwtPayload['role'][], permissionC
       reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
-    const staffRoleId = await getStaffRoleId(req.user.sub);
-    if (!staffRoleId) {
+    const perms = await staffPermissions(req.user.sub);
+    if (!perms) {
       reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'No role assigned' } });
       return;
     }
-    const perms = await getRolePermissions(staffRoleId);
     if (!perms.includes(permissionCode)) {
       reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
     }

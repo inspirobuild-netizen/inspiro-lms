@@ -17,6 +17,7 @@ import { nextCode } from '../leads/leads.service.js';
 import { materialiseInstallments } from '../fees/fees.service.js';
 import { sendNotificationToUser } from '../notifications/notifications.service.js';
 import { logger } from '../../lib/logger.js';
+import { activeStaffWithRole, holdsStaffRole } from '../../lib/permissions.js';
 import type { CreateBatchInput, UpdateBatchInput, ListBatchesInput } from './batches.schema.js';
 
 function notFound(entity = 'Batch') {
@@ -601,9 +602,14 @@ export async function assignInstructor(batchId: string, instructorId: string) {
   const [batch] = await db.select().from(batches).where(eq(batches.id, batchId)).limit(1);
   if (!batch) throw notFound();
 
+  // A batch's instructors are staff who hold the Mentor role (alone or among
+  // other roles). One mentor can teach any number of batches.
   const [instructor] = await db.select().from(users).where(eq(users.id, instructorId)).limit(1);
-  if (!instructor || instructor.role === 'student') {
-    throw Object.assign(new Error('User is not an instructor'), { statusCode: 400, code: 'NOT_INSTRUCTOR' });
+  if (!instructor || instructor.role !== 'staff' || !instructor.isActive || !(await holdsStaffRole(instructorId, 'mentor'))) {
+    throw Object.assign(new Error('Only active staff with the Mentor role can be a batch instructor'), {
+      statusCode: 400,
+      code: 'NOT_A_MENTOR',
+    });
   }
 
   await db
@@ -612,6 +618,11 @@ export async function assignInstructor(batchId: string, instructorId: string) {
     .onConflictDoNothing();
 
   return { batchId, instructorId };
+}
+
+// ── Instructor picker: active staff holding the Mentor role ──────────────────
+export async function listInstructorOptions() {
+  return activeStaffWithRole('mentor');
 }
 
 // ── Remove instructor ─────────────────────────────────────────────────────────

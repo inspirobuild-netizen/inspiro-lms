@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { and, count, desc, eq, ilike } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, sql } from 'drizzle-orm';
 import { authenticate } from '../../middleware/authenticate.js';
 import { requirePermission } from '../../middleware/require-permission.js';
 import { db } from '../../lib/db.js';
@@ -20,7 +20,8 @@ export default async function auditRoutes(app: FastifyInstance) {
     const items = await db
       .select({
         id: auditLogs.id, action: auditLogs.action, entityType: auditLogs.entityType, entityId: auditLogs.entityId,
-        ipAddress: auditLogs.ipAddress, meta: auditLogs.meta, createdAt: auditLogs.createdAt, actorName: users.name,
+        ipAddress: auditLogs.ipAddress, meta: auditLogs.meta, createdAt: auditLogs.createdAt, // A deleted account's name survives in the entry itself (see staff-purge).
+        actorName: sql<string | null>`coalesce(${users.name}, ${auditLogs.meta}->>'actorName')`,
       })
       .from(auditLogs)
       .leftJoin(users, eq(users.id, auditLogs.actorUserId))

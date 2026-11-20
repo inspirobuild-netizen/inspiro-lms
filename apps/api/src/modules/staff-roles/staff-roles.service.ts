@@ -1,6 +1,6 @@
 import { and, count, eq, inArray } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
-import { staffRoles, permissions, rolePermissions, users } from '../../../drizzle/schema.js';
+import { staffRoles, staffMemberRoles, permissions, rolePermissions, users } from '../../../drizzle/schema.js';
 import { bustRolePermissions } from '../../lib/permissions.js';
 import { PERMISSION_CATALOG } from '../../lib/permission-catalog.js';
 import type { CreateStaffRoleInput, UpdateStaffRoleInput } from './staff-roles.schema.js';
@@ -19,12 +19,13 @@ export function getPermissionCatalog() {
 
 export async function listStaffRoles() {
   const roles = await db.select().from(staffRoles).orderBy(staffRoles.name);
-  // member count per role
+  // Members per role: everyone holding it, alone or among several roles.
   const counts = await db
-    .select({ staffRoleId: users.staffRoleId, n: count() })
-    .from(users)
+    .select({ staffRoleId: staffMemberRoles.staffRoleId, n: count() })
+    .from(staffMemberRoles)
+    .innerJoin(users, eq(users.id, staffMemberRoles.userId))
     .where(eq(users.role, 'staff'))
-    .groupBy(users.staffRoleId);
+    .groupBy(staffMemberRoles.staffRoleId);
   const countMap = new Map(counts.map((c) => [c.staffRoleId, Number(c.n)]));
   return roles.map((r) => ({ ...r, memberCount: countMap.get(r.id) ?? 0 }));
 }
@@ -63,8 +64,11 @@ export async function deleteStaffRole(id: string) {
   const [role] = await db.select().from(staffRoles).where(eq(staffRoles.id, id)).limit(1);
   if (!role) throw err('Role not found', 404, 'ROLE_NOT_FOUND');
   if (role.isSystem) throw err('Built-in roles cannot be deleted', 400, 'ROLE_IS_SYSTEM');
-  const [{ n }] = await db.select({ n: count() }).from(users).where(eq(users.staffRoleId, id));
-  if (Number(n) > 0) throw err('Reassign the staff on this role before deleting it', 409, 'ROLE_IN_USE');
+  const [[{ n }], [{ m }]] = await Promise.all([
+    db.select({ n: count() }).from(staffMemberRoles).where(eq(staffMemberRoles.staffRoleId, id)),
+    db.select({ m: count() }).from(users).where(eq(users.staffRoleId, id)),
+  ]);
+  if (Number(n) + Number(m) > 0) throw err('Reassign the staff on this role before deleting it', 409, 'ROLE_IN_USE');
   await db.delete(staffRoles).where(eq(staffRoles.id, id));
   await bustRolePermissions(id);
 }

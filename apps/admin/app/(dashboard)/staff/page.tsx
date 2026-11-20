@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, Select, Field, Textarea } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
+import { RolePicker } from '@/components/shared/role-picker';
 
 type StaffRow = {
   id: string;
@@ -111,27 +112,29 @@ function AddStaffButton({ roles, onCreated }: { roles: RoleOpt[]; onCreated: () 
 
   const branches = useQuery({ queryKey: ['admin', 'branches', 'all'], queryFn: () => api.get<BranchOpt[]>('/api/v1/admin/branches?limit=100'), enabled: open && !!accessToken });
 
-  const [f, setF] = useState({ name: '', email: '', phone: '', password: '', staffRoleId: '', branchId: '', designation: '', department: '', whatsapp: '', gender: '', address: '' });
+  const [f, setF] = useState({ name: '', email: '', phone: '', password: '', branchId: '', designation: '', department: '', whatsapp: '', gender: '', address: '' });
+  const [roleIds, setRoleIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof typeof f) => (v: string) => setF((s) => ({ ...s, [k]: v }));
 
   const create = useMutation({
     mutationFn: () => api.post('/api/v1/admin/staff', {
       name: f.name.trim(), email: f.email.trim(), phone: `+91${f.phone}`, password: f.password,
-      staffRoleId: f.staffRoleId, branchId: f.branchId || undefined,
+      staffRoleIds: roleIds, branchId: f.branchId || undefined,
       designation: f.designation.trim() || undefined, department: f.department.trim() || undefined,
       whatsapp: f.whatsapp.trim() || undefined, gender: f.gender || undefined, address: f.address.trim() || undefined,
     }),
     onSuccess: () => {
       toast('Staff member created — credentials emailed', 'success');
       setOpen(false); setError(null);
-      setF({ name: '', email: '', phone: '', password: '', staffRoleId: '', branchId: '', designation: '', department: '', whatsapp: '', gender: '', address: '' });
+      setF({ name: '', email: '', phone: '', password: '', branchId: '', designation: '', department: '', whatsapp: '', gender: '', address: '' });
+      setRoleIds([]);
       onCreated();
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to create staff'),
   });
 
-  const valid = f.name.trim().length >= 2 && /^\S+@\S+\.\S+$/.test(f.email) && /^[6-9]\d{9}$/.test(f.phone) && f.password.length >= 8 && !!f.staffRoleId;
+  const valid = f.name.trim().length >= 2 && /^\S+@\S+\.\S+$/.test(f.email) && /^[6-9]\d{9}$/.test(f.phone) && f.password.length >= 8 && roleIds.length > 0;
 
   return (
     <>
@@ -139,12 +142,6 @@ function AddStaffButton({ roles, onCreated }: { roles: RoleOpt[]; onCreated: () 
       <Modal open={open} onClose={() => setOpen(false)} title="Add staff member" description="They sign in with this email + password" wide>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="Full name"><Input value={f.name} onChange={(e) => set('name')(e.target.value)} placeholder="Priya Nair" autoFocus /></Field>
-          <Field label="Role">
-            <Select value={f.staffRoleId} onChange={(e) => set('staffRoleId')(e.target.value)}>
-              <option value="">Select role…</option>
-              {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </Select>
-          </Field>
           <Field label="Email (login)"><Input type="email" value={f.email} onChange={(e) => set('email')(e.target.value)} placeholder="priya@inspiro.in" /></Field>
           <Field label="Mobile number">
             <div className="flex gap-2">
@@ -170,6 +167,11 @@ function AddStaffButton({ roles, onCreated }: { roles: RoleOpt[]; onCreated: () 
               <option value="">—</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option>
             </Select>
           </Field>
+          <div className="col-span-2">
+            <Field label="Roles (tick every role this person holds)">
+              <RolePicker roles={roles} selected={roleIds} onChange={setRoleIds} />
+            </Field>
+          </div>
           <div className="col-span-2"><Field label="Address (optional)"><Textarea rows={2} value={f.address} onChange={(e) => set('address')(e.target.value)} /></Field></div>
         </div>
         {error && <p className="text-sm text-rose-400 mt-3">{error}</p>}

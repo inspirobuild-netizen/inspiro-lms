@@ -27,6 +27,7 @@ import {
   assignInstructor,
   removeInstructor,
   getMyBatches,
+  listInstructorOptions,
 } from './batches.service.js';
 import { z } from 'zod';
 
@@ -250,6 +251,13 @@ export default async function batchesRoutes(app: FastifyInstance) {
       const result = await unenrollStudent(id, userId);
       return reply.send({ success: true, data: result });
     },
+  );
+
+  // ── Admin: who can be assigned as an instructor (Mentor-role staff) ───────
+  app.get(
+    '/admin/batches/instructor-options',
+    { preHandler: [authenticate, requireRoleOrPermission(['admin'], 'batches.manage')] },
+    async (_req, reply) => reply.send({ success: true, data: await listInstructorOptions() }),
   );
 
   // ── Admin: assign instructor ───────────────────────────────────────────────

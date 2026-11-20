@@ -8,7 +8,10 @@ export const createStaffSchema = z.object({
   email: z.string().email().max(255).transform((v) => v.trim().toLowerCase()),
   phone: z.string().regex(phoneRe, 'Enter a valid +91 mobile number'),
   password: z.string().min(8).max(128),
-  staffRoleId: z.string().uuid(),
+  // One person can hold several roles. Older admin screens send one role as
+  // staffRoleId; current ones send staffRoleIds.
+  staffRoleIds: z.array(z.string().uuid()).min(1).max(10).optional(),
+  staffRoleId: z.string().uuid().optional(),
   branchId: z.string().uuid().optional(),
   gender: z.enum(['male', 'female', 'other']).optional(),
   dob: dateStr.optional(),
@@ -19,10 +22,14 @@ export const createStaffSchema = z.object({
   designation: z.string().max(100).optional(),
   photoUrl: z.string().url().max(1000).optional(),
   notes: z.string().max(2000).optional(),
+}).refine((v) => !!v.staffRoleIds?.length || !!v.staffRoleId, {
+  message: 'Choose at least one role',
+  path: ['staffRoleIds'],
 });
 
 export const updateStaffSchema = z.object({
   name: z.string().min(2).max(255).optional(),
+  staffRoleIds: z.array(z.string().uuid()).min(1).max(10).optional(),
   staffRoleId: z.string().uuid().optional(),
   branchId: z.string().uuid().nullable().optional(),
   gender: z.enum(['male', 'female', 'other']).optional(),

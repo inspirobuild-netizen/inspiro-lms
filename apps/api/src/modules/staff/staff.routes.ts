@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../../middleware/authenticate.js';
 import { requirePermission } from '../../middleware/require-permission.js';
+import { requireRole } from '../../middleware/require-role.js';
+import { deleteStaffPermanently, staffDeletionImpact } from './staff-purge.service.js';
 import {
   createStaffSchema,
   updateStaffSchema,
@@ -92,6 +94,39 @@ export default async function staffRoutes(app: FastifyInstance) {
       void sendEmail({ to: staff.email, subject, html });
     }
     return reply.send({ success: true, data: { reset: true } });
+  });
+
+  // ── Permanent delete (admins only) ────────────────────────────────────────
+  // Read-only preview, so the confirmation can say what goes and what stays.
+  app.get('/admin/staff/:id/deletion-impact', { preHandler: [authenticate, requireRole(['admin'])] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    return reply.send({ success: true, data: await staffDeletionImpact(id) });
+  });
+
+  app.delete('/admin/staff/:id', { preHandler: [authenticate, requireRole(['admin'])] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { confirm?: string };
+    // A typed confirmation, checked here too so no stray request can do it.
+    if (body.confirm !== 'DELETE') {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'CONFIRMATION_REQUIRED', message: 'Type DELETE to confirm' },
+      });
+    }
+    const impact = await deleteStaffPermanently(id, req.user.sub);
+    await logAudit(req, {
+      action: 'staff.deleted_permanently',
+      entityType: 'staff',
+      entityId: id,
+      meta: {
+        name: impact.name,
+        employeeId: impact.employeeId,
+        roles: impact.roles,
+        leadsUnassigned: impact.leadsOwned,
+        doubtsReturned: impact.doubtsInProgress,
+      },
+    });
+    return reply.send({ success: true, data: impact });
   });
 
   app.post('/admin/staff/:id/force-reset', { preHandler: [authenticate, requirePermission('staff.manage')] }, async (req, reply) => {

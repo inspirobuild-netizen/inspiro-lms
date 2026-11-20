@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, inArray } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import { verifyFirebasePhoneToken } from '../../lib/firebase-auth.js';
 import { redis, OTP_TTL } from '../../lib/redis.js';
@@ -7,7 +7,7 @@ import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../lib
 import { sendOtp as dispatchSms } from '../../lib/sms.js';
 import { verifyPassword, hashPassword } from '../../lib/password.js';
 import { sendEmail, passwordResetEmail } from '../../lib/mailer.js';
-import { getRolePermissions } from '../../lib/permissions.js';
+import { getStaffRoleIds, getStaffPermissions } from '../../lib/permissions.js';
 import { logger } from '../../lib/logger.js';
 import { users, refreshTokens, staffRoles } from '../../../drizzle/schema.js';
 
@@ -328,22 +328,30 @@ export async function logout(accessToken: string, refreshToken?: string): Promis
   }
 }
 
-// Resolve the effective permission set + staff-role label for a user. Admins
-// implicitly hold every permission ('*'); staff get their role's granted set.
+type StaffRoleRef = { id: string; name: string; slug: string };
+
+// Resolve the effective permission set + staff roles for a user. Admins
+// implicitly hold every permission ('*'). Staff may hold several roles and get
+// the union of their permissions; staffRole stays as the main one for screens
+// that show a single role.
 async function permissionPayload(user: {
   id: string;
   role: string;
   staffRoleId?: string | null;
-}): Promise<{ permissions: string[]; staffRole: { id: string; name: string; slug: string } | null }> {
-  if (user.role === 'admin') return { permissions: ['*'], staffRole: null };
-  if (user.role === 'staff' && user.staffRoleId) {
-    const [permissions, [role]] = await Promise.all([
-      getRolePermissions(user.staffRoleId),
-      db.select({ id: staffRoles.id, name: staffRoles.name, slug: staffRoles.slug }).from(staffRoles).where(eq(staffRoles.id, user.staffRoleId)).limit(1),
-    ]);
-    return { permissions, staffRole: role ?? null };
+}): Promise<{ permissions: string[]; staffRole: StaffRoleRef | null; staffRoles: StaffRoleRef[] }> {
+  if (user.role === 'admin') return { permissions: ['*'], staffRole: null, staffRoles: [] };
+  if (user.role === 'staff') {
+    const ids = await getStaffRoleIds(user.id);
+    if (ids.length) {
+      const [permissions, roles] = await Promise.all([
+        getStaffPermissions(user.id),
+        db.select({ id: staffRoles.id, name: staffRoles.name, slug: staffRoles.slug }).from(staffRoles).where(inArray(staffRoles.id, ids)),
+      ]);
+      const main = roles.find((r) => r.id === user.staffRoleId) ?? roles[0] ?? null;
+      return { permissions, staffRole: main, staffRoles: roles };
+    }
   }
-  return { permissions: [], staffRole: null };
+  return { permissions: [], staffRole: null, staffRoles: [] };
 }
 
 // ── Shared: issue access + refresh pair ──────────────────────────────────────
@@ -382,6 +390,7 @@ async function issueTokenPair(user: {
       avatarUrl: user.avatarUrl,
       permissions: perms.permissions,
       staffRole: perms.staffRole,
+      staffRoles: perms.staffRoles,
       mustChangePassword: mustReset === '1',
     },
   };

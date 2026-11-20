@@ -423,14 +423,11 @@ function AssignInstructorButton({ batchId, assigned, onAssigned }: { batchId: st
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const instructorsQ = useQuery({
-    queryKey: ['admin', 'users', 'instructor-picker'],
-    queryFn: () => api.get<UserRow[]>('/api/v1/admin/users?role=instructor&limit=100'),
-    enabled: !!accessToken && open,
-  });
-  const staffQ = useQuery({
-    queryKey: ['admin', 'staff', 'instructor-picker'],
-    queryFn: () => api.get<UserRow[]>('/api/v1/admin/staff?limit=100'),
+  // Only staff who hold the Mentor role can teach a batch; the API refuses
+  // anyone else. The same mentor can be assigned to any number of batches.
+  const mentorsQ = useQuery({
+    queryKey: ['admin', 'batches', 'instructor-options'],
+    queryFn: () => api.get<UserRow[]>('/api/v1/admin/batches/instructor-options'),
     enabled: !!accessToken && open,
   });
 
@@ -440,13 +437,12 @@ function AssignInstructorButton({ batchId, assigned, onAssigned }: { batchId: st
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to assign'),
   });
 
-  const candidates = [...(instructorsQ.data?.data ?? []), ...(staffQ.data?.data ?? [])];
-  const available = candidates.filter((c) => !assigned.includes(c.id));
+  const available = (mentorsQ.data?.data ?? []).filter((c) => !assigned.includes(c.id));
 
   return (
     <>
       <Button size="sm" onClick={() => setOpen(true)}>+ Assign instructor</Button>
-      <Modal open={open} onClose={() => setOpen(false)} title="Assign instructor" description="They'll be listed as teaching this batch">
+      <Modal open={open} onClose={() => setOpen(false)} title="Assign instructor" description="Staff with the Mentor role. One mentor can teach several batches.">
         <div className="space-y-3">
           {error && <p className="text-sm text-rose-400">{error}</p>}
           <div className="space-y-2 max-h-72 overflow-y-auto">
@@ -464,9 +460,12 @@ function AssignInstructorButton({ batchId, assigned, onAssigned }: { batchId: st
                 <span className="text-xs text-teal-300">Assign →</span>
               </button>
             ))}
-            {available.length === 0 && (
+            {mentorsQ.isLoading && <p className="text-sm text-slate-500 text-center py-6">Loading mentors…</p>}
+            {!mentorsQ.isLoading && available.length === 0 && (
               <p className="text-sm text-slate-500 text-center py-6">
-                No instructors available — add a Teacher via Staff, or a legacy instructor account.
+                {(mentorsQ.data?.data ?? []).length === 0
+                  ? 'No staff hold the Mentor role yet. Open Staff, edit the person and tick Mentor under Roles.'
+                  : 'Every mentor is already assigned to this batch.'}
               </p>
             )}
           </div>
