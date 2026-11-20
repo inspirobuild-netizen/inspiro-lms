@@ -10,6 +10,14 @@ class Exam {
   final double negMarks;
   final double passPercent;
 
+  /// This student's standing with the exam, from the API. Every test except
+  /// practice is taken once, so a submitted one offers its result instead of
+  /// Start. The defaults keep an older API's answer working: it sent none of
+  /// these, and every exam looked new.
+  final bool canAttempt;
+  final bool inProgress;
+  final int submittedAttempts;
+
   const Exam({
     required this.id,
     required this.title,
@@ -19,6 +27,9 @@ class Exam {
     this.marksPerQuestion = 1,
     this.negMarks = 0,
     this.passPercent = 40,
+    this.canAttempt = true,
+    this.inProgress = false,
+    this.submittedAttempts = 0,
   });
 
   factory Exam.fromJson(Map<String, dynamic> json) => Exam(
@@ -30,6 +41,9 @@ class Exam {
         marksPerQuestion: (json['marksPerQuestion'] as num?)?.toDouble() ?? 1,
         negMarks: (json['negMarks'] as num?)?.toDouble() ?? 0,
         passPercent: (json['passPercent'] as num?)?.toDouble() ?? 40,
+        canAttempt: json['canAttempt'] as bool? ?? true,
+        inProgress: json['inProgress'] as bool? ?? false,
+        submittedAttempts: (json['submittedAttempts'] as num?)?.toInt() ?? 0,
       );
 }
 

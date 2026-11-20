@@ -290,18 +290,37 @@ class _ExamCard extends StatelessWidget {
             Row(
               children: [
                 _meta(Icons.timer_outlined, '${exam.durationMins} min'),
+                if (!exam.canAttempt) ...[
+                  const SizedBox(width: 14),
+                  _meta(Icons.check_circle_outline, 'Submitted'),
+                ],
                 const Spacer(),
-                ElevatedButton(
-                  onPressed: () => context.push('/exam-player', extra: exam),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Brand.blue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                // A submitted test is not offered again: only practice tests
+                // can be retaken, and the server refuses the rest anyway.
+                if (!exam.canAttempt)
+                  OutlinedButton(
+                    onPressed: () => context.push('/exam-review', extra: {'examId': exam.id, 'title': exam.title}),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white24),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    child: const Text('View result'),
+                  )
+                else
+                  ElevatedButton(
+                    onPressed: () => context.push('/exam-player', extra: exam),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Brand.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    child: Text(exam.inProgress ? 'Resume' : 'Start'),
                   ),
-                  child: const Text('Start'),
-                ),
               ],
             ),
           ],

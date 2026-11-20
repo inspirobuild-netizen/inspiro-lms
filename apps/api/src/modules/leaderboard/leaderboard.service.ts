@@ -120,6 +120,20 @@ export async function getGlobalLeaderboard(page: number, limit: number, requesti
   };
 }
 
+// Only a student's first submitted attempt at an exam counts. Retakes are still
+// allowed on practice tests, and were possible on any test before Nov 2026;
+// counting them let a student lift their average by sitting a test again.
+// Written out in full: inside drizzle, a column interpolated into a raw
+// subquery renders unqualified and binds to the inner table (see HANDOVER.md).
+const FIRST_SUBMITTED_ATTEMPT = sql.raw(
+  `not exists (select 1 from "exam_attempts" e2
+     where e2."student_id" = "exam_attempts"."student_id"
+       and e2."exam_id" = "exam_attempts"."exam_id"
+       and e2."submitted_at" is not null
+       and (e2."submitted_at" < "exam_attempts"."submitted_at"
+            or (e2."submitted_at" = "exam_attempts"."submitted_at" and e2."id" < "exam_attempts"."id")))`,
+);
+
 // ── Recompute & upsert leaderboard scores for a batch ────────────────────────
 // Called after exam submission. Weights: exam 60%, streak 25%, study-time 15%.
 export async function recomputeLeaderboard(batchId: string, period: Period) {
@@ -159,6 +173,7 @@ export async function recomputeLeaderboard(batchId: string, period: Period) {
         inArray(examAttempts.studentId, userIds),
         isNotNull(examAttempts.submittedAt),
         since ? gte(examAttempts.startedAt, since) : undefined,
+        FIRST_SUBMITTED_ATTEMPT,
       ),
     )
     .groupBy(examAttempts.studentId);

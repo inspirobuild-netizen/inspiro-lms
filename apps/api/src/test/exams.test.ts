@@ -1,11 +1,25 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp, inject } from './helpers.js';
+import { attemptLimit } from '../modules/exams/exams.service.js';
 
 let app: FastifyInstance;
 
 beforeAll(async () => { app = await buildApp(); });
 afterAll(async () => { await app.close(); });
+
+describe('attemptLimit', () => {
+  it('pins every exam except practice to one attempt, whatever was set', () => {
+    expect(attemptLimit({ type: 'chapter', maxAttempts: 10 })).toBe(1);
+    expect(attemptLimit({ type: 'mock', maxAttempts: null })).toBe(1);
+    expect(attemptLimit({ type: 'topic_quiz', maxAttempts: 1 })).toBe(1);
+  });
+
+  it('lets practice tests keep their own limit, null meaning unlimited', () => {
+    expect(attemptLimit({ type: 'practice', maxAttempts: 3 })).toBe(3);
+    expect(attemptLimit({ type: 'practice', maxAttempts: null })).toBeNull();
+  });
+});
 
 describe('Exam schema validation', () => {
   it('rejects createExam with missing required fields', async () => {

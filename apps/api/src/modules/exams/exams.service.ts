@@ -23,6 +23,16 @@ import type {
 const activeAttemptKey = (attemptId: string) => `exam:active:${attemptId}`;
 const attemptTimerKey = (attemptId: string) => `exam:timer:${attemptId}`;
 
+/**
+ * How many submitted attempts a student may make at an exam. Only practice
+ * tests honour the exam's own maxAttempts (null = unlimited). Every other type
+ * counts on the leaderboard and is taken once, whatever was set: a retake let
+ * students lift their average (Class 1 Weekly Test allowed 10, Nov 2026).
+ */
+export function attemptLimit(exam: { type: string; maxAttempts: number | null }): number | null {
+  return exam.type === 'practice' ? exam.maxAttempts : 1;
+}
+
 function err(msg: string, status: number, code: string) {
   return Object.assign(new Error(msg), { statusCode: status, code });
 }
@@ -126,28 +136,11 @@ export async function createExam(data: CreateExamInput, createdBy: string) {
     }
   }
 
-  // A lesson has ONE topic exam. Without this a second could be attached, and
-  // since the course Content tab reads back a single exam per lesson the
-  // extra one would be invisible to staff while still live for students.
-  if (data.lessonId) {
-    const [existing] = await db
-      .select({ id: exams.id, title: exams.title })
-      .from(exams)
-      .where(eq(exams.lessonId, data.lessonId))
-      .limit(1);
-    if (existing) {
-      throw err(
-        `This lesson already has an exam ("${existing.title}"). Edit or delete it first.`,
-        409,
-        'LESSON_EXAM_EXISTS',
-      );
-    }
-  }
-
   const [exam] = await db
     .insert(exams)
     .values({
       ...data,
+      maxAttempts: attemptLimit({ type: data.type, maxAttempts: data.maxAttempts ?? null }),
       scheduleStart: data.scheduleStart ? new Date(data.scheduleStart) : null,
       scheduleEnd: data.scheduleEnd ? new Date(data.scheduleEnd) : null,
       createdBy,
@@ -157,10 +150,16 @@ export async function createExam(data: CreateExamInput, createdBy: string) {
 }
 
 export async function updateExam(examId: string, data: UpdateExamInput) {
+  const [current] = await db.select({ type: exams.type }).from(exams).where(eq(exams.id, examId)).limit(1);
+  if (!current) throw err('Exam not found', 404, 'EXAM_NOT_FOUND');
+  const type = data.type ?? current.type;
   const [updated] = await db
     .update(exams)
     .set({
       ...data,
+      // Practice tests keep whatever limit staff set (unchanged when not sent);
+      // every other type is pinned to one attempt.
+      maxAttempts: type === 'practice' ? data.maxAttempts : 1,
       scheduleStart: data.scheduleStart ? new Date(data.scheduleStart) : undefined,
       scheduleEnd: data.scheduleEnd ? new Date(data.scheduleEnd) : undefined,
       updatedAt: new Date(),
@@ -331,21 +330,33 @@ export async function listAvailableExams(userId: string, input: ListExamsInput) 
   const examIds = items.map((e) => e.id);
   const attemptCounts = examIds.length > 0
     ? await db
-        .select({ examId: examAttempts.examId, cnt: count() })
+        .select({
+          examId: examAttempts.examId,
+          total: count(),
+          submitted: sql<number>`count(${examAttempts.submittedAt})::int`,
+        })
         .from(examAttempts)
         .where(and(eq(examAttempts.studentId, userId), inArray(examAttempts.examId, examIds)))
         .groupBy(examAttempts.examId)
     : [];
 
-  const attemptsMap = Object.fromEntries(attemptCounts.map((r) => [r.examId, r.cnt]));
+  const attemptsMap = new Map(attemptCounts.map((r) => [r.examId, r]));
 
   return {
-    items: items.map((exam) => ({
-      ...exam,
-      attemptsMade: attemptsMap[exam.id] ?? 0,
-      canAttempt:
-        exam.maxAttempts === null || (attemptsMap[exam.id] ?? 0) < (exam.maxAttempts ?? Infinity),
-    })),
+    items: items.map((exam) => {
+      const made = attemptsMap.get(exam.id);
+      const submitted = made?.submitted ?? 0;
+      const limit = attemptLimit(exam);
+      return {
+        ...exam,
+        maxAttempts: limit,
+        attemptsMade: made?.total ?? 0,
+        submittedAttempts: submitted,
+        // An attempt started but not submitted: the student resumes it.
+        inProgress: (made?.total ?? 0) > submitted,
+        canAttempt: limit === null || submitted < limit,
+      };
+    }),
     total,
   };
 }
@@ -358,14 +369,17 @@ export async function startExam(examId: string, studentId: string) {
 
   assertScheduleWindow(exam);
 
-  // Enforce maxAttempts
-  const [{ used }] = await db
-    .select({ used: count() })
-    .from(examAttempts)
-    .where(and(eq(examAttempts.examId, examId), eq(examAttempts.studentId, studentId)));
-
-  if (exam.maxAttempts !== null && used >= exam.maxAttempts) {
-    throw err(`Attempt limit reached (${exam.maxAttempts})`, 403, 'ATTEMPT_LIMIT_REACHED');
+  // Only SUBMITTED attempts use up the limit, so a student whose app closed
+  // mid-exam comes back to the same attempt. Checked before resuming: an
+  // attempt left open from before the limit applied must not become a retake.
+  const limit = attemptLimit(exam);
+  const submitted = await countSubmitted(examId, studentId);
+  if (limit !== null && submitted >= limit) {
+    throw err(
+      limit === 1 ? 'You have already taken this exam. It can be taken once.' : `Attempt limit reached (${limit})`,
+      403,
+      'ATTEMPT_LIMIT_REACHED',
+    );
   }
 
   // Check no active attempt already in progress
@@ -404,6 +418,20 @@ export async function startExam(examId: string, studentId: string) {
   const questionList = await getExamQuestions(examId);
 
   return { attempt: attempt!, questions: questionList, resumed: false };
+}
+
+async function countSubmitted(examId: string, studentId: string): Promise<number> {
+  const [{ submitted }] = await db
+    .select({ submitted: count() })
+    .from(examAttempts)
+    .where(
+      and(
+        eq(examAttempts.examId, examId),
+        eq(examAttempts.studentId, studentId),
+        sql`${examAttempts.submittedAt} IS NOT NULL`,
+      ),
+    );
+  return Number(submitted);
 }
 
 // Return questions without revealing correctIndex or explanation
@@ -450,6 +478,13 @@ export async function submitExam(
   // Load exam + questions with answers
   const [exam] = await db.select().from(exams).where(eq(exams.id, examId)).limit(1);
   if (!exam) throw err('Exam not found', 404, 'EXAM_NOT_FOUND');
+
+  // The limit again at submit: an attempt opened before it applied, or two
+  // opened at once, must not add a second official result.
+  const limit = attemptLimit(exam);
+  if (limit !== null && (await countSubmitted(examId, studentId)) >= limit) {
+    throw err('This exam has already been submitted.', 409, 'ALREADY_SUBMITTED');
+  }
 
   const questionList = await db
     .select()

@@ -282,7 +282,7 @@ function NewExamButton({
         durationMins: Number(durationMins) || 60,
         negMarks: Number(negMarks) || 0,
         passPercent: Number(passPercent) || 40,
-        maxAttempts: Number(maxAttempts) || 1,
+        maxAttempts: type === 'practice' ? Number(maxAttempts) || 1 : 1,
         ...(type === 'topic_quiz' && defaultLessonId ? { lessonId: defaultLessonId } : {}),
         ...(type !== 'practice' && !(type === 'topic_quiz' && defaultLessonId) ? { batchIds } : {}),
       }),
@@ -327,9 +327,17 @@ function NewExamButton({
             <Field label="Pass %">
               <Input value={passPercent} inputMode="numeric" onChange={(e) => setPassPercent(e.target.value.replace(/\D/g, ''))} />
             </Field>
-            <Field label="Max attempts">
-              <Input value={maxAttempts} inputMode="numeric" onChange={(e) => setMaxAttempts(e.target.value.replace(/\D/g, ''))} />
-            </Field>
+            {/* Only practice tests can be retaken. Every other test counts on the
+                leaderboard, so the API keeps it to one attempt whatever is sent. */}
+            {type === 'practice' ? (
+              <Field label="Max attempts">
+                <Input value={maxAttempts} inputMode="numeric" onChange={(e) => setMaxAttempts(e.target.value.replace(/\D/g, ''))} />
+              </Field>
+            ) : (
+              <Field label="Attempts">
+                <p className="text-sm text-slate-400 pt-2">One per student</p>
+              </Field>
+            )}
           </div>
           {type === 'practice' ? (
             <p className="text-xs text-slate-400">Practice tests are open to every student in the app, enrolled or not.</p>
