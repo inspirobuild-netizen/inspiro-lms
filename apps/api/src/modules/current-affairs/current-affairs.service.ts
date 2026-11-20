@@ -162,6 +162,7 @@ async function fetchFeed(url: string): Promise<FeedItem[]> {
 // that went with the next deploy, so the cause could not be established.
 const LAST_RUN_KEY = 'ca:lastRun';
 const RUN_LOCK_KEY = 'ca:running';
+const LAST_CHECK_KEY = 'ca:lastCheck';
 
 export interface IngestionRun {
   at: string;
@@ -318,13 +319,29 @@ export async function ingestCurrentAffairs(
  * would otherwise end the run before it began.
  */
 export async function ingestCurrentAffairsIfDue(): Promise<{ due: boolean; ingested: number; skipped: number }> {
+  // Written before anything can fail: proof, every hour, that the scheduler
+  // itself is alive. Without it a stale feed could not be told apart from a
+  // job that never ran.
+  await redis.set(LAST_CHECK_KEY, new Date().toISOString(), 'EX', 60 * 60 * 24 * 30).catch(() => {});
+
   let have = 0;
   for (let attempt = 1; ; attempt++) {
     try {
       have = await addedToday();
       break;
     } catch (err) {
-      if (attempt >= 3) throw err;
+      if (attempt >= 3) {
+        await recordRun({
+          at: new Date().toISOString(),
+          trigger: 'schedule',
+          ok: false,
+          ingested: 0,
+          skipped: 0,
+          feedItems: 0,
+          error: `database not ready: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
+        });
+        throw err;
+      }
       logger.warn({ err, attempt }, 'Current-affairs: database not ready, retrying');
       await new Promise((resolve) => setTimeout(resolve, 5_000));
     }
@@ -336,8 +353,9 @@ export async function ingestCurrentAffairsIfDue(): Promise<{ due: boolean; inges
 
 /** For the admin Content page: is the daily feed alive, and what did the last run do? */
 export async function getIngestionStatus() {
-  const [raw, today, [newest]] = await Promise.all([
+  const [raw, lastCheckAt, today, [newest]] = await Promise.all([
     redis.get(LAST_RUN_KEY).catch(() => null),
+    redis.get(LAST_CHECK_KEY).catch(() => null),
     addedToday(),
     db.select({ at: currentAffairs.publishedAt }).from(currentAffairs).orderBy(desc(currentAffairs.publishedAt)).limit(1),
   ]);
@@ -347,7 +365,7 @@ export async function getIngestionStatus() {
   } catch {
     lastRun = null;
   }
-  return { lastRun, addedToday: today, dailyTarget: MAX_ARTICLES_PER_RUN, newestAt: newest?.at ?? null };
+  return { lastRun, lastCheckAt, addedToday: today, dailyTarget: MAX_ARTICLES_PER_RUN, newestAt: newest?.at ?? null };
 }
 
 export async function listCurrentAffairs(input: {

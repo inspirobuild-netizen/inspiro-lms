@@ -28,7 +28,7 @@ type Coverage = {
   courses: { id: string; title: string; hasContentChunk: boolean }[];
   currentAffairs: { total: number; indexed: number };
   // Absent from an API older than the hourly fetch.
-  ingestion?: { lastRun: IngestionRun | null; addedToday: number; dailyTarget: number; newestAt: string | null };
+  ingestion?: { lastRun: IngestionRun | null; lastCheckAt?: string | null; addedToday: number; dailyTarget: number; newestAt: string | null };
 };
 
 const when = (iso: string) =>
@@ -147,6 +147,7 @@ export default function ContentPage() {
               <p className="text-sm text-slate-400">Daily fetch</p>
               <p className="font-display font-bold text-2xl text-slate-100 mt-1">{ing.addedToday}/{ing.dailyTarget} today</p>
               {ing.lastRun && <p className="text-xs text-slate-500 mt-1">{describeRun(ing.lastRun)}</p>}
+              {ing.lastCheckAt && <p className="text-xs text-slate-500 mt-0.5">Hourly check last ran {when(ing.lastCheckAt)}</p>}
               {stale && (
                 <p className="text-xs text-amber-400 mt-1">
                   No new articles since {ing.newestAt ? when(ing.newestAt) : 'the start'}. It retries every hour from 6 AM to 10 PM — or use Fetch new articles now.
