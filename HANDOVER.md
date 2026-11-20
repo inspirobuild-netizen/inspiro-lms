@@ -87,7 +87,20 @@ Ready-made checks in `apps/api/scripts/` (each creates throwaway data and
 removes it): `e2e-student-journey.mjs` (33 checks), `e2e-crm-fees.mjs`
 (46), `e2e-student-purge.mjs` (6), `check-client-asks.mjs` (6),
 `check-video-hls.mjs` (18, read-only: MP4 default, HLS playlist, signed
-segments, refused tokens).
+segments, refused tokens), `check-one-attempt.mjs` (11), `check-staff-roles.mjs`
+(18: several roles, mentor-only instructors, staff delete),
+`check-ai-limit.mjs` (9: daily AI limit, current-affairs status; one real AI
+call unless `--no-ai`).
+
+The AI service deploys the same way: copy the changed files under
+`apps/ai/`, then `build ai` and `up -d --no-deps ai`. Its tests run locally
+in a venv (`pip install -r apps/ai/requirements-dev.txt`, `pytest`,
+`ruff check app tests`).
+
+To try new API code against production without building an image: `pnpm
+build` locally (the output is byte-identical to the image's for unchanged
+files), copy only the changed `dist/` files to the server, and mount each
+over `/app/dist/...` in the one-off container with `-v file.js:/app/dist/src/...:ro`.
 Load tests: `k6/load-tests/` (run with the grafana/k6 Docker image on the
 server; the leaderboard test needs a fresh 15-minute student token).
 
@@ -171,8 +184,66 @@ as 16.7%.
   server's refusal into "already attempted".
 - Check: `scripts/check-one-attempt.mjs`, 11 against production.
 
+## Shipped 20 Nov: staff roles, AI answers, current affairs
+
+API live from commit 1d27177 (restarted 08:32 UTC); AI service rebuilt and
+restarted 08:21 UTC. **The admin screens for all of this reach Vercel only
+when `main` is pushed.**
+
+- **Several roles per staff member.** `staff_member_roles` links a person to
+  every role they hold; permissions are the union. `users.staff_role_id`
+  remains the main role (the first chosen). The staff API takes
+  `staffRoleIds`; a lone `staffRoleId` from an older screen still works and,
+  when it is just the main role re-sent, leaves the other roles alone.
+- **Batch instructors are Mentor-role staff.** `assignInstructor` refuses
+  anyone else (`NOT_A_MENTOR`); the picker reads
+  `GET /admin/batches/instructor-options`. One mentor, any number of batches.
+- **Permanent staff delete** (admins only, typed DELETE, never yourself):
+  `staff-purge.service.ts` says what happens to each kind of record. Refused
+  while they have a live class still to teach.
+- **Current affairs had stopped on 17 Nov** (nothing on the 18th, 19th or
+  20th). The feeds, Groq key and scheduler all test fine and the old
+  containers' logs are gone, so the cause is not established; the likeliest
+  is the 6 AM job's first query timing out against a cold database
+  (`idleTimeoutMillis` 30 s, `connectionTimeoutMillis` 5 s in `lib/db.ts`).
+  Caught up by hand (30 articles on the 20th). The job now checks every hour
+  from 6 AM to 10 PM IST, retries its first query, and records what it did:
+  Redis `ca:lastCheck` (every hourly check) and `ca:lastRun` (each run, with
+  the error if it failed), both shown on the admin Content page. **If the
+  feed is stale again, read those two keys first.**
+- **AI doubt answers were out of date.** The model has no clock and
+  knowledge to mid-2024. Now: the prompt states the date and the knowledge
+  limit; each doubt gets the three closest current-affairs items with their
+  dates; an answer resting on changeable facts with no dated news behind it
+  is capped at 50% confidence, which sends it to a mentor to confirm
+  (`apps/ai/app/routers/doubts.py`). Doubts run on `qwen/qwen3.8-27b`
+  (`GROQ_DOUBT_MODEL` in docker-compose.prod.yml, knowledge to early 2025),
+  falling back to `GROQ_MODEL`.
+- **Daily AI answer limit**: `aiDoubtsDailyLimit` (default 5, set on the
+  admin Doubts page). Past it a doubt is not refused; it goes to a mentor.
+  `/settings/public` reports what is left for the calling student.
+- Schema changes are applied by hand from `apps/api/drizzle/manual/` (see
+  Gotchas).
+
 ## Open items
 
+- **OTP sign-in is down for real phone numbers (found 19 Nov).** The Firebase
+  project `inspiro-b394e` is back on the free Spark plan, so Firebase refuses
+  to send SMS (`BILLING_NOT_ENABLED`); the App Review test numbers still
+  work, which is why every automated check passes. The billing account "My
+  Billing Account" belongs to `inspiro.build@gmail.com`: reactivate it at
+  console.cloud.google.com/billing, or upgrade to Blaze from the Firebase
+  console as `bizence.role@gmail.com`. Probe: `accounts:sendVerificationCode`
+  with the Android API key for a real number should answer
+  `MISSING_CLIENT_IDENTIFIER`, not `BILLING_NOT_ENABLED`.
+- **Pushing to GitHub from the Mac** needs the `inspirobuild-netizen` token
+  (the Mac's own logins cannot push), pasted into a helper script because
+  the terminal's paste markers break git's password prompt. Giving
+  `uvais-kodix` write access to the repository would remove the need.
+- **Groq is on the free tier**: 8,000 tokens a minute and 1,000 requests a
+  day per model. That is roughly two or three AI doubts a minute. Enough for
+  today's use (three doubts in sixteen days); move to the Dev tier before
+  many students use AI doubts. Live web search for doubts would also need it.
 - Domain `inspiroiasacademy.in` (GoDaddy) expires **2027-01-15**, auto-renew off.
 - Academy housekeeping: tick batches on old tests, delete the two empty
   "weekly test" exams and test students, check the 600-seat "Batch 1".
@@ -213,6 +284,17 @@ as 16.7%.
 - App Store Connect: after a rejection, "Resubmit to App Review" stays grey
   until the version page is saved once (add a space to the review notes).
 - Fee amounts are never accepted from the client — always resolved server-side.
+- `drizzle-kit generate` is not usable: its snapshots stop at migration
+  0011 while the schema has moved on by hand, so it emits a migration full
+  of already-applied changes that would fail on production. Write the new
+  SQL by hand, idempotent, in `apps/api/drizzle/manual/`, and apply it with
+  a one-off container before deploying code that needs it.
+- A check script that submits an exam as a throwaway student recomputes that
+  batch's leaderboard with the student in it; recompute again afterwards.
+- Installed app builds show "Could not send your doubt. Check your
+  connection." for any refusal of a doubt except HTTP 429 ("Too many doubts
+  this hour"). To limit something on doubts, route the doubt elsewhere
+  instead of refusing it.
 - Logs record full URLs. `lib/logger.ts` masks the query values named
   token, key, secret, signature, sig and password, in request logs and in the
   error handler; give any new secret parameter one of those names.
