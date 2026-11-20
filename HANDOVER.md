@@ -152,6 +152,25 @@ App changes ship with the next release.
   carry the token, so every export returned 401. Reports downloads now also
   refresh an expired token instead of failing.
 
+## Shipped 20 Nov: one attempt per exam
+
+API live from commit 644a8dc (restarted 05:52 UTC). Class 1 Weekly Test
+allowed 10 attempts, and four students had submitted it two to four times;
+the leaderboard averaged every attempt, so one student's 0, 67, 0, 0 counted
+as 16.7%.
+
+- Every exam except practice now allows one submitted attempt, whatever
+  "max attempts" says (`attemptLimit`, exams.service.ts). An unfinished
+  attempt can be resumed (it used to be refused); one left open from before
+  cannot become a retake; submit re-checks. Practice tests keep their limit.
+- The leaderboard counts only each student's first submitted attempt at an
+  exam. The weekly test was set to one attempt and every batch recomputed.
+- Admin shows "max attempts" only for practice tests (needs the push to reach
+  Vercel). The app's next release shows "View result" for a submitted test
+  and "Resume" for an unfinished one; installed builds already turn the
+  server's refusal into "already attempted".
+- Check: `scripts/check-one-attempt.mjs`, 11 against production.
+
 ## Open items
 
 - Domain `inspiroiasacademy.in` (GoDaddy) expires **2027-01-15**, auto-renew off.
