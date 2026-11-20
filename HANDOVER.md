@@ -1,4 +1,4 @@
-# Handover — state as of 2026-11-19
+# Handover — state as of 2026-11-20
 
 Snapshot for continuing development on another machine (moving from the
 Windows PC to a Mac). Permanent facts live in `CLAUDE.md`; this file is
@@ -73,7 +73,12 @@ refuses). Deploy by copying changed files:
 5. `curl https://api.inspiroiasacademy.in/health`
 
 The admin panel deploys itself on Vercel when `main` is pushed (~3 min).
-Push admin changes only after the API they depend on is live.
+Push admin changes only after the API they depend on is live. `git push
+origin main` works from the Mac with its own GitHub login (see Gotchas).
+To confirm a deploy without signing in: read the commit's Vercel status
+(`gh api repos/inspirobuild-netizen/inspiro-lms/commits/<sha>/status`), then
+fetch the changed screen from the live site, open that screen's own
+`page-<hash>.js`, and look for a string only the new code has.
 
 Test new server code against production without touching the live API, in a
 one-off container from the freshly built image:
@@ -126,10 +131,9 @@ server; the leaderboard test needs a fresh 15-minute student token).
 
 ## Shipped 19 Nov
 
-API live from commit a44905a (image built and restarted 09:23 UTC). The
-admin deploys from `main` on Vercel once these commits are pushed; the Mac's
-GitHub logins (uvais-kodix, campuslink-web) cannot push to this repository.
-App changes ship with the next release.
+API live from commit a44905a (image built and restarted 09:23 UTC). Pushed
+19 Nov 10:00 UTC, so the admin part is live on Vercel. App changes ship with
+the next release.
 
 - **Classes start faster on mobile data.** Measured on the one Bunny class
   (37 min): an MP4 must download its whole index before the first frame
@@ -178,17 +182,19 @@ as 16.7%.
   cannot become a retake; submit re-checks. Practice tests keep their limit.
 - The leaderboard counts only each student's first submitted attempt at an
   exam. The weekly test was set to one attempt and every batch recomputed.
-- Admin shows "max attempts" only for practice tests (needs the push to reach
-  Vercel). The app's next release shows "View result" for a submitted test
-  and "Resume" for an unfinished one; installed builds already turn the
-  server's refusal into "already attempted".
+- Admin shows "max attempts" only for practice tests (live on Vercel since
+  the 20 Nov push). The app's next release shows "View result" for a
+  submitted test and "Resume" for an unfinished one; installed builds
+  already turn the server's refusal into "already attempted".
 - Check: `scripts/check-one-attempt.mjs`, 11 against production.
 
 ## Shipped 20 Nov: staff roles, AI answers, current affairs
 
 API live from commit 1d27177 (restarted 08:32 UTC); AI service rebuilt and
-restarted 08:21 UTC. **The admin screens for all of this reach Vercel only
-when `main` is pushed.**
+restarted 08:21 UTC. Pushed 20 Nov 13:45 UTC (953384f); **the admin screens
+are live on Vercel**, each one found in the live build at 13:47 UTC (staff
+role checklist, staff permanent delete, mentor-only instructor picker, daily
+AI answer limit, current affairs "Daily fetch" card).
 
 - **Several roles per staff member.** `staff_member_roles` links a person to
   every role they hold; permissions are the union. `users.staff_role_id`
@@ -236,10 +242,6 @@ when `main` is pushed.**
   console as `bizence.role@gmail.com`. Probe: `accounts:sendVerificationCode`
   with the Android API key for a real number should answer
   `MISSING_CLIENT_IDENTIFIER`, not `BILLING_NOT_ENABLED`.
-- **Pushing to GitHub from the Mac** needs the `inspirobuild-netizen` token
-  (the Mac's own logins cannot push), pasted into a helper script because
-  the terminal's paste markers break git's password prompt. Giving
-  `uvais-kodix` write access to the repository would remove the need.
 - **Groq is on the free tier**: 8,000 tokens a minute and 1,000 requests a
   day per model. That is roughly two or three AI doubts a minute. Enough for
   today's use (three doubts in sixteen days); move to the Dev tier before
@@ -276,6 +278,12 @@ when `main` is pushed.**
 
 ## Gotchas worth not relearning
 
+- **Pushing from the Mac needs no token.** Since 20 Nov the Mac's GitHub
+  login `uvais-kodix` is a collaborator with write access, so plain
+  `git push origin main` works. The Mac's other GitHub logins still cannot
+  push here. Before that, every push needed an owner token pasted into a
+  helper, because the terminal panel's paste markers break git's password
+  prompt.
 - Inside drizzle `.select()`, `${users.id}` in a raw `sql` subquery renders
   unqualified `"id"` and silently binds to the inner table — use
   `sql.raw('"users"."id"')`.
