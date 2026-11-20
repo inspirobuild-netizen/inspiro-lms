@@ -46,6 +46,11 @@ services:
       - '8000'
     environment:
       ENVIRONMENT: production
+      # Doubts run on their own model: knowledge to early 2025 against
+      # mid-2024, and a Groq rate limit separate from the daily digest. If it
+      # fails, the AI service retries the doubt on GROQ_MODEL.
+      GROQ_DOUBT_MODEL: qwen/qwen3.8-27b
+      GROQ_DOUBT_KNOWLEDGE_CUTOFF: early 2025
     env_file:
       - .env.production
     healthcheck:

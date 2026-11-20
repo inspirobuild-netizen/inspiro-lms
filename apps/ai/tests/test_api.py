@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 GOOD_QUESTION = {
@@ -67,6 +69,127 @@ def test_doubt_resolve_low_confidence_escalates(client, auth_headers, mock_groq)
 def test_doubt_validation_rejects_short_question(client, auth_headers):
     res = client.post("/ai/doubts/resolve", json={"question": "hi"}, headers=auth_headers)
     assert res.status_code == 422
+
+
+def test_doubt_prompt_states_the_date_and_the_knowledge_limit(client, auth_headers, mock_groq):
+    fake = mock_groq({"answer": "Article 14 guarantees equality before the law.", "confidence": 0.9, "sources": []})
+    res = client.post("/ai/doubts/resolve", json={"question": "What does Article 14 say?"}, headers=auth_headers)
+    assert res.status_code == 200
+    system = fake.calls[0][0]
+    assert re.search(r"Today is \d{1,2} [A-Z][a-z]+ 20\d\d\.", system)
+    assert "stops around mid-2024" in system
+    body = res.json()
+    assert body["may_be_outdated"] is False
+    assert body["escalate"] is False
+
+
+def test_doubt_flagged_by_the_model_goes_to_a_mentor(client, auth_headers, mock_groq):
+    answer = "As of mid-2024 it was Kerala; please confirm in Current Affairs."
+    mock_groq({"answer": answer, "confidence": 0.9, "sources": [], "may_be_outdated": True})
+    res = client.post(
+        "/ai/doubts/resolve",
+        json={"question": "Which state has the highest literacy rate?"},
+        headers=auth_headers,
+    )
+    body = res.json()
+    assert body["may_be_outdated"] is True
+    assert body["confidence"] == 0.5
+    assert body["escalate"] is True
+    assert body["answer"] == answer  # the model wrote its own caveat
+
+
+def test_time_sensitive_question_is_flagged_even_when_the_model_is_sure(client, auth_headers, mock_groq):
+    mock_groq({"answer": "Jagdeep Dhankhar.", "confidence": 0.95, "sources": [], "may_be_outdated": False})
+    res = client.post(
+        "/ai/doubts/resolve",
+        json={"question": "Who is the current Vice-President of India?"},
+        headers=auth_headers,
+    )
+    body = res.json()
+    assert body["may_be_outdated"] is True
+    assert body["escalate"] is True
+    assert body["confidence"] == 0.5
+    assert body["answer"].startswith("Jagdeep Dhankhar.")
+    assert "as of mid-2024" in body["answer"]
+
+
+def test_dated_current_affairs_context_settles_a_time_sensitive_question(client, auth_headers, mock_groq):
+    title = "Current affairs, 12 Sep 2025: C.P. Radhakrishnan sworn in as Vice-President"
+    fake = mock_groq({"answer": "C.P. Radhakrishnan.", "confidence": 0.97, "sources": [title], "may_be_outdated": False})
+    res = client.post(
+        "/ai/doubts/resolve",
+        json={
+            "question": "Who is the current Vice-President of India?",
+            "context": [{"source": title, "text": "C.P. Radhakrishnan took the oath on 12 September 2025."}],
+        },
+        headers=auth_headers,
+    )
+    body = res.json()
+    assert body["may_be_outdated"] is False
+    assert body["escalate"] is False
+    assert body["sources"] == [title]
+    assert f"[{title}]" in fake.calls[0][1]
+
+
+def test_sources_the_model_was_never_given_are_dropped(client, auth_headers, mock_groq):
+    mock_groq({"answer": "Article 280.", "confidence": 0.9, "sources": ["Wikipedia", "The Hindu (2022)"]})
+    res = client.post(
+        "/ai/doubts/resolve",
+        json={"question": "Which Article provides for the Finance Commission?"},
+        headers=auth_headers,
+    )
+    assert res.json()["sources"] == []
+
+
+def test_looks_time_sensitive():
+    from app.routers.doubts import looks_time_sensitive
+
+    for question in (
+        "Who is the current RBI Governor?",
+        "Who is the Chief Justice of India?",
+        "What changed in Union Budget 2026?",
+        "Up to what income is no income tax payable under the new tax regime?",
+        "What is the latest repo rate?",
+        "നിലവിലെ ഉപരാഷ്ട്രപതി ആരാണ്?",
+    ):
+        assert looks_time_sensitive(question), question
+    for question in (
+        "What is the basic structure doctrine?",
+        "Which committee recommended the three-tier Panchayati Raj system?",
+        "Who was the first President of India?",
+        "What is known as the Magna Carta of India?",
+        "Explain the Women's Reservation Act 2023.",
+    ):
+        assert not looks_time_sensitive(question), question
+
+
+def test_doubt_model_failure_falls_back_to_the_main_model(client, auth_headers, monkeypatch):
+    from app.config import Settings
+    from app.llm.groq_client import LlmError
+
+    class TwoModelGroq:
+        def __init__(self) -> None:
+            self.models: list[str | None] = []
+            self.systems: list[str] = []
+
+        async def chat_json(self, system: str, user: str, **kwargs) -> dict:
+            self.models.append(kwargs.get("model"))
+            self.systems.append(system)
+            if kwargs.get("model") == "test/doubt-model":
+                raise LlmError("model retired")
+            return {"answer": "Article 14 guarantees equality before the law.", "confidence": 0.9, "sources": []}
+
+    fake = TwoModelGroq()
+    settings = Settings(groq_doubt_model="test/doubt-model", groq_doubt_knowledge_cutoff="early 2025")
+    monkeypatch.setattr("app.routers.doubts.get_groq", lambda: fake)
+    monkeypatch.setattr("app.routers.doubts.get_settings", lambda: settings)
+
+    res = client.post("/ai/doubts/resolve", json={"question": "What does Article 14 say?"}, headers=auth_headers)
+    assert res.status_code == 200
+    assert fake.models == ["test/doubt-model", None]
+    # Each model is told its own knowledge limit.
+    assert "stops around early 2025" in fake.systems[0]
+    assert "stops around mid-2024" in fake.systems[1]
 
 
 def test_exam_generate(client, auth_headers, mock_groq):

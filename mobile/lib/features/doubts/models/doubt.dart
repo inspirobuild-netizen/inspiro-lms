@@ -10,6 +10,10 @@ class Doubt {
   final DateTime createdAt;
   final DateTime? resolvedAt;
 
+  /// Set by the server only on the reply to sending a doubt, when something
+  /// needs saying: today's AI answers were used up, so it went to a mentor.
+  final String? notice;
+
   const Doubt({
     required this.id,
     required this.subject,
@@ -21,6 +25,7 @@ class Doubt {
     required this.status,
     required this.createdAt,
     this.resolvedAt,
+    this.notice,
   });
 
   factory Doubt.fromJson(Map<String, dynamic> json) => Doubt(
@@ -36,6 +41,7 @@ class Doubt {
         resolvedAt: json['resolvedAt'] != null
             ? DateTime.parse(json['resolvedAt'] as String)
             : null,
+        notice: json['notice'] as String?,
       );
 
   bool get hasAnswer => aiAnswer != null || humanAnswer != null;

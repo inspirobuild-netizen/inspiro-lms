@@ -19,6 +19,18 @@ class Settings(BaseSettings):
     # everything here depends on JSON mode.
     groq_model: str = "openai/gpt-oss-20b"
     groq_base_url: str = "https://api.groq.com/openai/v1"
+    # Roughly where groq_model's knowledge ends. The doubt tutor is told this,
+    # and tells the student when an answer may have changed since.
+    groq_knowledge_cutoff: str = "mid-2024"
+    # Doubts can run on their own model (empty = groq_model). Groq's limits are
+    # per model, so a student's doubt then does not queue behind the daily
+    # current-affairs run; and a fresher model gives fewer answers that were
+    # true two years ago. In Nov 2026 qwen/qwen3.8-27b named the RBI Governor
+    # and the CEC appointed since 2024 and got 8/8 fixed UPSC facts, where
+    # gpt-oss-20b got 5/8 and failed JSON once. If this model fails, the doubt
+    # is retried on groq_model.
+    groq_doubt_model: str = ""
+    groq_doubt_knowledge_cutoff: str = ""
 
     # Embeddings — any OpenAI-compatible /embeddings endpoint.
     # Default: Jina (cheapest stable provider). Swap providers by changing

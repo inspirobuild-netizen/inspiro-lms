@@ -20,7 +20,18 @@ final myDoubtsProvider = FutureProvider.autoDispose<List<Doubt>>((ref) async {
 class DoubtOptions {
   final bool aiEnabled;
   final bool studentChoice;
-  const DoubtOptions({required this.aiEnabled, required this.studentChoice});
+
+  /// The academy's daily cap on AI answers for one student, and how many this
+  /// student has left today. Null against an API that does not send them yet.
+  final int? dailyLimit;
+  final int? aiLeftToday;
+
+  const DoubtOptions({
+    required this.aiEnabled,
+    required this.studentChoice,
+    this.dailyLimit,
+    this.aiLeftToday,
+  });
 
   /// Mentor-only is the safe reading when the server cannot be reached: it is
   /// the route that always works.
@@ -34,6 +45,8 @@ final doubtOptionsProvider = FutureProvider<DoubtOptions>((ref) async {
     return DoubtOptions(
       aiEnabled: d['aiDoubtsEnabled'] as bool? ?? false,
       studentChoice: d['aiDoubtsStudentChoice'] as bool? ?? false,
+      dailyLimit: (d['aiDoubtsDailyLimit'] as num?)?.toInt(),
+      aiLeftToday: (d['aiAnswersLeftToday'] as num?)?.toInt(),
     );
   } catch (_) {
     return DoubtOptions.fallback;
@@ -51,6 +64,8 @@ final askDoubtProvider = Provider<
         data: {'subject': subject, 'body': body, 'requestedRoute': route},
       );
       ref.invalidate(myDoubtsProvider);
+      // An AI answer uses one of today's; refresh what the picker shows.
+      ref.invalidate(doubtOptionsProvider);
       return Doubt.fromJson(res.data!['data'] as Map<String, dynamic>);
     };
   },

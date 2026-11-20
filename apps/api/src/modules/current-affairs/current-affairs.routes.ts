@@ -93,7 +93,7 @@ export default async function currentAffairsRoutes(app: FastifyInstance) {
       config: { rateLimit: { max: 4, timeWindow: '1 hour' } },
     },
     async (_req, reply) => {
-      const result = await ingestCurrentAffairs();
+      const result = await ingestCurrentAffairs({ trigger: 'manual' });
       return reply.send({ success: true, data: result });
     },
   );

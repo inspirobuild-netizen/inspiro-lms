@@ -28,9 +28,11 @@ class FakeGroq:
     def __init__(self, response: dict):
         self.response = response
         self.calls: list[tuple[str, str]] = []
+        self.models: list[str | None] = []
 
     async def chat_json(self, system: str, user: str, **kwargs) -> dict:
         self.calls.append((system, user))
+        self.models.append(kwargs.get("model"))
         return self.response
 
 

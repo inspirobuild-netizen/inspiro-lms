@@ -4,6 +4,8 @@ import { contentChunks, courses, currentAffairs } from '../../../drizzle/schema.
 import { aiEnabled, aiSummarizeArticle } from '../../lib/ai-client.js';
 import { embedChunk } from '../rag/rag.service.js';
 import { logger } from '../../lib/logger.js';
+import { redis } from '../../lib/redis.js';
+import { startOfIstDay } from '../../lib/ist.js';
 
 function err(msg: string, statusCode: number, code: string) {
   return Object.assign(new Error(msg), { statusCode, code });
@@ -154,16 +156,38 @@ async function fetchFeed(url: string): Promise<FeedItem[]> {
   }
 }
 
-/**
- * Daily ingestion: fetch RSS feeds, AI-summarize new articles, store with
- * a quiz question. Skips articles already ingested (title match, last 7 days).
- */
-export async function ingestCurrentAffairs(): Promise<{ ingested: number; skipped: number }> {
-  if (!aiEnabled()) {
-    logger.warn('Current-affairs ingestion skipped — AI service not configured');
-    return { ingested: 0, skipped: 0 };
-  }
+// ── Run record ───────────────────────────────────────────────────────────────
+// What the last run did, kept where it outlives the process. On 18–20 Nov 2026
+// three morning runs produced nothing; the only trace was in container logs
+// that went with the next deploy, so the cause could not be established.
+const LAST_RUN_KEY = 'ca:lastRun';
+const RUN_LOCK_KEY = 'ca:running';
 
+export interface IngestionRun {
+  at: string;
+  trigger: 'schedule' | 'manual';
+  ok: boolean;
+  ingested: number;
+  skipped: number;
+  /** Items the feeds returned; 0 means the feeds themselves gave nothing. */
+  feedItems: number;
+  error?: string;
+}
+
+async function recordRun(run: IngestionRun): Promise<void> {
+  await redis.set(LAST_RUN_KEY, JSON.stringify(run), 'EX', 60 * 60 * 24 * 30).catch(() => {});
+}
+
+/** Articles stored since midnight IST. */
+export async function addedToday(): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(currentAffairs)
+    .where(gte(currentAffairs.publishedAt, startOfIstDay()));
+  return Number(row?.value ?? 0);
+}
+
+async function runIngestion(max: number): Promise<{ ingested: number; skipped: number; feedItems: number }> {
   const feedUrls = (process.env['CA_RSS_FEEDS'] ?? '')
     .split(',')
     .map((s) => s.trim())
@@ -183,9 +207,16 @@ export async function ingestCurrentAffairs(): Promise<{ ingested: number; skippe
 
   let ingested = 0;
   let skipped = 0;
+  let failuresInARow = 0;
 
   for (const item of items) {
-    if (ingested >= MAX_ARTICLES_PER_RUN) break;
+    if (ingested >= max) break;
+    // The AI is down or rate-limited: every further article would fail the
+    // same slow way. Stop; the next hourly run picks up from here.
+    if (failuresInARow >= 3) {
+      logger.warn({ ingested, skipped }, 'Current-affairs ingestion stopped early — AI unavailable');
+      break;
+    }
     const title = item.title.slice(0, 500);
     if (seen.has(title)) {
       skipped++;
@@ -212,6 +243,7 @@ export async function ingestCurrentAffairs(): Promise<{ ingested: number; skippe
       }).returning({ id: currentAffairs.id });
       seen.add(title);
       ingested++;
+      failuresInARow = 0;
 
       // Make it findable by the doubt resolver immediately (best-effort)
       if (inserted) {
@@ -225,11 +257,97 @@ export async function ingestCurrentAffairs(): Promise<{ ingested: number; skippe
     } catch (err) {
       logger.error({ err, title }, 'Failed to summarize article');
       skipped++;
+      failuresInARow++;
     }
   }
 
-  logger.info({ ingested, skipped }, 'Current-affairs ingestion complete');
-  return { ingested, skipped };
+  return { ingested, skipped, feedItems: items.length };
+}
+
+/**
+ * One ingestion run: fetch RSS feeds, AI-summarize up to [max] new articles,
+ * store each with a quiz question. Skips articles already ingested (title
+ * match, last 7 days). Runs never overlap, and each records its outcome.
+ */
+export async function ingestCurrentAffairs(
+  opts: { max?: number; trigger?: 'schedule' | 'manual' } = {},
+): Promise<{ ingested: number; skipped: number }> {
+  if (!aiEnabled()) {
+    logger.warn('Current-affairs ingestion skipped — AI service not configured');
+    return { ingested: 0, skipped: 0 };
+  }
+  const trigger = opts.trigger ?? 'manual';
+
+  // A run that meets a struggling AI can take many minutes; a second one
+  // started meanwhile would store the same articles twice.
+  const locked = await redis.set(RUN_LOCK_KEY, '1', 'EX', 30 * 60, 'NX');
+  if (locked !== 'OK') {
+    logger.info('Current-affairs ingestion already running — not starting another');
+    return { ingested: 0, skipped: 0 };
+  }
+
+  try {
+    const r = await runIngestion(opts.max ?? MAX_ARTICLES_PER_RUN);
+    logger.info({ ...r, trigger }, 'Current-affairs ingestion complete');
+    await recordRun({ at: new Date().toISOString(), trigger, ok: true, ...r });
+    return { ingested: r.ingested, skipped: r.skipped };
+  } catch (err) {
+    await recordRun({
+      at: new Date().toISOString(),
+      trigger,
+      ok: false,
+      ingested: 0,
+      skipped: 0,
+      feedItems: 0,
+      error: (err instanceof Error ? err.message : String(err)).slice(0, 300),
+    });
+    throw err;
+  } finally {
+    await redis.del(RUN_LOCK_KEY).catch(() => {});
+  }
+}
+
+/**
+ * The scheduled entry point, safe to call every hour: it tops the day up to
+ * the daily number and does nothing once today's articles are in. A failed or
+ * missed morning run is then made up an hour later, where it used to leave
+ * the feed standing still until the next morning.
+ *
+ * The first query is retried: at 6 AM nothing has touched the database for
+ * hours, and a connection that takes longer than the pool allows to open
+ * would otherwise end the run before it began.
+ */
+export async function ingestCurrentAffairsIfDue(): Promise<{ due: boolean; ingested: number; skipped: number }> {
+  let have = 0;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      have = await addedToday();
+      break;
+    } catch (err) {
+      if (attempt >= 3) throw err;
+      logger.warn({ err, attempt }, 'Current-affairs: database not ready, retrying');
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+  }
+  if (have >= MAX_ARTICLES_PER_RUN) return { due: false, ingested: 0, skipped: 0 };
+  const r = await ingestCurrentAffairs({ max: MAX_ARTICLES_PER_RUN - have, trigger: 'schedule' });
+  return { due: true, ...r };
+}
+
+/** For the admin Content page: is the daily feed alive, and what did the last run do? */
+export async function getIngestionStatus() {
+  const [raw, today, [newest]] = await Promise.all([
+    redis.get(LAST_RUN_KEY).catch(() => null),
+    addedToday(),
+    db.select({ at: currentAffairs.publishedAt }).from(currentAffairs).orderBy(desc(currentAffairs.publishedAt)).limit(1),
+  ]);
+  let lastRun: IngestionRun | null = null;
+  try {
+    lastRun = raw ? (JSON.parse(raw) as IngestionRun) : null;
+  } catch {
+    lastRun = null;
+  }
+  return { lastRun, addedToday: today, dailyTarget: MAX_ARTICLES_PER_RUN, newestAt: newest?.at ?? null };
 }
 
 export async function listCurrentAffairs(input: {
@@ -291,5 +409,6 @@ export async function getContentCoverage() {
   return {
     courses: courseRows.map((c) => ({ id: c.id, title: c.title, hasContentChunk: chunked.has(c.id) })),
     currentAffairs: { total: totalCurrentAffairs, indexed: chunkedCurrentAffairs },
+    ingestion: await getIngestionStatus(),
   };
 }

@@ -23,6 +23,10 @@ class ResolveDoubtResponse(BaseModel):
     confidence: float = Field(ge=0, le=1)
     escalate: bool = Field(description="True when a human mentor should review")
     sources: list[str] = Field(default_factory=list)
+    may_be_outdated: bool = Field(
+        default=False,
+        description="The answer rests on facts that can change and no dated context settled them",
+    )
 
 
 # ── Exam Generator ─────────────────────────────────────────────────────────────

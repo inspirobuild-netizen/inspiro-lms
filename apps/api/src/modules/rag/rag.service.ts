@@ -1,4 +1,4 @@
-import { cosineDistance, eq, isNotNull, sql } from 'drizzle-orm';
+import { cosineDistance, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { db } from '../../lib/db.js';
 import {
   contentChunks,
@@ -121,14 +121,24 @@ export async function embedChunk(chunk: ChunkInput): Promise<void> {
   }
 }
 
+export interface FoundChunk {
+  source: string;
+  text: string;
+  similarity: number;
+  sourceType: string;
+  /** When a current-affairs item was published; null for course material. */
+  publishedAt: Date | null;
+}
+
 /**
  * Semantic search over indexed content. Returns [] when embeddings are
  * unavailable so callers can fall back to keyword retrieval.
+ *
+ * `news` adds that many of the closest current-affairs items on top of the k
+ * overall matches. Course text usually out-scores a news item on the same
+ * topic, and then a question about something recent never met the news at all.
  */
-export async function searchChunks(
-  query: string,
-  k = 5,
-): Promise<{ source: string; text: string; similarity: number }[]> {
+export async function searchChunks(query: string, k = 5, opts: { news?: number } = {}): Promise<FoundChunk[]> {
   if (!aiEnabled()) return [];
 
   let vector: number[];
@@ -141,18 +151,48 @@ export async function searchChunks(
   }
 
   const similarity = sql<number>`1 - (${cosineDistance(contentChunks.embedding, vector)})`;
-  const rows = await db
-    .select({
-      title: contentChunks.title,
-      content: contentChunks.content,
-      similarity,
-    })
-    .from(contentChunks)
-    .orderBy((t) => sql`${t.similarity} DESC`)
-    .limit(k);
+  const fields = {
+    id: contentChunks.id,
+    sourceType: contentChunks.sourceType,
+    sourceId: contentChunks.sourceId,
+    title: contentChunks.title,
+    content: contentChunks.content,
+    similarity,
+  };
+  const [overall, news] = await Promise.all([
+    db.select(fields).from(contentChunks).orderBy((t) => sql`${t.similarity} DESC`).limit(k),
+    opts.news
+      ? db
+          .select(fields)
+          .from(contentChunks)
+          .where(eq(contentChunks.sourceType, 'current_affair'))
+          .orderBy((t) => sql`${t.similarity} DESC`)
+          .limit(opts.news)
+      : Promise.resolve([]),
+  ]);
 
   // Drop weak matches — grounding on noise is worse than no grounding
-  return rows
-    .filter((r) => Number(r.similarity) >= 0.35)
-    .map((r) => ({ source: r.title, text: r.content, similarity: Number(r.similarity) }));
+  const seen = new Set<string>();
+  const rows = [...overall, ...news].filter((r) => {
+    if (Number(r.similarity) < 0.35 || seen.has(r.id)) return false;
+    seen.add(r.id);
+    return true;
+  });
+
+  const newsIds = rows.filter((r) => r.sourceType === 'current_affair').map((r) => r.sourceId);
+  const dated = newsIds.length
+    ? await db
+        .select({ id: currentAffairs.id, publishedAt: currentAffairs.publishedAt })
+        .from(currentAffairs)
+        .where(inArray(currentAffairs.id, newsIds))
+    : [];
+  const publishedAt = new Map(dated.map((d) => [d.id, d.publishedAt]));
+
+  return rows.map((r) => ({
+    source: r.title,
+    text: r.content,
+    similarity: Number(r.similarity),
+    sourceType: r.sourceType,
+    publishedAt: r.sourceType === 'current_affair' ? (publishedAt.get(r.sourceId) ?? null) : null,
+  }));
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createApiClient, ApiError } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth';
@@ -291,15 +291,17 @@ function AiDoubtModeCard() {
 
   const q = useQuery({
     queryKey: ['admin', 'settings'],
-    queryFn: () => api.get<{ aiDoubtsEnabled: boolean; aiDoubtsStudentChoice: boolean }>('/api/v1/admin/settings'),
+    queryFn: () => api.get<{ aiDoubtsEnabled: boolean; aiDoubtsStudentChoice: boolean; aiDoubtsDailyLimit: number }>('/api/v1/admin/settings'),
     enabled: !!accessToken && isAdmin,
   });
 
   const save = useMutation({
-    mutationFn: (vars: { key: string; value: boolean }) => api.patch('/api/v1/admin/settings', vars),
+    mutationFn: (vars: { key: string; value: boolean | number }) => api.patch('/api/v1/admin/settings', vars),
     onSuccess: (_d, vars) => {
       toast(
-        vars.key === 'aiDoubtsEnabled'
+        vars.key === 'aiDoubtsDailyLimit'
+          ? `Each student now gets up to ${vars.value} AI answers a day`
+          : vars.key === 'aiDoubtsEnabled'
           ? vars.value
             ? 'AI answering is on — students who choose it get an instant answer'
             : 'AI answering is off — every doubt now goes to a mentor'
@@ -360,9 +362,50 @@ function AiDoubtModeCard() {
             hint="Shows AI and mentor as options in the app. Off means mentor only, with no choice."
             value={s.aiDoubtsStudentChoice}
           />
+          <DailyLimitRow
+            value={s.aiDoubtsDailyLimit}
+            saving={save.isPending}
+            onSave={(value) => save.mutate({ key: 'aiDoubtsDailyLimit', value })}
+          />
         </div>
       )}
     </div>
   );
 }
 
+
+/**
+ * How many AI answers one student may get in a day. Past it, the student's
+ * doubts are not refused: they go to a mentor. The count starts again at
+ * midnight.
+ */
+function DailyLimitRow({ value, saving, onSave }: { value: number; saving: boolean; onSave: (value: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const n = Number(draft);
+  const valid = draft !== '' && Number.isInteger(n) && n >= 1 && n <= 100;
+
+  return (
+    <div className="flex items-start justify-between gap-4 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-slate-200">AI answers per student per day</p>
+        <p className="text-xs text-slate-500 mt-0.5">
+          After this many AI answers in a day, a student&apos;s further doubts go to a mentor. Resets at midnight.
+        </p>
+        {!valid && <p className="text-xs text-amber-400 mt-1">Enter a number from 1 to 100.</p>}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <input
+          value={draft}
+          inputMode="numeric"
+          aria-label="AI answers per student per day"
+          onChange={(e) => setDraft(e.target.value.replace(/\D/g, '').slice(0, 3))}
+          className="h-9 w-16 rounded-lg border border-white/10 bg-surface-2 px-2 text-center text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-violet"
+        />
+        <Button size="sm" variant="outline" disabled={!valid || n === value || saving} onClick={() => onSave(n)}>
+          Save
+        </Button>
+      </div>
+    </div>
+  );
+}

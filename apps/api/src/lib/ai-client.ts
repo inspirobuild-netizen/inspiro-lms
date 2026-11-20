@@ -19,6 +19,9 @@ export interface AiDoubtResult {
   confidence: number;
   escalate: boolean;
   sources: string[];
+  /** The answer rests on facts that can change and no dated context settled
+   *  them; the AI service already lowers confidence so a mentor confirms it. */
+  may_be_outdated?: boolean;
 }
 
 export interface AiGeneratedQuestion {

@@ -55,9 +55,10 @@ class GroqClient:
         temperature: float = 0.3,
         json_mode: bool = False,
         max_tokens: int = 4096,
+        model: str | None = None,
     ) -> str:
         payload: dict[str, Any] = {
-            "model": self._model,
+            "model": model or self._model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},

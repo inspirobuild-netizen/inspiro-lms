@@ -85,12 +85,15 @@ await app.register(import('./modules/audit/audit.routes.js'), { prefix: '/api/v1
 if (process.env['NODE_ENV'] !== 'test') {
   // node-cron is CommonJS — use the default (module.exports) for reliable ESM interop.
   const { default: cron } = await import('node-cron');
-  const { ingestCurrentAffairs } = await import('./modules/current-affairs/current-affairs.service.js');
-  // Daily current-affairs digest at 6 AM IST
+  const { ingestCurrentAffairsIfDue } = await import('./modules/current-affairs/current-affairs.service.js');
+  // Daily current-affairs digest: first at 6 AM IST, then checked every hour
+  // until 10 PM. The job does nothing once today's articles are in, so the
+  // hourly checks only matter when the morning run failed or the API was
+  // restarting at the time.
   cron.schedule(
-    '0 6 * * *',
+    '0 6-22 * * *',
     () => {
-      ingestCurrentAffairs().catch((err) =>
+      ingestCurrentAffairsIfDue().catch((err) =>
         logger.error({ err }, 'Scheduled current-affairs ingestion failed'),
       );
     },

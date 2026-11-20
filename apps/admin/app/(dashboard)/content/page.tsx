@@ -20,10 +20,26 @@ type CurrentAffair = {
   sourceUrl: string | null;
   publishedAt: string;
 };
+type IngestionRun = {
+  at: string; trigger: 'schedule' | 'manual'; ok: boolean;
+  ingested: number; skipped: number; feedItems: number; error?: string;
+};
 type Coverage = {
   courses: { id: string; title: string; hasContentChunk: boolean }[];
   currentAffairs: { total: number; indexed: number };
+  // Absent from an API older than the hourly fetch.
+  ingestion?: { lastRun: IngestionRun | null; addedToday: number; dailyTarget: number; newestAt: string | null };
 };
+
+const when = (iso: string) =>
+  new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+
+/** What the last fetch did, in a line. */
+function describeRun(run: IngestionRun): string {
+  if (!run.ok) return `Last fetch ${when(run.at)} failed: ${run.error ?? 'unknown error'}`;
+  if (run.feedItems === 0) return `Last fetch ${when(run.at)}: the news feeds returned nothing`;
+  return `Last fetch ${when(run.at)}: ${run.ingested} added`;
+}
 
 export default function ContentPage() {
   const { accessToken } = useAuthStore();
@@ -108,7 +124,7 @@ export default function ContentPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="rounded-2xl border border-white/8 bg-surface-1 p-5">
           <p className="text-sm text-slate-400">Course content indexed</p>
           <p className="font-display font-bold text-2xl text-slate-100 mt-1">{coverageQ.isLoading ? '…' : `${coveredCourses}/${totalCourses}`}</p>
@@ -122,6 +138,23 @@ export default function ContentPage() {
             {coverageQ.isLoading ? '…' : `${cov?.currentAffairs.indexed ?? 0}/${cov?.currentAffairs.total ?? 0}`}
           </p>
         </div>
+        {cov?.ingestion && (() => {
+          const ing = cov.ingestion;
+          // More than 30 hours without a new article means a morning was missed.
+          const stale = !ing.newestAt || Date.now() - new Date(ing.newestAt).getTime() > 30 * 60 * 60 * 1000;
+          return (
+            <div className={`rounded-2xl border bg-surface-1 p-5 ${stale ? 'border-amber-500/40' : 'border-white/8'}`}>
+              <p className="text-sm text-slate-400">Daily fetch</p>
+              <p className="font-display font-bold text-2xl text-slate-100 mt-1">{ing.addedToday}/{ing.dailyTarget} today</p>
+              {ing.lastRun && <p className="text-xs text-slate-500 mt-1">{describeRun(ing.lastRun)}</p>}
+              {stale && (
+                <p className="text-xs text-amber-400 mt-1">
+                  No new articles since {ing.newestAt ? when(ing.newestAt) : 'the start'}. It retries every hour from 6 AM to 10 PM — or use Fetch new articles now.
+                </p>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       <DataTable columns={columns} data={data?.data ?? []} loading={isLoading} getKey={(c) => c.id} emptyMessage="No current-affairs items yet — use Fetch new articles" />

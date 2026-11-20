@@ -48,8 +48,17 @@ class _DoubtChatScreenState extends ConsumerState<DoubtChatScreen> {
     _controller.clear();
 
     try {
-      await ref.read(askDoubtProvider)(subject: _subject, body: text, route: _route);
+      final sent = await ref.read(askDoubtProvider)(subject: _subject, body: text, route: _route);
       _scrollToBottom();
+      // The doubt went through, but not the way the student asked: say why.
+      if (sent.notice != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF1E2445),
+            content: Text(sent.notice!, style: const TextStyle(color: Colors.white)),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -452,6 +461,16 @@ class _RoutePicker extends ConsumerWidget {
   final ValueChanged<String> onChanged;
   const _RoutePicker({required this.selected, required this.onChanged});
 
+  /// What "Ask AI" offers right now. The academy caps AI answers per day; past
+  /// the cap a doubt still goes through, to a mentor.
+  static String _aiHint(DoubtOptions opts) {
+    final left = opts.aiLeftToday;
+    final limit = opts.dailyLimit;
+    if (left == null || limit == null) return 'Answer right away';
+    if (left <= 0) return 'Used up today · goes to a mentor';
+    return '$left of $limit left today';
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final opts = ref.watch(doubtOptionsProvider).asData?.value;
@@ -501,7 +520,7 @@ class _RoutePicker extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
       child: Row(
         children: [
-          option('ai', Icons.auto_awesome, 'Ask AI', 'Answer right away'),
+          option('ai', Icons.auto_awesome, 'Ask AI', _aiHint(opts)),
           const SizedBox(width: 8),
           option('mentor', Icons.person_outline, 'Ask a mentor', 'A teacher replies'),
         ],
